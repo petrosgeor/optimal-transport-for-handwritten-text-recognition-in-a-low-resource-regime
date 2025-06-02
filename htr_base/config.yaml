@@ -21,6 +21,8 @@ arch:
   rnn_hidden_size: 256
   flattening: 'maxpool'
   stn: False
+  projector_input_dim: 512   # input dimension for the Projector module
+  projector_output_dim: 256  # output dimension for the Projector module
 
 # training
 train:
