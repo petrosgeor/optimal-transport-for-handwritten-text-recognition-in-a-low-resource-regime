@@ -1,5 +1,12 @@
-# Ignore data and saved models directories
-htr_base/data/
+# Ignore everything in htr_base/data except htr_base/data/GW/
+htr_base/data/*
+!htr_base/data/GW/
+!htr_base/data/GW/**
+
+# Explicitly ignore IAM directory even if the above covers it (redundant but safe)
+htr_base/data/IAM/
+
+# Ignore saved models directory
 htr_base/saved_models/
 
 # Ignore all __pycache__ directories
@@ -11,4 +18,6 @@ __pycache__/
 
 # Ignore all JSON files
 *.json
+
+# Ignore all Shell scripts
 *.sh
