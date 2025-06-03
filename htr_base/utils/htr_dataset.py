@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset
 from os.path import isfile
 from skimage.transform import resize
-from utils.preprocessing import load_image, preprocess
+from .preprocessing import load_image, preprocess
 from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance

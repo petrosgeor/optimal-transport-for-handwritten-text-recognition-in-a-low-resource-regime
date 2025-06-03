@@ -8,14 +8,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
-from utils.htr_dataset import HTRDataset
+from .utils.htr_dataset import HTRDataset
 
-from models import HTRNet
-from utils.transforms import aug_transforms
+from .models import HTRNet
+from .utils.transforms import aug_transforms
 
 import torch.nn.functional as F
 
-from utils.metrics import CER, WER
+from .utils.metrics import CER, WER
 
 class HTRTrainer(nn.Module):
     def __init__(self, config):

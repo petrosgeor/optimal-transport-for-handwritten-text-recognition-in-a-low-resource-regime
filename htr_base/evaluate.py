@@ -8,10 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from utils.htr_dataset import HTRDataset
+from .utils.htr_dataset import HTRDataset
 
-from models import HTRNet
-from utils.metrics import CER, WER
+from .models import HTRNet
+from .utils.metrics import CER, WER
 
 class HTREval(nn.Module):
     def __init__(self, config):

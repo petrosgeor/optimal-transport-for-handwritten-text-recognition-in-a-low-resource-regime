@@ -8,8 +8,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from models import HTRNet
-from utils.preprocessing import load_image, preprocess
+from .models import HTRNet
+from .utils.preprocessing import load_image, preprocess
 
 
 class HTREval(nn.Module):
