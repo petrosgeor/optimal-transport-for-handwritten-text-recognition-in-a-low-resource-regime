@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
 
 
@@ -31,9 +32,11 @@ class ProjectionLoss(torch.nn.Module):
         Scalar OT loss (differentiable w.r.t. `descriptors`).
     """
 
-    def __init__(self, reg: float = 0.1, **sinkhorn_kwargs):
+    def __init__(self, reg: float = 0.1, *, unbalanced: bool = False, reg_m: float = 1.0, **sinkhorn_kwargs):
         super().__init__()
         self.reg = reg
+        self.unbalanced = unbalanced
+        self.reg_m = reg_m
         self.sinkhorn_kwargs = sinkhorn_kwargs
 
     def forward(
@@ -43,13 +46,45 @@ class ProjectionLoss(torch.nn.Module):
         aligned: torch.Tensor,
         tgt_probs: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO: 1) build the cost matrix  C  (e.g. squared Euclidean distances)
-        #       2) define source/target marginals  a  and  b
-        #       3) call  ot.sinkhorn2(a, b, C, reg=self.reg, **self.sinkhorn_kwargs)
-        #       4) optionally add supervised alignment terms
-        #
-        # For now we only lay out the API; we'll implement the body next.
-        raise NotImplementedError(
-            "ProjectionLoss forward pass not yet implemented — "
-            "let’s fill this in together!"
-        )
+        # create uniform source distribution
+        n = descriptors.shape[0]
+        a = torch.full((n,), 1.0 / n, dtype=descriptors.dtype, device=descriptors.device)
+
+        # target distribution
+        if not self.unbalanced:
+            b = tgt_probs / tgt_probs.sum()
+        else:
+            b = tgt_probs
+
+        # cost matrix between descriptors and word embeddings (euclidean distance)
+        C = torch.cdist(descriptors, word_embeddings, p=2)
+
+        # compute OT loss depending on balanced/unbalanced mode
+        if self.unbalanced:
+            ot_loss = ot.unbalanced.sinkhorn_unbalanced2(
+                a,
+                b,
+                C,
+                reg=self.reg,
+                reg_m=self.reg_m,
+                **self.sinkhorn_kwargs,
+            )
+        else:
+            ot_loss = ot.sinkhorn2(
+                a,
+                b,
+                C,
+                reg=self.reg,
+                **self.sinkhorn_kwargs,
+            )
+
+        # compute supervised alignment loss when alignments are provided
+        aligned_indices = torch.where(aligned != -1)[0]
+        if aligned_indices.numel() == 0:
+            distance_loss = torch.tensor(0.0, device=descriptors.device, dtype=descriptors.dtype)
+        else:
+            aligned_descriptors = descriptors[aligned_indices]
+            corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
+            distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
+
+        return ot_loss + distance_loss
