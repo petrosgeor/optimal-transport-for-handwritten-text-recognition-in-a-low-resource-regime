@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
 
 
@@ -41,12 +42,12 @@ class ProjectionLoss(torch.nn.Module):
         Scalar loss = OT loss + supervised alignment loss.
     """
 
-    def __init__(self, *, reg: float = 0.1, unbalanced: bool = False, **sinkhorn_kwargs):
+    def __init__(self, reg: float = 0.1, *, unbalanced: bool = False, reg_m: float = 1.0, **sinkhorn_kwargs):
         super().__init__()
         self.reg = reg
         self.unbalanced = unbalanced
-        # we keep kwargs mutable copy so we can safely pop items
-        self.sinkhorn_kwargs = dict(sinkhorn_kwargs)
+        self.reg_m = reg_m
+        self.sinkhorn_kwargs = sinkhorn_kwargs
 
     def forward(
         self,
@@ -55,63 +56,45 @@ class ProjectionLoss(torch.nn.Module):
         aligned: torch.Tensor,
         tgt_probs: torch.Tensor,
     ) -> torch.Tensor:
-        """Compute the OT loss plus supervised alignment loss."""
-        if descriptors.ndim != 2 or word_embeddings.ndim != 2:
-            raise ValueError("descriptors and word_embeddings must be 2‑D tensors")
+        # create uniform source distribution
+        n = descriptors.shape[0]
+        a = torch.full((n,), 1.0 / n, dtype=descriptors.dtype, device=descriptors.device)
 
-        device = descriptors.device
-        dtype = descriptors.dtype
-
-        n, _ = descriptors.shape
-        m, _ = word_embeddings.shape
-
-        # --- source & target marginals -------------------------------------------------
-        src_probs = torch.full((n,), 1.0 / n, device=device, dtype=dtype)  # uniform
-
-        if self.unbalanced:
-            # keep original target probs (can be unnormalised)
-            b = tgt_probs.to(device=device, dtype=dtype)
+        # target distribution
+        if not self.unbalanced:
+            b = tgt_probs / tgt_probs.sum()
         else:
-            # balanced OT requires histograms to sum to 1
-            if tgt_probs.sum() <= 0:
-                raise ValueError("tgt_probs must have positive mass")
-            b = (tgt_probs / tgt_probs.sum()).to(device=device, dtype=dtype)
+            b = tgt_probs
 
-        # --- cost matrix ---------------------------------------------------------------
-        # Euclidean distance between every descriptor and every word embedding
-        C = torch.cdist(descriptors, word_embeddings, p=2)  # shape (n, m)
+        # cost matrix between descriptors and word embeddings (euclidean distance)
+        C = torch.cdist(descriptors, word_embeddings, p=2)
 
-        # --- OT loss -------------------------------------------------------------------
+        # compute OT loss depending on balanced/unbalanced mode
         if self.unbalanced:
-            # sinkhorn_kwargs may contain reg_m; if not provided use reg
-            kwargs = dict(self.sinkhorn_kwargs)  # copy
-            reg_m = kwargs.pop("reg_m", self.reg)
             ot_loss = ot.unbalanced.sinkhorn_unbalanced2(
-                src_probs, b, C, self.reg, reg_m, **kwargs
+                a,
+                b,
+                C,
+                reg=self.reg,
+                reg_m=self.reg_m,
+                **self.sinkhorn_kwargs,
             )
         else:
-            ot_loss = ot.sinkhorn2(src_probs, b, C, self.reg, **self.sinkhorn_kwargs)
+            ot_loss = ot.sinkhorn2(
+                a,
+                b,
+                C,
+                reg=self.reg,
+                **self.sinkhorn_kwargs,
+            )
 
-        # sinkhorn2 returns cost or (cost, log) depending on `log`
-        if isinstance(ot_loss, tuple):
-            ot_loss = ot_loss[0]
-
-        # ensure scalar tensor
-        if not torch.is_tensor(ot_loss):
-            ot_loss = torch.tensor(ot_loss, device=device, dtype=dtype)
-
-        # --- supervised alignment loss -------------------------------------------------
-        aligned_indices = torch.where(aligned != -1)[0]  # N_aligned
-
-        if aligned_indices.numel() > 0:
+        # compute supervised alignment loss when alignments are provided
+        aligned_indices = torch.where(aligned != -1)[0]
+        if aligned_indices.numel() == 0:
+            distance_loss = torch.tensor(0.0, device=descriptors.device, dtype=descriptors.dtype)
+        else:
             aligned_descriptors = descriptors[aligned_indices]
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
-            distance_loss = torch.nn.functional.mse_loss(
-                aligned_descriptors, corresp_word_embeddings
-            )
-        else:
-            distance_loss = torch.tensor(0.0, device=device, dtype=dtype)
+            distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
 
         return ot_loss + distance_loss
-
-
