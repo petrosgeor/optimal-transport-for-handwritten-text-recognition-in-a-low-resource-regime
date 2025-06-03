@@ -71,22 +71,9 @@ class ProjectionLoss(torch.nn.Module):
 
         # compute OT loss depending on balanced/unbalanced mode
         if self.unbalanced:
-            ot_loss = ot.unbalanced.sinkhorn_unbalanced2(
-                a,
-                b,
-                C,
-                reg=self.reg,
-                reg_m=self.reg_m,
-                **self.sinkhorn_kwargs,
-            )
+            ot_loss = ot.unbalanced.sinkhorn_unbalanced2(a, b, C, reg=self.reg, reg_m=self.reg_m, **self.sinkhorn_kwargs)
         else:
-            ot_loss = ot.sinkhorn2(
-                a,
-                b,
-                C,
-                reg=self.reg,
-                **self.sinkhorn_kwargs,
-            )
+            ot_loss = ot.sinkhorn2(a, b, C, reg=self.reg, **self.sinkhorn_kwargs)
 
         # compute supervised alignment loss when alignments are provided
         aligned_indices = torch.where(aligned != -1)[0]
