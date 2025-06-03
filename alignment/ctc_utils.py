@@ -5,7 +5,7 @@ from typing import List, Dict, Tuple
 def encode_for_ctc(
     transcriptions: List[str],
     c2i: Dict[str, int],
-    device: torch.device | None = None
+    device: torch.device = None
 ) -> Tuple[torch.IntTensor, torch.IntTensor]:
     """
     Convert a batch of raw string transcriptions to the (targets, lengths)
