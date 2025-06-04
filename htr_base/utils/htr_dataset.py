@@ -38,18 +38,19 @@ class HTRDataset(Dataset):
                 data += [(os.path.join(basefolder, subset, img_path + '.png'), transcr)]
         self.data = data
         # Load images into memory and store transcriptions
-        imgs = []
+        # imgs = []
         transcrs = []
         for img_path, transcr in self.data:
-            img = load_image(img_path)
-            img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
-            img = torch.tensor(img).float().unsqueeze(0)
-            imgs.append(img)
             transcrs.append(transcr)
-        if len(imgs) > 0:
-            self.images = torch.stack(imgs)
-        else:
-            self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
+            # img = load_image(img_path)
+            # img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
+            # img = torch.tensor(img).float().unsqueeze(0)
+            # imgs.append(img)
+            
+        # if len(imgs) > 0:
+        #     self.images = torch.stack(imgs)
+        # else:
+        #     self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
         self.transcriptions = transcrs
         # External vocabulary and probabilities
         self.external_words = []

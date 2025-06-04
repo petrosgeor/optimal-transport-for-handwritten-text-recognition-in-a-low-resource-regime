@@ -1,3 +1,8 @@
+import os
+
+# Disable automatic update checks from albumentations to avoid noisy warnings
+os.environ.setdefault("NO_ALBUMENTATIONS_UPDATE", "1")
+
 import albumentations as A
 
 # albumentations transforms for text augmentation
@@ -12,7 +17,9 @@ aug_transforms = A.Compose([
     # distortions
     A.OneOf([
         A.GridDistortion(distort_limit=(-.1, .1), p=0.5),
-        A.ElasticTransform(alpha=60, sigma=20, alpha_affine=0.5, p=0.5),
+        # "alpha_affine" is not a valid argument in Albumentations 1.x
+        # so we drop it to avoid warnings while keeping the elastic effect.
+        A.ElasticTransform(alpha=60, sigma=20, p=0.5),
     ], p=0.5),
 
     # erosion & dilation

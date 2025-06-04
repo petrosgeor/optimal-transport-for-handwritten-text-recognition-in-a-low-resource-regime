@@ -168,7 +168,7 @@ def refine_visual_backbone(
             loss_aux  = _ctc_loss_fn(aux_logits,  targets, inp_lens, tgt_lens)
             loss = main_weight * loss_main + aux_weight * loss_aux
 
-            optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad()
             loss.backward(); optimizer.step()
 
             epoch_loss += loss.item(); effective_batches += 1
@@ -195,10 +195,10 @@ if not gw_folder.exists():
 
 class DummyCfg:
     k_external_words = 200
-    n_aligned = 1000
+    n_aligned = 300
 
 train_set = HTRDataset(
-    str(gw_folder), subset="train", fixed_size=(128, 256),
+    str(gw_folder), subset="train", fixed_size=(64, 256),
     transforms=aug_transforms, config=DummyCfg(),
 )
 
@@ -206,15 +206,13 @@ train_set = HTRDataset(
 
 c2i, _ = _build_vocab_dicts(train_set)
 
-# arch_cfg = SimpleNamespace(
-#     cnn_cfg=[[2, 64], "M", [3, 128], "M", [2, 256]],
-#     head_type="both", rnn_type="gru", rnn_layers=3,
-#     rnn_hidden_size=256, flattening="maxpool", stn=False, feat_dim=None,
-# )
-# net = HTRNet(arch_cfg, nclasses=len(c2i) + 1)  # chars + blank
-# net.to('cuda')
+arch_cfg = SimpleNamespace(
+    cnn_cfg=[[2, 64], "M", [3, 128], "M", [2, 256]],
+    head_type="both", rnn_type="gru", rnn_layers=3,
+    rnn_hidden_size=256, flattening="maxpool", stn=False, feat_dim=None,
+)
+net = HTRNet(arch_cfg, nclasses=len(c2i) + 1)  # chars + blank
+net.to('cuda')
 
 
-# refine_visual_backbone(
-#     train_set, net, num_epochs=100, batch_size=256, lr=1e-3,
-# )
+refine_visual_backbone(train_set, net, num_epochs=200, batch_size=256, lr=1e-3,)
