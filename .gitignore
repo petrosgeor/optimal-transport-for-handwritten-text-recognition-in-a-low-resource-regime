@@ -8,6 +8,7 @@ htr_base/data/IAM/
 
 # Ignore saved models directory
 htr_base/saved_models/
+instructions.txt
 
 # Ignore all __pycache__ directories
 __pycache__/
@@ -15,6 +16,7 @@ __pycache__/
 
 # Ignore all Markdown files
 *.md
+*.xml
 
 # Ignore all JSON files
 *.json
