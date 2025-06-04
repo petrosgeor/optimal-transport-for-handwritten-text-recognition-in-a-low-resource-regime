@@ -51,8 +51,13 @@ def _ctc_loss_fn(logits: torch.Tensor,
 
 def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                   device, show_max: int = 5) -> float:
-    """Compute CER over *loader* and print a few (gt, pred) pairs."""
+    """Compute CER over *loader* and print a few (gt, pred) pairs.
+
+    In addition to the global CER, compute per-word-length CERs and
+    display the relative proportion of each length in the dataset.
+    """
     model.eval(); cer = CER(); shown = 0
+    per_len: Dict[int, Tuple[CER, int]] = {}
     with torch.no_grad():
         for imgs, transcrs, _ in loader:
             imgs = imgs.to(device)
@@ -62,9 +67,22 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
             preds = greedy_ctc_decode(logits, i2c)
             for p, t in zip(preds, transcrs):
                 if shown < show_max:
-                    print(f"GT: '{t.strip()}'\nPR: '{p.strip()}'\n"); shown += 1
+                    print(f"GT: '{t.strip()}'\nPR: '{p.strip()}'\n")
+                    shown += 1
                 cer.update(p.strip(), t.strip())
-    model.train(); return cer.score()
+                l = len(t.replace(" ", ""))
+                if l not in per_len:
+                    per_len[l] = (CER(), 0)
+                per_len[l][0].update(p.strip(), t.strip())
+                per_len[l] = (per_len[l][0], per_len[l][1] + 1)
+    model.train()
+
+    total = sum(v[1] for v in per_len.values()) or 1
+    for l in sorted(per_len):
+        pct = 100 * per_len[l][1] / total
+        print(f"[Eval] len={l:2d} ({pct:5.2f}%): CER={per_len[l][0].score():.4f}")
+
+    return cer.score()
 
 
 def refine_visual_model(dataset: HTRDataset,
@@ -74,13 +92,15 @@ def refine_visual_model(dataset: HTRDataset,
                         lr: float = 1e-4,
                         main_weight: float = 1.0,
                         aux_weight: float = 0.1,
-                        length_mode: str = "short") -> None:
-    """Fine-tune *backbone* on subsets of ground truth words by length."""
-    if length_mode not in {"short", "long"}:
-        raise ValueError("length_mode must be 'short' or 'long'")
+                        max_length: int = 4) -> None:
+    """Fine-tune *backbone* on a subset of ground-truth words.
+
+    Only words whose length (ignoring spaces) is ``<= max_length`` are used
+    for training. At most ``n_aligned`` such words are randomly selected.
+    """
 
     device = next(backbone.parameters()).device
-    print(f"[Refine] mode={length_mode} epochs={num_epochs} batch={batch_size} lr={lr}")
+    print(f"[Refine] max_len={max_length} epochs={num_epochs} batch={batch_size} lr={lr}")
 
     # Build vocabulary
     c2i, i2c = _build_vocab_dicts(dataset)
@@ -100,10 +120,8 @@ def refine_visual_model(dataset: HTRDataset,
 
     # Pre-compute indices by length and build a fixed subset
     transcrs = [t.strip() for t in dataset.transcriptions]
-    if length_mode == "short":
-        valid_idx = [i for i, t in enumerate(transcrs) if len(t.replace(" ", "")) <= 4]
-    else:
-        valid_idx = [i for i, t in enumerate(transcrs) if len(t.replace(" ", "")) > 4]
+    valid_idx = [i for i, t in enumerate(transcrs)
+                 if len(t.replace(" ", "")) <= max_length]
 
     subset_idx = random.sample(valid_idx, k=min(n_aligned, len(valid_idx)))
     subset_ds = Subset(dataset, subset_idx)
@@ -151,8 +169,8 @@ if __name__ == "__main__":
         raise RuntimeError("GW processed dataset not found – generate it first!")
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("--length-mode", choices=["short", "long"], default="short",
-                    help="Use words of length <=4 ('short') or >4 ('long')")
+    ap.add_argument("--max-length", type=int, default=4,
+                    help="Train only on words of length <= this value")
     ap.add_argument("--n-aligned", type=int, default=500, help="Training sample size")
     args = ap.parse_args()
 
@@ -173,4 +191,4 @@ if __name__ == "__main__":
     net.to("cuda")
 
     refine_visual_model(train_set, net, num_epochs=600, batch_size=128,
-                        lr=1e-3, length_mode=args.length_mode)
+                        lr=1e-3, max_length=args.max_length)
