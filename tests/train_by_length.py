@@ -17,6 +17,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader, Subset
+import matplotlib.pyplot as plt
+from collections import Counter
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -27,6 +29,68 @@ from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
 from htr_base.utils.transforms import aug_transforms
 from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
+
+
+
+def save_char_histogram_png(
+    strings: List[str],
+    output_dir: str = "tests/figures",
+    filename: str = "long.png"
+) -> None:
+    """
+    Build a histogram of all characters (a–z, 0–9, and space) appearing in the
+    given list of strings, plot it using matplotlib, and save as a PNG in tests/figures.
+
+    Parameters
+    ----------
+    strings : List[str]
+        List of input strings to count characters from.
+    output_dir : str
+        Directory where the PNG will be written. Defaults to "tests/figures".
+    filename : str
+        Name of the output PNG file. Defaults to "char_histogram.png".
+    """
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Initialize histogram with all keys set to 0
+    keys = [chr(c) for c in range(ord('a'), ord('z') + 1)] + \
+           [str(d) for d in range(10)] + \
+           [' ']
+    histogram = {k: 0 for k in keys}
+
+    # Count only valid characters (lowercased for letters)
+    counter = Counter()
+    for s in strings:
+        for ch in s:
+            if ch.isalpha():
+                ch_lower = ch.lower()
+                if 'a' <= ch_lower <= 'z':
+                    counter[ch_lower] += 1
+            elif ch.isdigit():
+                counter[ch] += 1
+            elif ch == ' ':
+                counter[' '] += 1
+            # ignore all other characters
+
+    # Fill histogram with counts (zero for missing keys)
+    counts = [int(counter.get(k, 0)) for k in keys]
+
+    # Plot bar chart
+    plt.figure(figsize=(12, 6))
+    plt.bar(keys, counts)
+    plt.xlabel("Character")
+    plt.ylabel("Count")
+    plt.title("Character Frequency Histogram")
+    plt.xticks(rotation=45)  # Rotate labels to improve readability (space will appear blank)
+    plt.tight_layout()
+
+    # Save figure
+    output_path = os.path.join(output_dir, filename)
+    plt.savefig(output_path)
+    plt.close()
+
+    print(f"Character histogram PNG saved to: {output_path}")
 
 
 def _build_vocab_dicts(ds: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
@@ -114,7 +178,7 @@ def refine_visual_model(dataset: HTRDataset,
 
     # Optimiser & scheduler
     opt = optim.AdamW(backbone.parameters(), lr=lr, weight_decay=1e-4)
-    sched = lr_scheduler.StepLR(opt, step_size=100, gamma=0.5)
+    sched = lr_scheduler.StepLR(opt, step_size=150, gamma=0.5)
 
     n_aligned = getattr(dataset.config, "n_aligned", len(dataset))
 

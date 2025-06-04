@@ -150,7 +150,7 @@ if __name__ == "__main__":
 
     class DummyCfg:
         k_external_words = 200   # top‑200 most frequent English words
-        n_aligned = 1000          # how many lines to mark as aligned (≈ training signal)
+        n_aligned = 1000          # how many images to mark as aligned (≈ training signal)
 
     dataset = HTRDataset(
         str(gw_folder),
@@ -160,7 +160,6 @@ if __name__ == "__main__":
         config=DummyCfg(),
     )
 
-    # ── 2. Minimal network able to run – small for CI speed ────────────────
     arch_cfg = SimpleNamespace(
         cnn_cfg=[[2, 64], 'M', [3, 128], 'M', [2, 256]],
         head_type="both",          # produces (main_logits, aux_logits)
@@ -180,7 +179,7 @@ if __name__ == "__main__":
     refine_visual_backbone(
         dataset,
         net,
-        num_epochs=100,      # just to smoke‑test the loop
+        num_epochs=100,      
         batch_size=128,
         lr=1e-4,
     )

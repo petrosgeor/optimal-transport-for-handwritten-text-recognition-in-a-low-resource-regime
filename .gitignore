@@ -10,6 +10,8 @@ htr_base/data/IAM/
 htr_base/saved_models/
 instructions.txt
 
+tests/figures/
+
 # Ignore all __pycache__ directories
 __pycache__/
 **/__pycache__/
