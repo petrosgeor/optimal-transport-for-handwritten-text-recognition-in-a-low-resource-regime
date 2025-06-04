@@ -16,10 +16,10 @@ aug_transforms = A.Compose([
     ], p=0.5),
 
     # erosion & dilation
-    # A.OneOf([
-    #     A.Morphological(p=0.5, scale=3, operation='dilation'),
-    #     A.Morphological(p=0.5, scale=3, operation='erosion'),
-    # ], p=0.5),
+    A.OneOf([
+        A.Morphological(p=0.5, scale=3, operation='dilation'),
+        A.Morphological(p=0.5, scale=3, operation='erosion'),
+    ], p=0.5),
 
     # color invertion - negative
     #A.InvertImg(p=0.5),

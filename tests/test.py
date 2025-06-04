@@ -60,7 +60,7 @@ def _ctc_loss_fn(
         targets,
         inp_lens,
         tgt_lens,
-        reduction="mean",
+        reduction="sum",
         zero_infinity=True,
     )
 
@@ -155,10 +155,12 @@ def refine_visual_backbone(
             ext_words = [f' {dataset.external_words[i]} ' for i in ids]  # no blanks!
 
             main_logits, aux_logits = backbone(imgs_sel, return_feats=False)[:2]
-            print(main_logits.shape)
+            # print(main_logits.shape)
             T, K, _ = main_logits.shape
 
             targets, tgt_lens = encode_for_ctc(ext_words, c2i, device='cpu')
+            # print(targets)
+            # print(tgt_lens)
             inp_lens = torch.full((K,), T, dtype=torch.int32, device='cpu')
 
             # print(main_logits.device, targets.device, inp_lens.device, tgt_lens.device)
@@ -214,5 +216,5 @@ c2i, _ = _build_vocab_dicts(train_set)
 
 
 # refine_visual_backbone(
-#     train_set, net, num_epochs=100, batch_size=256, lr=1e-4,
+#     train_set, net, num_epochs=100, batch_size=256, lr=1e-3,
 # )
