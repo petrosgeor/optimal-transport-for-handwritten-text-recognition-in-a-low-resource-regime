@@ -70,7 +70,6 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 def refine_visual_model(dataset: HTRDataset,
                         backbone: HTRNet,
                         num_epochs: int,
-                        *,
                         batch_size: int = 128,
                         lr: float = 1e-4,
                         main_weight: float = 1.0,
@@ -136,7 +135,7 @@ def refine_visual_model(dataset: HTRDataset,
         avg_loss = epoch_loss / max(1, effective_batches)
         print(f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e}")
 
-        if epoch % 5 == 0 or epoch == num_epochs:
+        if (epoch + 1) % 20 == 0 or epoch == num_epochs:
             cer = _evaluate_cer(backbone, test_loader, i2c, device)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
 
@@ -173,5 +172,5 @@ if __name__ == "__main__":
     net = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
     net.to("cuda")
 
-    refine_visual_model(train_set, net, num_epochs=400, batch_size=128,
+    refine_visual_model(train_set, net, num_epochs=600, batch_size=128,
                         lr=1e-3, length_mode=args.length_mode)

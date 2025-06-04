@@ -142,7 +142,10 @@ def refine_visual_backbone(dataset: HTRDataset,
             loss_a = _ctc_loss_fn(aux_logits,  targets, inp_lens, tgt_lens)
             loss = main_weight * loss_m + aux_weight * loss_a
 
-            opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
+            loss.backward() 
+            opt.step()
+            opt.zero_grad()
+
             epoch_loss += loss.item(); effective_batches += 1
 
         sched.step()
