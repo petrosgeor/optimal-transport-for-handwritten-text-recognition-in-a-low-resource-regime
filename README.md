@@ -73,6 +73,11 @@ def greedy_ctc_decode(logits, i2c, blank_id=0, time_first=True):
 
 Returns a list of decoded strings, one for each element in the batch.
 
+## train_by_length.py
+
+`tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset.
+
+
 
 ## Requirements
 
