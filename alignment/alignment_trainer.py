@@ -6,17 +6,20 @@ from pathlib import Path
 from typing import Dict, Tuple, List
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from htr_base.utils.htr_dataset import HTRDataset
-from htr_base.models import HTRNet
+from htr_base.models import HTRNet, Projector
+from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
+
 
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
@@ -131,9 +134,117 @@ def refine_visual_backbone(
 
     print("[Refine] finished.")
 
-# --------------------------------------------------------------------------- #
-#                               Dummy quick test                              #
-# --------------------------------------------------------------------------- #
+
+
+
+
+def train_projector(  # pylint: disable=too-many-arguments
+    dataset: "HTRDataset",
+    backbone: "HTRNet",
+    projector: nn.Module,
+    num_epochs: int = 150,
+    batch_size: int = 512,
+    lr: float = 1e-4,
+    num_workers: int = 0,
+    weight_decay: float = 1e-4,
+    device: torch.device | str = "cuda",
+) -> None:
+    """Freeze *backbone*, collect image descriptors → train *projector* with OT loss.
+
+    • Uses **only** samples where ``aligned != -1``.
+    • ``ProjectionLoss`` signature: ``(descriptors, word_embs, aligned_idx, tgt_probs)``.
+      Here we pass **global** ``word_embs`` (the entire external vocabulary) once per batch
+      and a *uniform* target probability vector unless the dataset provides
+      ``external_word_probs``.
+    """
+
+    # ---------------------------------------------------------------- setup
+    device = torch.device(device)
+    backbone = backbone.to(device).eval()          # freeze visual encoder
+    projector = projector.to(device).train()       # learnable mapping
+
+    word_embs_cpu = dataset.external_word_embeddings  # (V, E)
+    if word_embs_cpu is None:
+        raise RuntimeError("dataset.external_word_embeddings is required")
+
+    # target probability for each external word – use uniform if absent
+    if hasattr(dataset, "external_word_probs") and dataset.external_word_probs is not None:
+        word_probs_cpu = dataset.external_word_probs.float()
+    else:
+        v = word_embs_cpu.size(0)
+        word_probs_cpu = torch.full((v,), 1.0 / v)
+
+    word_embs = word_embs_cpu.to(device)
+    word_probs = word_probs_cpu.to(device)
+
+    # ---------------------------------------------------------------- 1. Harvest one (feat, aligned_idx) pair per sample
+    feats_buf, align_buf = [], []
+    harvest_loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    with torch.no_grad():
+        for imgs, _txt, aligned in harvest_loader:
+            mask = aligned >= 0
+            if not mask.any():
+                continue
+
+            imgs = imgs[mask].to(device)
+            feats = backbone(imgs)[-1]  # last output is (B, feat_dim)
+            assert feats.dim() == 2, "Expected (B, feat_dim) from backbone"
+
+            feats_buf.append(feats.cpu())
+            align_buf.append(aligned[mask].cpu())
+
+    if not feats_buf:
+        raise RuntimeError("No aligned samples found – cannot train projector")
+
+    feats_all = torch.cat(feats_buf, dim=0)    # (N, D)
+    aligned_all = torch.cat(align_buf, dim=0)  # (N,)
+
+    # ---------------------------------------------------------------- 2. Loader for projector training only (on CPU → transfer each batch)
+    proj_loader = DataLoader(
+        TensorDataset(feats_all, aligned_all),
+        batch_size=batch_size,
+        shuffle=True,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    # ---------------------------------------------------------------- 3. Optimiser + loss
+    criterion = ProjectionLoss().to(device)
+    optimiser = optim.AdamW(projector.parameters(), lr=lr, weight_decay=weight_decay)
+
+    # ---------------------------------------------------------------- 4. Training loop
+    for epoch in range(1, num_epochs + 1):
+        running = 0.0
+        for feats_cpu, align_cpu in proj_loader:
+            feats = feats_cpu.to(device)
+            align = align_cpu.to(device)
+
+            pred = projector(feats)                       # (B, E)
+            loss = criterion(pred, word_embs, align, word_probs)  # scalar
+
+            optimiser.zero_grad(set_to_none=True)
+            loss.backward()
+            optimiser.step()
+
+            running += loss.item()
+
+        avg = running / len(proj_loader)
+        if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
+            print(f"[Projector] epoch {epoch:03}/{num_epochs}  loss={avg:.4f}")
+
+    print("[Projector] training complete ✔")
+
+
+
+
+
+
 
 if __name__ == "__main__":
     """Run a *tiny* end‑to‑end refinement cycle to verify code execution."""
