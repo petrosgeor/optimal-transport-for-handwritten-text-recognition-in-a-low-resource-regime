@@ -4,8 +4,8 @@ from types import SimpleNamespace # Added import
 # Define Hyperparameters Dictionary
 HP = {
     "gpu_id": "0",
-    "max_length": 30,
-    "min_length": 5,
+    "max_length": 4,
+    "min_length": 0,
     "eval_k": 4,
     "n_aligned": 500,
     "k_external_words": 200,

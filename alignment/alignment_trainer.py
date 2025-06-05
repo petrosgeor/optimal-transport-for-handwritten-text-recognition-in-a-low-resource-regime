@@ -1,30 +1,23 @@
-
 from __future__ import annotations
-
 import sys
 from pathlib import Path
 from typing import Dict, Tuple, List
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
 
-
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
 # --------------------------------------------------------------------------- #
-
 def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
     """Create <char→id> / <id→char> dicts leaving index 0 for the CTC blank."""
     chars: List[str] = list(dataset.character_classes)
@@ -34,7 +27,6 @@ def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, s
     c2i = {c: i + 1 for i, c in enumerate(chars)}
     i2c = {i + 1: c for i, c in enumerate(chars)}
     return c2i, i2c
-
 
 def _ctc_loss_fn(
     logits: torch.Tensor,
@@ -56,7 +48,6 @@ def _ctc_loss_fn(
 # --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #
 # --------------------------------------------------------------------------- #
-
 def refine_visual_backbone(
     dataset: HTRDataset,
     backbone: HTRNet,
@@ -69,13 +60,10 @@ def refine_visual_backbone(
 ) -> None:
     """Fine‑tune *backbone* only on words already aligned to external words."""
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
-
     device = next(backbone.parameters()).device
     backbone.train().to(device)
-
     # Build CTC mapping once.
     c2i, _ = _build_vocab_dicts(dataset)
-
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -83,60 +71,45 @@ def refine_visual_backbone(
         num_workers=0,            # keep CI simple
         pin_memory=(device.type == "cuda"),
     )
-
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
-
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
-
         for imgs, _, aligned in dataloader:  # we ignore the transcription string
             aligned_mask = aligned != -1
             if not aligned_mask.any():
                 # nothing to learn from this mini‑batch
                 continue
-
             # ── select only aligned items ────────────────────────────────
             sel_idx = aligned_mask.nonzero(as_tuple=True)[0]             # (K,)
             imgs_sel = imgs[sel_idx].to(device)                          # (K,1,H,W)
             aligned_ids = aligned[sel_idx].tolist()                     # List[int]
             ext_words = [dataset.external_words[i] for i in aligned_ids]
-
             # ── forward ─────────────────────────────────────────────────
             out = backbone(imgs_sel, return_feats=False)
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
             main_logits, aux_logits = out[:2]           # (T,K,C)
             T, K, _ = main_logits.shape
-
             # ── encode labels ───────────────────────────────────────────
             targets, tgt_lens = encode_for_ctc(ext_words, c2i, device=device)
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-
             # ── losses ─────────────────────────────────────────────────
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_aux  = _ctc_loss_fn(aux_logits,  targets, inp_lens, tgt_lens)
             loss = main_weight * loss_main + aux_weight * loss_aux
-
             # ── optimisation step ──────────────────────────────────────
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
-
             epoch_loss += loss.item()
             effective_batches += 1
-
         if effective_batches:
             avg_loss = epoch_loss / effective_batches
             print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
         else:
             print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
-
     print("[Refine] finished.")
-
-
-
-
 
 def train_projector(  # pylint: disable=too-many-arguments
     dataset: "HTRDataset",
@@ -149,16 +122,15 @@ def train_projector(  # pylint: disable=too-many-arguments
     weight_decay: float = 1e-4,
     device: torch.device | str = "cuda",
 ) -> None:
-    """Freeze *backbone*, collect image descriptors → train *projector* with OT loss.
+    """Freeze *backbone*, collect image descriptors -> train *projector* with OT loss.
 
-    • Uses **only** samples where ``aligned != -1``.
-    • ``ProjectionLoss`` signature: ``(descriptors, word_embs, aligned_idx, tgt_probs)``.
-      Here we pass **global** ``word_embs`` (the entire external vocabulary) once per batch
-      and a *uniform* target probability vector unless the dataset provides
-      ``external_word_probs``.
+    All images are first forwarded through `backbone` **without augmentation** so
+    that a descriptor is obtained for every sample. The descriptors together with
+    their `aligned` indices and `is_in_dict` flags are cached inside a temporary
+    :class:`torch.utils.data.TensorDataset`. The `projector` is then optimised
+    using :class:`ProjectionLoss` on this dataset.
     """
-
-    # ---------------------------------------------------------------- setup
+    # ---------------------------------------------------------------- setup
     device = torch.device(device)
     backbone = backbone.to(device).eval()          # freeze visual encoder
     projector = projector.to(device).train()       # learnable mapping
@@ -177,8 +149,15 @@ def train_projector(  # pylint: disable=too-many-arguments
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
 
-    # ---------------------------------------------------------------- 1. Harvest one (feat, aligned_idx) pair per sample
-    feats_buf, align_buf = [], []
+    # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
+    feats_buf, align_buf, dict_buf = [], [], []
+
+    subset_bak = dataset.subset
+    transforms_bak = dataset.transforms
+    if dataset.subset == "train":
+        dataset.subset = "eval"
+    dataset.transforms = None
+
     harvest_loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -187,62 +166,62 @@ def train_projector(  # pylint: disable=too-many-arguments
         pin_memory=(device.type == "cuda"),
     )
 
+    start = 0
     with torch.no_grad():
         for imgs, _txt, aligned in harvest_loader:
-            mask = aligned >= 0
-            if not mask.any():
-                continue
-
-            imgs = imgs[mask].to(device)
-            feats = backbone(imgs)[-1]  # last output is (B, feat_dim)
-            assert feats.dim() == 2, "Expected (B, feat_dim) from backbone"
-
+            imgs = imgs.to(device)
+            out = backbone(imgs)
+            feats = out[-1]
+            if feats.dim() != 2:
+                raise RuntimeError("Expected (B, feat_dim) descriptors")
+            end = start + imgs.size(0)
             feats_buf.append(feats.cpu())
-            align_buf.append(aligned[mask].cpu())
+            align_buf.append(aligned.cpu())
+            dict_buf.append(dataset.is_in_dict[start:end].clone())
+            start = end
+
+    dataset.subset = subset_bak
+    dataset.transforms = transforms_bak
 
     if not feats_buf:
-        raise RuntimeError("No aligned samples found – cannot train projector")
+        raise RuntimeError("Empty dataset – cannot train projector")
 
-    feats_all = torch.cat(feats_buf, dim=0)    # (N, D)
-    aligned_all = torch.cat(align_buf, dim=0)  # (N,)
+    feats_all = torch.cat(feats_buf, dim=0)
+    aligned_all = torch.cat(align_buf, dim=0)
+    dict_all = torch.cat(dict_buf, dim=0)
 
-    # ---------------------------------------------------------------- 2. Loader for projector training only (on CPU → transfer each batch)
+    # ---------------------------------------------------------------- 2. Loader for projector training only
     proj_loader = DataLoader(
-        TensorDataset(feats_all, aligned_all),
+        TensorDataset(feats_all, aligned_all, dict_all),
         batch_size=batch_size,
         shuffle=True,
         pin_memory=(device.type == "cuda"),
     )
 
-    # ---------------------------------------------------------------- 3. Optimiser + loss
+    # ---------------------------------------------------------------- 3. Optimiser + loss
     criterion = ProjectionLoss().to(device)
     optimiser = optim.AdamW(projector.parameters(), lr=lr, weight_decay=weight_decay)
 
-    # ---------------------------------------------------------------- 4. Training loop
+    # ---------------------------------------------------------------- 4. Training loop
     for epoch in range(1, num_epochs + 1):
         running = 0.0
-        for feats_cpu, align_cpu in proj_loader:
-            feats = feats_cpu.to(device)
-            align = align_cpu.to(device)
-
-            pred = projector(feats)                       # (B, E)
-            loss = criterion(pred, word_embs, align, word_probs)  # scalar
-
+        for feats_cpu, align_cpu, dict_cpu in proj_loader:
+            mask = dict_cpu.bool()
+            if not mask.any():
+                continue
+            feats = feats_cpu[mask].to(device)
+            align = align_cpu[mask].to(device)
+            pred = projector(feats)
+            loss = criterion(pred, word_embs, align, word_probs)
             optimiser.zero_grad(set_to_none=True)
             loss.backward()
             optimiser.step()
-
             running += loss.item()
-
-        avg = running / len(proj_loader)
+        avg = running / max(1, len(proj_loader))
         if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
             print(f"[Projector] epoch {epoch:03}/{num_epochs}  loss={avg:.4f}")
 
     print("[Projector] training complete ✔")
-
-
-
-
 
 
 
@@ -282,7 +261,6 @@ if __name__ == "__main__":
         feat_dim=None,
     )
 
-
     nclasses = len(dataset.character_classes) + 1  # +1 for CTC blank
     net = HTRNet(arch_cfg, nclasses)
 
@@ -290,7 +268,7 @@ if __name__ == "__main__":
     refine_visual_backbone(
         dataset,
         net,
-        num_epochs=100,      
+        num_epochs=100,
         batch_size=128,
         lr=1e-4,
     )
