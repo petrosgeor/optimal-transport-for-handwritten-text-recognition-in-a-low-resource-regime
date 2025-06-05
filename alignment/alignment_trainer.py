@@ -14,6 +14,7 @@ from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
+from alignment.losses import _ctc_loss_fn
 
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
@@ -28,22 +29,7 @@ def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, s
     i2c = {i + 1: c for i, c in enumerate(chars)}
     return c2i, i2c
 
-def _ctc_loss_fn(
-    logits: torch.Tensor,
-    targets: torch.IntTensor,
-    inp_lens: torch.IntTensor,
-    tgt_lens: torch.IntTensor,
-) -> torch.Tensor:
-    """A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*."""
-    log_probs = F.log_softmax(logits, dim=2)
-    return F.ctc_loss(
-        log_probs,
-        targets,
-        inp_lens,
-        tgt_lens,
-        reduction="mean",
-        zero_infinity=True,
-    )
+
 
 # --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #

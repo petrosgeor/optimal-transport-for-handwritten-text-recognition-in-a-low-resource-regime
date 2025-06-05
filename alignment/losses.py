@@ -3,6 +3,27 @@ import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
 
 
+
+def _ctc_loss_fn(
+    logits: torch.Tensor,
+    targets: torch.IntTensor,
+    inp_lens: torch.IntTensor,
+    tgt_lens: torch.IntTensor,
+) -> torch.Tensor:
+    """A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*."""
+    log_probs = F.log_softmax(logits, dim=2)
+    return F.ctc_loss(
+        log_probs,
+        targets,
+        inp_lens,
+        tgt_lens,
+        reduction="mean",
+        zero_infinity=True,
+    )
+
+
+
+
 class ProjectionLoss(torch.nn.Module):
     """
     Entropic‑regularised optimal‑transport projection loss with optional
