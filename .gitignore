@@ -16,8 +16,11 @@ tests/figures/
 __pycache__/
 **/__pycache__/
 
-# Ignore all Markdown files
+# Ignore all Markdown files EXCEPT README.md
 *.md
+!README.md
+
+# Ignore all XML files
 *.xml
 
 # Ignore all JSON files
