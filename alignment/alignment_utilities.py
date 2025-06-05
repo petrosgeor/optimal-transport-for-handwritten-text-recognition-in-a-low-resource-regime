@@ -95,7 +95,8 @@ def align_more_instances(
     batch_size : int, optional
         Mini-batch size used when harvesting descriptors.
     device : torch.device | str, optional
-        Device on which computation will take place.
+        Device on which post-processing will take place. Feature extraction is
+        always performed on GPU if available.
     reg : float, optional
         Entropic regularisation strength for Sinkhorn.
     unbalanced : bool, optional
@@ -135,21 +136,22 @@ def align_more_instances(
     orig_transforms = getattr(dataset, "transforms", None)
     dataset.transforms = None
 
+    feat_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=False,
         num_workers=0,
-        pin_memory=(torch.device(device).type == "cuda"),
+        pin_memory=(feat_device.type == "cuda"),
     )
 
-    backbone.eval().to(device)
-    projector.eval().to(device)
+    backbone.eval().to(feat_device)
+    projector.eval().to("cpu")
 
     feats_all = []
     with torch.no_grad():
         for imgs, _txt, _aligned in loader:
-            imgs = imgs.to(device)
+            imgs = imgs.to(feat_device)
             feat = backbone(imgs)[-1]
             feats_all.append(feat.cpu())
 
@@ -157,7 +159,7 @@ def align_more_instances(
         raise RuntimeError("Dataset yielded no images")
 
     feats = torch.cat(feats_all, dim=0)  # (N, D)
-    proj_feats = projector(feats.to(device)).cpu().detach()  # (N, E)
+    proj_feats = projector(feats).detach()  # (N, E)
 
     n = proj_feats.size(0)
     v = word_embs.size(0)
