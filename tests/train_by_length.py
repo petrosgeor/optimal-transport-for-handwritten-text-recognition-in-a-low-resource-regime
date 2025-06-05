@@ -6,6 +6,8 @@ from types import SimpleNamespace # Added import
 HP = {
     "gpu_id": "0",
     "max_length": 4,
+    "min_length": 0,
+    "eval_k": 4,
     "n_aligned": 500,
     "k_external_words": 200,
     "num_epochs": 600,
@@ -199,15 +201,22 @@ def refine_visual_model(dataset: HTRDataset,
                         lr: float = 1e-4,
                         main_weight: float = 1.0,
                         aux_weight: float = 0.1,
-                        max_length: int = 4) -> None:
+                        max_length: int = 4,
+                        min_length: int = 0,
+                        eval_k: int | None = None) -> None:
     """Fine-tune *backbone* on a subset of ground-truth words.
 
-    Only words whose length (ignoring spaces) is ``<= max_length`` are used
-    for training. At most ``n_aligned`` such words are randomly selected.
+    Only words whose length (ignoring spaces) lies in the inclusive range
+    ``[min_length, max_length]`` are used for training.  At most ``n_aligned``
+    such words are randomly selected.  ``eval_k`` controls the length
+    threshold used when computing CER during evaluation.
     """
 
     device = next(backbone.parameters()).device
-    print(f"[Refine] max_len={max_length} epochs={num_epochs} batch={batch_size} lr={lr}")
+    print(
+        f"[Refine] min_len={min_length} max_len={max_length} "
+        f"epochs={num_epochs} batch={batch_size} lr={lr}"
+    )
 
     # Build vocabulary
     c2i, i2c = _build_vocab_dicts(dataset)
@@ -227,8 +236,11 @@ def refine_visual_model(dataset: HTRDataset,
 
     # Pre-compute indices by length and build a fixed subset
     transcrs = [t.strip() for t in dataset.transcriptions]
-    valid_idx = [i for i, t in enumerate(transcrs)
-                 if len(t.replace(" ", "")) <= max_length]
+    valid_idx = [
+        i
+        for i, t in enumerate(transcrs)
+        if min_length <= len(t.replace(" ", "")) <= max_length
+    ]
 
     subset_idx = random.sample(valid_idx, k=min(n_aligned, len(valid_idx)))
     subset_ds = Subset(dataset, subset_idx)
@@ -261,8 +273,8 @@ def refine_visual_model(dataset: HTRDataset,
         print(f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e}")
 
         if (epoch + 1) % 20 == 0 or epoch == num_epochs:
-            # Pass k=max_length for evaluation, can be changed later if needed
-            cer = _evaluate_cer(backbone, test_loader, i2c, device, k=max_length)
+            k_eval = eval_k if eval_k is not None else max_length
+            cer = _evaluate_cer(backbone, test_loader, i2c, device, k=k_eval)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
 
     print("[Refine] finished.")
@@ -295,5 +307,7 @@ if __name__ == "__main__":
         lr=HP['learning_rate'],
         main_weight=HP['main_loss_weight'],
         aux_weight=HP['aux_loss_weight'],
-        max_length=HP['max_length']
+        max_length=HP['max_length'],
+        min_length=HP['min_length'],
+        eval_k=HP['eval_k']
     )
