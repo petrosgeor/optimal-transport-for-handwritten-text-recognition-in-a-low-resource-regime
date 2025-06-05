@@ -1,0 +1,1 @@
+Whenever you change any file in the directory (add, remove, rename, or modify classes, functions, or scripts), you must update the corresponding section in README.md in the same commit to reflect the change.

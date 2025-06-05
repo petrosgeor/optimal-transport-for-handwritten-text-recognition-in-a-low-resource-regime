@@ -19,6 +19,7 @@ __pycache__/
 # Ignore all Markdown files EXCEPT README.md
 *.md
 !README.md
+!AGENTS.md
 
 # Ignore all XML files
 *.xml
