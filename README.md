@@ -73,11 +73,69 @@ def greedy_ctc_decode(logits, i2c, blank_id=0, time_first=True):
 
 Returns a list of decoded strings, one for each element in the batch.
 
-## train_by_length.py
+## align\_more\_instances
+
+Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.
+
+```python
+def align_more_instances(dataset, backbone, projector, *, batch_size=512,
+                         device="cpu", reg=0.1, unbalanced=False, reg_m=1.0,
+                         sinkhorn_kwargs=None, k=0):
+    """Automatically align dataset images to external words using OT."""
+```
+
+* `dataset`: instance of `HTRDataset` providing images and `external_word_embeddings`.
+* `backbone`: `HTRNet` used to extract visual descriptors.
+* `projector`: projects descriptors to the embedding space.
+* `batch_size`: mini-batch size when harvesting descriptors.
+* `device`: computation device.
+* `reg`: entropic regularisation for Sinkhorn.
+* `unbalanced`: use unbalanced OT formulation.
+* `reg_m`: additional unbalanced regularisation parameter.
+* `sinkhorn_kwargs`: extra arguments for the Sinkhorn solver.
+* `k`: number of least-moved descriptors to pseudo-label.
+
+Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
+
+## refine\_visual\_backbone
+
+Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.
+
+```python
+def refine_visual_backbone(dataset, backbone, num_epochs, *, batch_size=128,
+                           lr=1e-4, main_weight=1.0, aux_weight=0.1):
+    """Fine‑tune *backbone* only on words already aligned to external words."""
+```
+
+* `dataset`: training dataset with alignment information.
+* `backbone`: network to refine.
+* `num_epochs`: number of optimisation epochs.
+* `batch_size`: mini-batch size.
+* `lr`: learning rate.
+* `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
+
+## train\_projector
+
+Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
+
+```python
+def train_projector(dataset, backbone, projector, num_epochs=150,
+                    batch_size=512, lr=1e-4, num_workers=0,
+                    weight_decay=1e-4, device="cuda"):
+    """Freeze *backbone*, collect image descriptors -> train *projector*."""
+```
+
+* `dataset`: dataset with `external_word_embeddings`.
+* `backbone`: frozen encoder producing descriptors.
+* `projector`: learnable mapping to the embedding space.
+* `num_epochs`, `batch_size`, `lr`: training hyperparameters.
+* `num_workers`: data loading workers during descriptor harvesting.
+* `weight_decay`: weight decay for the optimiser.
+* `device`: computation device for training.
+
+## train\_by\_length.py
 
 `tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset.
-
-
 
 ## Requirements
 
@@ -91,5 +149,3 @@ pip install -r requirements.txt
 
 This project is released under the MIT license.
 
-```
-```
