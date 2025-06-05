@@ -75,7 +75,7 @@ def align_more_instances(
     projector: Projector,
     *,
     batch_size: int = 512,
-    device: torch.device | str = "cpu",
+    device = "cpu",
     reg: float = 0.1,
     unbalanced: bool = False,
     reg_m: float = 1.0,

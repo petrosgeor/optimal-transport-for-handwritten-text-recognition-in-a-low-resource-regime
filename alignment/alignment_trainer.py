@@ -15,6 +15,29 @@ from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
+from alignment.alignment_utilities import align_more_instances
+
+# --------------------------------------------------------------------------- #
+#                           Hyperparameter defaults                            #
+# --------------------------------------------------------------------------- #
+# These constants centralise the most common tunable values so they can be
+# tweaked from a single place. Functions in this file use them as defaults but
+# also accept explicit keyword arguments.
+HP = {
+    "refine_batch_size": 128,     # mini-batch size for backbone refinement
+    "refine_lr": 1e-4,            # learning rate for backbone refinement
+    "refine_main_weight": 1.0,    # weight for the main CTC loss branch
+    "refine_aux_weight": 0.1,     # weight for the auxiliary CTC loss branch
+    "projector_epochs": 150,      # training epochs for the projector network
+    "projector_batch_size": 4000,  # mini-batch size for projector training
+    "projector_lr": 1e-4,         # learning rate for projector optimisation
+    "projector_workers": 1,       # dataloader workers when collecting features
+    "projector_weight_decay": 1e-4,  # weight decay for projector optimiser
+    "device": "cuda",             # default compute device
+    "alt_rounds": 4,              # number of backbone/projector cycles
+    "alt_backbone_epochs": 10,     # epochs for each backbone refinement phase
+    "alt_projector_epochs": 100,    # epochs for each projector training phase
+}
 
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
@@ -30,7 +53,6 @@ def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, s
     return c2i, i2c
 
 
-
 # --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #
 # --------------------------------------------------------------------------- #
@@ -39,10 +61,10 @@ def refine_visual_backbone(
     backbone: HTRNet,
     num_epochs: int,
     *,
-    batch_size: int = 128,
-    lr: float = 1e-4,
-    main_weight: float = 1.0,
-    aux_weight: float = 0.1,
+    batch_size: int = HP["refine_batch_size"],
+    lr: float = HP["refine_lr"],
+    main_weight: float = HP["refine_main_weight"],
+    aux_weight: float = HP["refine_aux_weight"],
 ) -> None:
     """Fine‑tune *backbone* only on words already aligned to external words."""
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
@@ -101,12 +123,12 @@ def train_projector(  # pylint: disable=too-many-arguments
     dataset: "HTRDataset",
     backbone: "HTRNet",
     projector: nn.Module,
-    num_epochs: int = 150,
-    batch_size: int = 512,
-    lr: float = 1e-4,
-    num_workers: int = 0,
-    weight_decay: float = 1e-4,
-    device: torch.device | str = "cuda",
+    num_epochs: int = HP["projector_epochs"],
+    batch_size: int = HP["projector_batch_size"],
+    lr: float = HP["projector_lr"],
+    num_workers: int = HP["projector_workers"],
+    weight_decay: float = HP["projector_weight_decay"],
+    device: torch.device | str = HP["device"],
 ) -> None:
     """Freeze *backbone*, collect image descriptors -> train *projector* with OT loss.
 
@@ -134,16 +156,13 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
-
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
     feats_buf, align_buf, dict_buf = [], [], []
-
     subset_bak = dataset.subset
     transforms_bak = dataset.transforms
     if dataset.subset == "train":
         dataset.subset = "eval"
     dataset.transforms = None
-
     harvest_loader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -151,7 +170,6 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers=num_workers,
         pin_memory=(device.type == "cuda"),
     )
-
     start = 0
     with torch.no_grad():
         for imgs, _txt, aligned in harvest_loader:
@@ -165,17 +183,13 @@ def train_projector(  # pylint: disable=too-many-arguments
             align_buf.append(aligned.cpu())
             dict_buf.append(dataset.is_in_dict[start:end].clone())
             start = end
-
     dataset.subset = subset_bak
     dataset.transforms = transforms_bak
-
     if not feats_buf:
         raise RuntimeError("Empty dataset – cannot train projector")
-
     feats_all = torch.cat(feats_buf, dim=0)
     aligned_all = torch.cat(align_buf, dim=0)
     dict_all = torch.cat(dict_buf, dim=0)
-
     # ---------------------------------------------------------------- 2. Loader for projector training only
     proj_loader = DataLoader(
         TensorDataset(feats_all, aligned_all, dict_all),
@@ -183,11 +197,9 @@ def train_projector(  # pylint: disable=too-many-arguments
         shuffle=True,
         pin_memory=(device.type == "cuda"),
     )
-
     # ---------------------------------------------------------------- 3. Optimiser + loss
     criterion = ProjectionLoss().to(device)
     optimiser = optim.AdamW(projector.parameters(), lr=lr, weight_decay=weight_decay)
-
     # ---------------------------------------------------------------- 4. Training loop
     for epoch in range(1, num_epochs + 1):
         running = 0.0
@@ -209,6 +221,66 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     print("[Projector] training complete ✔")
 
+
+def alternating_refinement(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    projector: nn.Module,
+    *,
+    rounds: int = HP["alt_rounds"],
+    backbone_epochs: int = HP["alt_backbone_epochs"],
+    projector_epochs: int = HP["alt_projector_epochs"],
+    refine_kwargs: dict | None = None,
+    projector_kwargs: dict | None = None,
+    align_kwargs: dict | None = None,
+) -> None:
+    """Alternately train ``backbone`` and ``projector`` with OT alignment."""
+
+    if refine_kwargs is None:
+        refine_kwargs = {}
+    if projector_kwargs is None:
+        projector_kwargs = {}
+    if align_kwargs is None:
+        align_kwargs = {}
+
+    for r in range(rounds):
+        print(f"[Cycle {r + 1}/{rounds}] Refining backbone...")
+        if backbone_epochs > 0:
+            refine_visual_backbone(
+                dataset,
+                backbone,
+                num_epochs=backbone_epochs,
+                **refine_kwargs,
+            )
+
+        for param in backbone.parameters():
+            param.requires_grad_(False)
+
+        print(f"[Cycle {r + 1}/{rounds}] Training projector...")
+        if projector_epochs > 0:
+            _probs_backup = None
+            if isinstance(getattr(dataset, "external_word_probs", None), list):
+                _probs_backup = dataset.external_word_probs
+                dataset.external_word_probs = torch.tensor(
+                    _probs_backup, dtype=torch.float
+                )
+
+            train_projector(
+                dataset,
+                backbone,
+                projector,
+                num_epochs=projector_epochs,
+                **projector_kwargs,
+            )
+
+            if _probs_backup is not None:
+                dataset.external_word_probs = _probs_backup
+
+        for param in backbone.parameters():
+            param.requires_grad_(True)
+
+        print(f"[Cycle {r + 1}/{rounds}] Aligning more instances...")
+        align_more_instances(dataset, backbone, projector, **align_kwargs)
 
 
 if __name__ == "__main__":
@@ -236,25 +308,3 @@ if __name__ == "__main__":
         config=DummyCfg(),
     )
 
-    arch_cfg = SimpleNamespace(
-        cnn_cfg=[[2, 64], 'M', [3, 128], 'M', [2, 256]],
-        head_type="both",          # produces (main_logits, aux_logits)
-        rnn_type="gru",
-        rnn_layers=2,
-        rnn_hidden_size=128,
-        flattening="maxpool",
-        stn=False,
-        feat_dim=None,
-    )
-
-    nclasses = len(dataset.character_classes) + 1  # +1 for CTC blank
-    net = HTRNet(arch_cfg, nclasses)
-
-    # ── 3. One quick refinement epoch ──────────────────────────────────────
-    refine_visual_backbone(
-        dataset,
-        net,
-        num_epochs=100,
-        batch_size=128,
-        lr=1e-4,
-    )
