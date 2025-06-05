@@ -160,6 +160,8 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
     num_le_k = 0
     num_gt_k = 0
     num_total = 0
+    chars_le_k = 0
+    chars_gt_k = 0
     with torch.no_grad():
         for imgs, transcrs, _ in loader:
             imgs = imgs.to(device)
@@ -183,9 +185,11 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 if transcription_len_no_spaces <= k:
                     cer_less_equal_k.update(pred_stripped, gt_stripped)
                     num_le_k += 1
+                    chars_le_k += transcription_len_no_spaces
                 else:
                     cer_greater_k.update(pred_stripped, gt_stripped)
                     num_gt_k += 1
+                    chars_gt_k += transcription_len_no_spaces
 
                 l = len(gt_stripped.replace(" ", ""))
                 if l not in per_len:
@@ -201,6 +205,12 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
         f"CER for transcriptions with length > {k}: {cer_greater_k.score():.4f} (n={num_gt_k})"
     )
     print(f"Overall CER: {cer_total.score():.4f} (n={num_total})\n")
+    print(
+        f"Total characters for length <= {k}: {chars_le_k}"
+    )
+    print(
+        f"Total characters for length > {k}: {chars_gt_k}\n"
+    )
 
     total = sum(v[1] for v in per_len.values()) or 1
     for l in sorted(per_len):
