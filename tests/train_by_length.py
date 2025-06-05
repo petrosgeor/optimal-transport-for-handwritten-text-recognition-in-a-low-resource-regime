@@ -114,13 +114,18 @@ def _ctc_loss_fn(logits: torch.Tensor,
 
 
 def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
-                  device, show_max: int = 5) -> float:
+                  device, k: int, show_max: int = 5) -> float:
     """Compute CER over *loader* and print a few (gt, pred) pairs.
 
     In addition to the global CER, compute per-word-length CERs and
     display the relative proportion of each length in the dataset.
+    Also, calculate and print CER for transcriptions with length <= k and > k.
     """
-    model.eval(); cer = CER(); shown = 0
+    model.eval()
+    cer_less_equal_k = CER()
+    cer_greater_k = CER()
+    cer_total = CER()
+    shown = 0
     per_len: Dict[int, Tuple[CER, int]] = {}
     with torch.no_grad():
         for imgs, transcrs, _ in loader:
@@ -133,20 +138,36 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 if shown < show_max:
                     print(f"GT: '{t.strip()}'\nPR: '{p.strip()}'\n")
                     shown += 1
-                cer.update(p.strip(), t.strip())
-                l = len(t.replace(" ", ""))
+
+                gt_stripped = t.strip()
+                pred_stripped = p.strip()
+
+                cer_total.update(pred_stripped, gt_stripped)
+
+                transcription_len_no_spaces = len(gt_stripped.replace(" ", ""))
+
+                if transcription_len_no_spaces <= k:
+                    cer_less_equal_k.update(pred_stripped, gt_stripped)
+                else:
+                    cer_greater_k.update(pred_stripped, gt_stripped)
+
+                l = len(gt_stripped.replace(" ", ""))
                 if l not in per_len:
                     per_len[l] = (CER(), 0)
-                per_len[l][0].update(p.strip(), t.strip())
+                per_len[l][0].update(pred_stripped, gt_stripped)
                 per_len[l] = (per_len[l][0], per_len[l][1] + 1)
     model.train()
+
+    print(f"\nCER for transcriptions with length <= {k}: {cer_less_equal_k.score():.4f}")
+    print(f"CER for transcriptions with length > {k}: {cer_greater_k.score():.4f}")
+    print(f"Overall CER: {cer_total.score():.4f}\n")
 
     total = sum(v[1] for v in per_len.values()) or 1
     for l in sorted(per_len):
         pct = 100 * per_len[l][1] / total
         print(f"[Eval] len={l:2d} ({pct:5.2f}%): CER={per_len[l][0].score():.4f}")
 
-    return cer.score()
+    return cer_total.score()
 
 
 def refine_visual_model(dataset: HTRDataset,
@@ -218,7 +239,8 @@ def refine_visual_model(dataset: HTRDataset,
         print(f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e}")
 
         if (epoch + 1) % 20 == 0 or epoch == num_epochs:
-            cer = _evaluate_cer(backbone, test_loader, i2c, device)
+            # Pass k=max_length for evaluation, can be changed later if needed
+            cer = _evaluate_cer(backbone, test_loader, i2c, device, k=max_length)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
 
     print("[Refine] finished.")
