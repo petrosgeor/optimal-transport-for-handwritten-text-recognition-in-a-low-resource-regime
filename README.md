@@ -1,3 +1,4 @@
+````markdown
 # Handwritten Text Recognition (HTR) tools
 
 This repository contains a minimal implementation for handwritten text recognition using PyTorch. The code is structured around a backbone network with a CTC head, data loading utilities and simple training scripts.
@@ -39,8 +40,10 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 * `fixed_size`: target `(height, width)` used to resize images.
 * `transforms`: optional Albumentations augmentation pipeline applied to the images.
 * `character_classes`: list of characters. If `None`, the dataset infers it from the data.
+* `two_views`: if `True`, `__getitem__` returns two randomly augmented views of the same line image.
 
-Each `__getitem__` call returns `(img_tensor, transcription, alignment_id)` where `alignment_id` is `-1` if the sample is not aligned to an external word.
+If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, alignment_id)`.
+Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` and `img2` are independent views of the same image.
 
 ## encode\_for\_ctc
 
@@ -148,4 +151,5 @@ pip install -r requirements.txt
 ## License
 
 This project is released under the MIT license.
+
 

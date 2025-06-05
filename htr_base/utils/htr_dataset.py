@@ -17,7 +17,8 @@ class HTRDataset(Dataset):
         fixed_size: tuple =(128, None),          # Resize inputs to this size
         transforms: list = None,                 # List of augmentation transforms to apply on input
         character_classes: list = None,          # If None, computed automatically; else list of characters
-        config=None                             # Configuration object with optional parameters
+        config=None,                            # Configuration object with optional parameters
+        two_views: bool = False                 # Whether to return two views of each image
         ):
         self.basefolder = basefolder
         self.subset = subset
@@ -25,6 +26,7 @@ class HTRDataset(Dataset):
         self.transforms = transforms
         self.character_classes = character_classes
         self.config = config
+        self.two_views = two_views
         self.k_external_words = 0
         self.n_aligned = 0
         if self.config is not None:
@@ -87,22 +89,34 @@ class HTRDataset(Dataset):
             res = sorted(list(res))
             print('Character classes: {} ({} different characters)'.format(res, len(res)))
             self.character_classes = res
+
     def __getitem__(self, index):
         img_path = self.data[index][0]
         transcr = " " + self.data[index][1] + " "
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
-        if self.subset == 'train':
-            nwidth = int(np.random.uniform(.75, 1.25) * img.shape[1])
-            nheight = int((np.random.uniform(.9, 1.1) * img.shape[0] / img.shape[1]) * nwidth)
-            img = resize(image=img, output_shape=(nheight, nwidth)).astype(np.float32)
-        img = preprocess(img, (fheight, fwidth))
-        if self.transforms is not None:
-            img = self.transforms(image=img)['image']
-        img = torch.Tensor(img).float().unsqueeze(0)
-        return img, transcr, self.aligned[index]
+
+        def build_view(im):
+            if self.subset == 'train':
+                nwidth = int(np.random.uniform(.75, 1.25) * im.shape[1])
+                nheight = int((np.random.uniform(.9, 1.1) * im.shape[0] / im.shape[1]) * nwidth)
+                im = resize(image=im, output_shape=(nheight, nwidth)).astype(np.float32)
+            im = preprocess(im, (fheight, fwidth))
+            if self.transforms is not None:
+                im = self.transforms(image=im)['image']
+            return torch.Tensor(im).float().unsqueeze(0)
+
+        if self.two_views:
+            img1 = build_view(img.copy())
+            img2 = build_view(img.copy())
+            return (img1, img2), transcr, self.aligned[index]
+        else:
+            img_tensor = build_view(img)
+            return img_tensor, transcr, self.aligned[index]
+
     def __len__(self):
         return len(self.data)
+
     def find_word_embeddings(self, word_list):
         """Compute 2D embeddings of words using pairwise Levenshtein distances."""
         if len(word_list) == 0:
