@@ -1,13 +1,35 @@
 from __future__ import annotations
-import os, sys, argparse, random
+import os, sys, random
+from types import SimpleNamespace # Added import
 
-if "CUDA_VISIBLE_DEVICES" not in os.environ:
-    p = argparse.ArgumentParser(add_help=False)
-    p.add_argument("-g", "--gpu", type=str,
-                   help="Comma-separated visible device IDs (e.g. '0,1')")
-    known, rest = p.parse_known_args()
-    os.environ["CUDA_VISIBLE_DEVICES"] = known.gpu or "0"
-    sys.argv = [sys.argv[0]] + rest
+# Define Hyperparameters Dictionary
+HP = {
+    "gpu_id": "0",
+    "max_length": 4,
+    "n_aligned": 500,
+    "k_external_words": 200,
+    "num_epochs": 600,
+    "batch_size": 128,
+    "learning_rate": 1e-3,
+    "main_loss_weight": 1.0,
+    "aux_loss_weight": 0.1,
+    "dataset_fixed_size": (64, 256),
+    "architecture_config": {
+        "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
+        "head_type": "both",
+        "rnn_type": "gru",
+        "rnn_layers": 3,
+        "rnn_hidden_size": 256,
+        "flattening": "maxpool",
+        "stn": False,
+        "feat_dim": None
+    },
+    "dataset_base_folder_name": "GW",
+    "figure_output_dir": "tests/figures",
+    "figure_filename": "long.png"
+}
+
+os.environ["CUDA_VISIBLE_DEVICES"] = HP['gpu_id']
 
 from pathlib import Path
 from typing import Dict, Tuple, List
@@ -34,8 +56,8 @@ from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
 
 def save_char_histogram_png(
     strings: List[str],
-    output_dir: str = "tests/figures",
-    filename: str = "long.png"
+    output_dir: str = HP['figure_output_dir'],
+    filename: str = HP['figure_filename']
 ) -> None:
     """
     Build a histogram of all characters (a–z, 0–9, and space) appearing in the
@@ -247,34 +269,31 @@ def refine_visual_model(dataset: HTRDataset,
 
 
 if __name__ == "__main__":
-    from types import SimpleNamespace
-
     proj_root = Path(__file__).resolve().parents[1]
-    gw_folder = proj_root / "htr_base" / "data" / "GW" / "processed_words"
+    gw_folder = proj_root / "htr_base" / "data" / HP['dataset_base_folder_name'] / "processed_words"
     if not gw_folder.exists():
         raise RuntimeError("GW processed dataset not found – generate it first!")
 
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--max-length", type=int, default=4,
-                    help="Train only on words of length <= this value")
-    ap.add_argument("--n-aligned", type=int, default=500, help="Training sample size")
-    args = ap.parse_args()
-
     class DummyCfg:
-        k_external_words = 200
-        n_aligned = args.n_aligned
+        def __init__(self, hp_config):
+            self.k_external_words = hp_config['k_external_words']
+            self.n_aligned = hp_config['n_aligned']
 
-    train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=(64, 256),
-                            transforms=aug_transforms, config=DummyCfg(),)
+    train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=HP['dataset_fixed_size'],
+                            transforms=aug_transforms, config=DummyCfg(HP),)
 
     c2i, _ = _build_vocab_dicts(train_set)
-    arch_cfg = SimpleNamespace(
-        cnn_cfg=[[2, 64], "M", [3, 128], "M", [2, 256]],
-        head_type="both", rnn_type="gru", rnn_layers=3,
-        rnn_hidden_size=256, flattening="maxpool", stn=False, feat_dim=None,
-    )
-    net = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
+    arch_cfg_dict = HP['architecture_config']
+    net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
     net.to("cuda")
 
-    refine_visual_model(train_set, net, num_epochs=600, batch_size=128,
-                        lr=1e-3, max_length=args.max_length)
+    refine_visual_model(
+        train_set,
+        net,
+        num_epochs=HP['num_epochs'],
+        batch_size=HP['batch_size'],
+        lr=HP['learning_rate'],
+        main_weight=HP['main_loss_weight'],
+        aux_weight=HP['aux_loss_weight'],
+        max_length=HP['max_length']
+    )
