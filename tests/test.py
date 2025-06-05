@@ -152,7 +152,7 @@ def refine_visual_backbone(dataset: HTRDataset,
         avg_loss = epoch_loss / max(1, effective_batches)
         print(f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e}")
 
-        if epoch % 5 == 0 or epoch == num_epochs:
+        if epoch % 10 == 0 or epoch == num_epochs:
             cer = _evaluate_cer(backbone, test_loader, i2c, device)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
 

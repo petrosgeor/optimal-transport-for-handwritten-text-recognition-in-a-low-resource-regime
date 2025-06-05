@@ -1,12 +1,11 @@
 from __future__ import annotations
 import os, sys, random
 from types import SimpleNamespace # Added import
-
 # Define Hyperparameters Dictionary
 HP = {
     "gpu_id": "0",
-    "max_length": 4,
-    "min_length": 0,
+    "max_length": 30,
+    "min_length": 5,
     "eval_k": 4,
     "n_aligned": 500,
     "k_external_words": 200,
@@ -30,12 +29,9 @@ HP = {
     "figure_output_dir": "tests/figures",
     "figure_filename": "long.png"
 }
-
 os.environ["CUDA_VISIBLE_DEVICES"] = HP['gpu_id']
-
 from pathlib import Path
 from typing import Dict, Tuple, List
-
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
@@ -43,19 +39,19 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 from collections import Counter
-
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
 from htr_base.utils.transforms import aug_transforms
 from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
 
-
-
+# ---------------------------------------------------------------------
+# Save a histogram of characters appearing in the provided strings to a
+# PNG file.  Useful for quickly visualising the dataset distribution.
+# ---------------------------------------------------------------------
 def save_char_histogram_png(
     strings: List[str],
     output_dir: str = HP['figure_output_dir'],
@@ -116,7 +112,10 @@ def save_char_histogram_png(
 
     print(f"Character histogram PNG saved to: {output_path}")
 
-
+# ---------------------------------------------------------------------
+# Construct dictionaries that map characters to integer IDs and back. The
+# blank symbol required by CTC occupies index 0.
+# ---------------------------------------------------------------------
 def _build_vocab_dicts(ds: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
     """Return char→id / id→char dicts with index 0 reserved for the blank."""
     chars: List[str] = list(ds.character_classes)
@@ -127,7 +126,10 @@ def _build_vocab_dicts(ds: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
     i2c = {i + 1: c for i, c in enumerate(chars)}
     return c2i, i2c
 
-
+# ---------------------------------------------------------------------
+# Wrapper around PyTorch's CTC loss that normalises by sequence length
+# and handles infinite losses gracefully.
+# ---------------------------------------------------------------------
 def _ctc_loss_fn(logits: torch.Tensor,
                  targets: torch.IntTensor,
                  inp_lens: torch.IntTensor,
@@ -136,14 +138,18 @@ def _ctc_loss_fn(logits: torch.Tensor,
     return F.ctc_loss(F.log_softmax(logits, 2), targets, inp_lens, tgt_lens,
                       reduction="mean", zero_infinity=True)
 
-
+# ---------------------------------------------------------------------
+# Evaluate character error rate on the given loader.  A few prediction
+# examples are printed, as well as CER by word length and overall.
+# ---------------------------------------------------------------------
 def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                   device, k: int, show_max: int = 5) -> float:
     """Compute CER over *loader* and print a few (gt, pred) pairs.
 
     In addition to the global CER, compute per-word-length CERs and
     display the relative proportion of each length in the dataset.
-    Also, calculate and print CER for transcriptions with length <= k and > k.
+    Also calculate and print CER for transcriptions with length <= k and > k.
+    The number of samples contributing to each CER is printed as well.
     """
     model.eval()
     cer_less_equal_k = CER()
@@ -151,6 +157,9 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
     cer_total = CER()
     shown = 0
     per_len: Dict[int, Tuple[CER, int]] = {}
+    num_le_k = 0
+    num_gt_k = 0
+    num_total = 0
     with torch.no_grad():
         for imgs, transcrs, _ in loader:
             imgs = imgs.to(device)
@@ -167,13 +176,16 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 pred_stripped = p.strip()
 
                 cer_total.update(pred_stripped, gt_stripped)
+                num_total += 1
 
                 transcription_len_no_spaces = len(gt_stripped.replace(" ", ""))
 
                 if transcription_len_no_spaces <= k:
                     cer_less_equal_k.update(pred_stripped, gt_stripped)
+                    num_le_k += 1
                 else:
                     cer_greater_k.update(pred_stripped, gt_stripped)
+                    num_gt_k += 1
 
                 l = len(gt_stripped.replace(" ", ""))
                 if l not in per_len:
@@ -182,9 +194,13 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 per_len[l] = (per_len[l][0], per_len[l][1] + 1)
     model.train()
 
-    print(f"\nCER for transcriptions with length <= {k}: {cer_less_equal_k.score():.4f}")
-    print(f"CER for transcriptions with length > {k}: {cer_greater_k.score():.4f}")
-    print(f"Overall CER: {cer_total.score():.4f}\n")
+    print(
+        f"\nCER for transcriptions with length <= {k}: {cer_less_equal_k.score():.4f} (n={num_le_k})"
+    )
+    print(
+        f"CER for transcriptions with length > {k}: {cer_greater_k.score():.4f} (n={num_gt_k})"
+    )
+    print(f"Overall CER: {cer_total.score():.4f} (n={num_total})\n")
 
     total = sum(v[1] for v in per_len.values()) or 1
     for l in sorted(per_len):
@@ -193,7 +209,10 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 
     return cer_total.score()
 
-
+# ---------------------------------------------------------------------
+# Fine-tune a visual model using only ground-truth words whose lengths fall
+# within a specified range.  Evaluation is performed periodically using CER.
+# ---------------------------------------------------------------------
 def refine_visual_model(dataset: HTRDataset,
                         backbone: HTRNet,
                         num_epochs: int,
@@ -241,7 +260,6 @@ def refine_visual_model(dataset: HTRDataset,
         for i, t in enumerate(transcrs)
         if min_length <= len(t.replace(" ", "")) <= max_length
     ]
-
     subset_idx = random.sample(valid_idx, k=min(n_aligned, len(valid_idx)))
     subset_ds = Subset(dataset, subset_idx)
     train_loader = DataLoader(subset_ds, batch_size=batch_size, shuffle=True,
@@ -249,56 +267,43 @@ def refine_visual_model(dataset: HTRDataset,
                               pin_memory=(device.type == "cuda"))
 
     for epoch in range(1, num_epochs + 1):
-
         epoch_loss = 0.0; effective_batches = 0
         for imgs, trans, _ in train_loader:
             imgs = imgs.to(device)
             targets_s = [t if t.startswith(" ") else f" {t.strip()} " for t in trans]
-
             main_logits, aux_logits = backbone(imgs, return_feats=False)[:2]
             T, B, _ = main_logits.shape
-
             targets, tgt_lens = encode_for_ctc(targets_s, c2i, device="cpu")
             inp_lens = torch.full((B,), T, dtype=torch.int32)
-
             loss_m = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_a = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
             loss = main_weight * loss_m + aux_weight * loss_a
-
             opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
             epoch_loss += loss.item(); effective_batches += 1
-
         sched.step()
         avg_loss = epoch_loss / max(1, effective_batches)
         print(f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e}")
-
         if (epoch + 1) % 20 == 0 or epoch == num_epochs:
             k_eval = eval_k if eval_k is not None else max_length
             cer = _evaluate_cer(backbone, test_loader, i2c, device, k=k_eval)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
-
     print("[Refine] finished.")
-
 
 if __name__ == "__main__":
     proj_root = Path(__file__).resolve().parents[1]
     gw_folder = proj_root / "htr_base" / "data" / HP['dataset_base_folder_name'] / "processed_words"
     if not gw_folder.exists():
         raise RuntimeError("GW processed dataset not found – generate it first!")
-
     class DummyCfg:
         def __init__(self, hp_config):
             self.k_external_words = hp_config['k_external_words']
             self.n_aligned = hp_config['n_aligned']
-
     train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=HP['dataset_fixed_size'],
                             transforms=aug_transforms, config=DummyCfg(HP),)
-
     c2i, _ = _build_vocab_dicts(train_set)
     arch_cfg_dict = HP['architecture_config']
     net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
     net.to("cuda")
-
     refine_visual_model(
         train_set,
         net,
