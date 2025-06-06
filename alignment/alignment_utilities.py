@@ -8,6 +8,7 @@ import torch
 import numpy as np
 import ot
 import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
 from scipy.spatial import distance
 
 from htr_base.utils.htr_dataset import HTRDataset
@@ -449,4 +450,51 @@ def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     plt.savefig(save_path)
     plt.close(fig)
+
+
+def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) -> None:
+    """Generates a t-SNE plot of image embeddings from the backbone and saves it.
+
+    The function first harvests features from the provided dataset using the
+    specified backbone, then applies t-SNE to reduce dimensions to 2,
+    and finally plots and saves the resulting visualization.
+
+    Parameters
+    ----------
+    dataset : HTRDataset
+        Dataset instance providing the images.
+    backbone : HTRNet
+        The visual backbone model to extract embeddings from.
+    save_path : str
+        Path where the generated t-SNE plot (PNG image) will be saved.
+    """
+    # Determine device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    print(f"Harvesting features for t-SNE plot on device: {device}")
+    features, _ = harvest_backbone_features(dataset, backbone, device=device)
+
+    print(f"Performing t-SNE transformation on {features.shape[0]} samples...")
+    # Ensure features are on CPU and are NumPy arrays for scikit-learn
+    features_np = features.cpu().numpy()
+
+    tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000, init='pca', learning_rate='auto')
+    tsne_results = tsne.fit_transform(features_np)
+
+    print("t-SNE transformation complete.")
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+    ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5)
+    ax.set_title("t-SNE projection of backbone embeddings")
+    ax.set_xlabel("t-SNE dimension 1")
+    ax.set_ylabel("t-SNE dimension 2")
+
+    print(f"Saving t-SNE plot to {save_path}...")
+    # Ensure the directory exists
+    if os.path.dirname(save_path): # Check if there is a directory part
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.close(fig)
+    print("Plot saved successfully.")
 
