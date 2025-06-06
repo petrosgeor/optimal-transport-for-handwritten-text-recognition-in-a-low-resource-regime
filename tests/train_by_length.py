@@ -1,7 +1,6 @@
 from __future__ import annotations
 import os, sys, random
 from types import SimpleNamespace  
-
 # ------------------------------------------------------------------
 # Hyper‑parameters controlling training and evaluation. The values
 # below are largely defaults used when running this script directly.
@@ -24,8 +23,8 @@ from types import SimpleNamespace
 # ------------------------------------------------------------------
 HP = {
     "gpu_id": "0",
-    "max_length": 30,
-    "min_length": 4,
+    "max_length": 4,
+    "min_length": 0,
     "eval_k": 4,
     "n_aligned": 500,
     "k_external_words": 200,
@@ -59,7 +58,6 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 from collections import Counter
-
 root = Path(__file__).resolve().parents[1]  # project root for local imports
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
@@ -68,7 +66,6 @@ from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
 from htr_base.utils.transforms import aug_transforms
 from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
-
 # ---------------------------------------------------------------------
 # Save a histogram of characters appearing in the provided strings to a
 # PNG file.  Useful for quickly visualising the dataset distribution.
@@ -81,7 +78,6 @@ def save_char_histogram_png(
     """
     Build a histogram of all characters (a–z, 0–9, and space) appearing in the
     given list of strings, plot it using matplotlib, and save as a PNG in tests/figures.
-
     Parameters
     ----------
     strings : List[str]
@@ -126,7 +122,6 @@ def save_char_histogram_png(
     plt.savefig(output_path)
     plt.close()
     print(f"Character histogram PNG saved to: {output_path}")
-
 # ---------------------------------------------------------------------
 # Construct dictionaries that map characters to integer IDs and back. The
 # blank symbol required by CTC occupies index 0.
@@ -140,7 +135,6 @@ def _build_vocab_dicts(ds: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
     c2i = {c: i + 1 for i, c in enumerate(chars)}
     i2c = {i + 1: c for i, c in enumerate(chars)}
     return c2i, i2c
-
 # ---------------------------------------------------------------------
 # Wrapper around PyTorch's CTC loss that normalises by sequence length
 # and handles infinite losses gracefully.
@@ -152,7 +146,6 @@ def _ctc_loss_fn(logits: torch.Tensor,
     """Length-normalised CTC loss on raw logits."""
     return F.ctc_loss(F.log_softmax(logits, 2), targets, inp_lens, tgt_lens,
                       reduction="mean", zero_infinity=True)
-
 # ---------------------------------------------------------------------
 # Evaluate character error rate on the given loader.  A few prediction
 # examples are printed, as well as CER by word length and overall.
@@ -224,7 +217,6 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
         pct = 100 * per_len[l][1] / total
         print(f"[Eval] len={l:2d} ({pct:5.2f}%): CER={per_len[l][0].score():.4f}")
     return cer_total.score()
-
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.
@@ -250,24 +242,19 @@ def refine_visual_model(dataset: HTRDataset,
         f"[Refine] min_len={min_length} max_len={max_length} "
         f"epochs={num_epochs} batch={batch_size} lr={lr}"
     )
-
     # Build vocabulary
     c2i, i2c = _build_vocab_dicts(dataset)
-
     # Test loader
     test_set = HTRDataset(dataset.basefolder, subset="test",
                           fixed_size=dataset.fixed_size, transforms=None,
                           config=dataset.config)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False,
                              num_workers=0, pin_memory=(device.type == "cuda"))
-
     # Optimiser & scheduler
     opt = optim.AdamW(backbone.parameters(), lr=lr, weight_decay=1e-4)
     sched = lr_scheduler.StepLR(opt, step_size=150, gamma=0.5)
-
     n_aligned = getattr(dataset.config, "n_aligned", len(dataset))
     # how many ground-truth words to keep in the training subset
-
     # Pre-compute indices by length and build a fixed subset
     transcrs = [t.strip() for t in dataset.transcriptions]
     valid_idx = [
@@ -278,10 +265,14 @@ def refine_visual_model(dataset: HTRDataset,
     subset_idx = random.sample(valid_idx, k=min(n_aligned, len(valid_idx)))
     # randomly choose the desired number of samples from the valid indices
     subset_ds = Subset(dataset, subset_idx)
+    unique_words = {transcrs[i].strip().lower() for i in subset_idx}
+    print(
+        f"[Refine] training on {len(subset_idx)} samples "
+        f"containing {len(unique_words)} unique words"
+    )
     train_loader = DataLoader(subset_ds, batch_size=batch_size, shuffle=True,
                               num_workers=0,
                               pin_memory=(device.type == "cuda"))
-
     for epoch in range(1, num_epochs + 1):
         epoch_loss = 0.0; effective_batches = 0
         for imgs, trans, _ in train_loader:
@@ -304,7 +295,6 @@ def refine_visual_model(dataset: HTRDataset,
             cer = _evaluate_cer(backbone, test_loader, i2c, device, k=k_eval)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
     print("[Refine] finished.")
-
 if __name__ == "__main__":
     proj_root = Path(__file__).resolve().parents[1]  # repository root
     gw_folder = proj_root / "htr_base" / "data" / HP['dataset_base_folder_name'] / "processed_words"

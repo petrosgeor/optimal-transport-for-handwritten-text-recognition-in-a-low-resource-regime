@@ -24,8 +24,8 @@ device: cuda                # target device for training
 # Alternating training cycle
 # ----------------------------------------------------------------------
 alt_rounds: 4               # number of backbone/projector cycles per pass
-alt_backbone_epochs: 20     # epochs for each backbone refinement phase
-alt_projector_epochs: 100   # epochs for each projector training phase
+alt_backbone_epochs: 10     # epochs for each backbone refinement phase
+alt_projector_epochs: 200   # epochs for each projector training phase
 
 # ----------------------------------------------------------------------
 # Align-more-instances defaults
@@ -35,4 +35,4 @@ align_device: cpu           # device used during alignment post-processing
 align_reg: 0.1              # entropic regularisation for Sinkhorn
 align_unbalanced: false     # use unbalanced OT formulation
 align_reg_m: 1.0            # mass regularisation when unbalanced OT is used
-align_k: 0                  # pseudo-label this many least-moved descriptors
+align_k: 200                  # pseudo-label this many least-moved descriptors
