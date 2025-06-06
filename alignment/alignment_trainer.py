@@ -259,20 +259,22 @@ def train_projector(  # pylint: disable=too-many-arguments
             # --- Loss Calculation ---
             # The criterion internally handles which samples are used for the
             # supervised loss based on the `align` tensor (where -1 indicates unsupervised).
-            loss = criterion(pred, word_embs, align, word_probs)
+            loss = criterion.forward(pred, word_embs, align, word_probs)
             print('the loss is: ', loss.detach().item())
             
             assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
 
             # --- Optimization Step ---
-            optimiser.zero_grad(set_to_none=True)
+            
             loss.backward()
+            grad_ok = all(torch.isinf(p.grad).all() for p in projector.parameters())
+            assert grad_ok, 'gradient explosion in projector - contains NaN/Inf'
 
             # (CRITICAL) Gradient Clipping: Prevents exploding gradients from corrupting model weights.
             torch.nn.utils.clip_grad_norm_(projector.parameters(), max_norm=1.0)
             
             optimiser.step()
-            
+            optimiser.zero_grad(set_to_none=True)
             running_loss += loss.item()
 
         avg_loss = running_loss / max(1, len(proj_loader))

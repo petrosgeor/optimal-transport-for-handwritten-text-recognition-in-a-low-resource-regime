@@ -107,7 +107,7 @@ class ProjectionLoss(torch.nn.Module):
         if self.unbalanced:
             ot_loss = ot.unbalanced.sinkhorn_unbalanced2(a, b, C, reg=self.reg, reg_m=self.reg_m, **self.sinkhorn_kwargs)
         else:
-            ot_loss = ot.sinkhorn2(a, b, C, reg=self.reg, **self.sinkhorn_kwargs)
+            ot_loss = ot.sinkhorn2(a, b, C, reg=self.reg, numItermax=6000, **self.sinkhorn_kwargs)
         assert not torch.isnan(ot_loss).any(), "OT loss is NaN"
         assert not torch.isinf(ot_loss).any(), "OT loss is infinite"
 
