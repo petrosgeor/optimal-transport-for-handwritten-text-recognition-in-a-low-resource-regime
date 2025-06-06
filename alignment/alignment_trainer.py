@@ -16,6 +16,7 @@ from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 from alignment.alignment_utilities import align_more_instances
+from htr_base.utils.transforms import aug_transforms
 
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
@@ -303,8 +304,8 @@ if __name__ == "__main__":
     dataset = HTRDataset(
         str(gw_folder),
         subset="train",
-        fixed_size=(128, 256),
-        transforms=None,
+        fixed_size=(64, 256),
+        transforms=aug_transforms,
         config=DummyCfg(),
     )
 
