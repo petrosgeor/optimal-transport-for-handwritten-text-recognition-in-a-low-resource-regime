@@ -190,6 +190,7 @@ def align_more_instances(
 
     old_aligned = dataset.aligned.clone()
     moved_distance = (proj_feats_ot - proj_feats).norm(p=2, dim=1)
+    moved_distance_orig = moved_distance.clone()
     moved_distance[old_aligned != -1] = float("inf")
 
     # ── assign OT-projected descriptors to closest word embedding ────────────
@@ -204,6 +205,9 @@ def align_more_instances(
             sorted_idx = moved_distance[valid_idx].argsort()[:k_sel]
             chosen = valid_idx[sorted_idx]
             dataset.aligned[chosen] = nearest_word[chosen].to(torch.int32)
+
+    # Restore moved distances for pre-aligned items
+    moved_distance[old_aligned != -1] = moved_distance_orig[old_aligned != -1]
 
     # Ensure already aligned entries remain unchanged
     assert torch.equal(
