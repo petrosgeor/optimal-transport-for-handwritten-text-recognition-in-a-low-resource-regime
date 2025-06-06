@@ -15,7 +15,7 @@ from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
-from alignment.alignment_utilities import align_more_instances
+from alignment.alignment_utilities import align_more_instances, harvest_backbone_features
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
 
@@ -177,41 +177,15 @@ def train_projector(  # pylint: disable=too-many-arguments
     word_probs = word_probs_cpu.to(device)
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
-    # It's crucial to disable augmentations during this phase to get consistent
-    # features for each image.
-    feats_buf, align_buf = [], []
-    
-    # Backup and temporarily modify dataset state for harvesting
-    transforms_bak = dataset.transforms
-    dataset.transforms = None
-    
-    harvest_loader = DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False, # Shuffle must be False to maintain order
-        num_workers=num_workers,
-        pin_memory=(device.type == "cuda"),
-    )
-    
+    # Augmentations are temporarily disabled inside ``harvest_backbone_features``
     print("Harvesting image descriptors from the backbone...")
-    with torch.no_grad():
-        for imgs, _txt, aligned in harvest_loader:
-            imgs = imgs.to(device)
-            # The last element of the backbone's output is the feature descriptor
-            feats = backbone(imgs, return_feats=True)[-1]
-            if feats.dim() != 2:
-                raise RuntimeError(f"Expected (B, feat_dim) descriptors, but got shape {feats.shape}")
-                
-            feats_buf.append(feats.cpu())
-            align_buf.append(aligned.cpu())
-
-    # Restore dataset's original state
-    dataset.transforms = transforms_bak
-    
-
-    # Consolidate all harvested data into single tensors
-    feats_all = torch.cat(feats_buf, dim=0)
-    aligned_all = torch.cat(align_buf, dim=0)
+    feats_all, aligned_all = harvest_backbone_features(
+        dataset,
+        backbone,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        device=device,
+    )
 
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
