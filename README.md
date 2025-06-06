@@ -118,6 +118,19 @@ def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metr
 * `dist_matrix`: pairwise distances used when `metric="gap"`.
 * `metric`: either `'gap'` (smallest nearest-neighbour gap) or `'entropy'`.
 
+## plot_dataset_augmentations
+
+Also in `alignment/alignment_utilities.py`. Saves a figure with three dataset
+images and their augmented versions side by side.
+
+```python
+def plot_dataset_augmentations(dataset, save_path):
+    """Save a figure of three images and their augmentations."""
+```
+
+* `dataset`: `HTRDataset` instance with augmentation transforms.
+* `save_path`: where to write the resulting PNG file.
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.
