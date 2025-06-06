@@ -3,6 +3,9 @@
 
 This repository contains a minimal implementation for handwritten text recognition using PyTorch. The code is structured around a backbone network with a CTC head, data loading utilities and simple training scripts.
 
+The `htr_base` directory acts mainly as a collection of helper utilities and network components.
+Most of the logic for alignment and model training lives in the `alignment` directory.
+
 ## HTRNet
 
 `htr_base/models.py` defines the main neural network used throughout the codebase. `HTRNet` is composed of a CNN backbone followed by different CTC heads. The architecture is configurable through a YAML file or a small namespace object.
