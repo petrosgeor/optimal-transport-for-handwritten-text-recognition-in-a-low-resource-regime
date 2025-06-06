@@ -91,7 +91,8 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 * `backbone`: `HTRNet` used to extract visual descriptors.
 * `projector`: projects descriptors to the embedding space.
 * `batch_size`: mini-batch size when harvesting descriptors.
-* `device`: computation device.
+* `device`: device used for post-processing (feature extraction always
+  runs on GPU if available).
 * `reg`: entropic regularisation for Sinkhorn.
 * `unbalanced`: use unbalanced OT formulation.
 * `reg_m`: additional unbalanced regularisation parameter.
