@@ -292,6 +292,17 @@ def align_more_instances(
             chosen = valid_idx[sorted_idx]
             dataset.aligned[chosen] = nearest_word[chosen].to(torch.int32)
 
+            # ---- print pseudo‑labelling accuracy ---------------------------------
+            correct_new = 0
+            for idx in chosen.tolist():
+                pred = dataset.external_words[dataset.aligned[idx].item()]
+                if pred == dataset.transcriptions[idx].strip():
+                    correct_new += 1
+            print(
+                f"[Align] newly pseudo‑labelled {len(chosen)} items; "
+                f"{correct_new} match ground truth"
+            )
+
     # Restore moved distances for pre-aligned items
     moved_distance[old_aligned != -1] = moved_distance_orig[old_aligned != -1]
 
@@ -305,6 +316,20 @@ def align_more_instances(
     dataset.transforms = orig_transforms
     backbone.train()
     projector.train()
+
+    # ---- overall alignment accuracy ---------------------------------------
+    aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
+    correct_total = 0
+    for idx in aligned_idx.tolist():
+        pred = dataset.external_words[dataset.aligned[idx].item()]
+        if pred == dataset.transcriptions[idx].strip():
+            correct_total += 1
+    if aligned_idx.numel() > 0:
+        print(
+            f"[Align] overall accuracy: "
+            f"{correct_total}/{aligned_idx.numel()} correct"
+        )
+
 
     return plan_torch, proj_feats_ot, moved_distance
 
