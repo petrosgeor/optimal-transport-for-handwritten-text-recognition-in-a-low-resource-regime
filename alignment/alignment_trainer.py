@@ -306,43 +306,44 @@ def alternating_refinement(
     if align_kwargs is None:
         align_kwargs = {}
 
-    for r in range(rounds):
-        print(f"[Cycle {r + 1}/{rounds}] Refining backbone...")
-        if backbone_epochs > 0:
-            refine_visual_backbone(
-                dataset,
-                backbone,
-                num_epochs=backbone_epochs,
-                **refine_kwargs,
-            )
-
-        for param in backbone.parameters():
-            param.requires_grad_(False)
-
-        print(f"[Cycle {r + 1}/{rounds}] Training projector...")
-        if projector_epochs > 0:
-            _probs_backup = None
-            if isinstance(getattr(dataset, "external_word_probs", None), list):
-                _probs_backup = dataset.external_word_probs
-                dataset.external_word_probs = torch.tensor(
-                    _probs_backup, dtype=torch.float
+    while (dataset.aligned == -1).any():
+        for r in range(rounds):
+            print(f"[Round {r + 1}/{rounds}] Refining backbone...")
+            if backbone_epochs > 0:
+                refine_visual_backbone(
+                    dataset,
+                    backbone,
+                    num_epochs=backbone_epochs,
+                    **refine_kwargs,
                 )
 
-            train_projector(
-                dataset,
-                backbone,
-                projector,
-                num_epochs=projector_epochs,
-                **projector_kwargs,
-            )
+            for param in backbone.parameters():
+                param.requires_grad_(False)
 
-            if _probs_backup is not None:
-                dataset.external_word_probs = _probs_backup
+            print(f"[Round {r + 1}/{rounds}] Training projector...")
+            if projector_epochs > 0:
+                _probs_backup = None
+                if isinstance(getattr(dataset, "external_word_probs", None), list):
+                    _probs_backup = dataset.external_word_probs
+                    dataset.external_word_probs = torch.tensor(
+                        _probs_backup, dtype=torch.float
+                    )
 
-        for param in backbone.parameters():
-            param.requires_grad_(True)
+                train_projector(
+                    dataset,
+                    backbone,
+                    projector,
+                    num_epochs=projector_epochs,
+                    **projector_kwargs,
+                )
 
-        print(f"[Cycle {r + 1}/{rounds}] Aligning more instances...")
+                if _probs_backup is not None:
+                    dataset.external_word_probs = _probs_backup
+
+            for param in backbone.parameters():
+                param.requires_grad_(True)
+
+        print("[Cycle] Aligning more instances...")
         align_more_instances(dataset, backbone, projector, **align_kwargs)
 
 
