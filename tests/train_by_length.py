@@ -1,7 +1,27 @@
 from __future__ import annotations
 import os, sys, random
-from types import SimpleNamespace # Added import
-# Define Hyperparameters Dictionary
+from types import SimpleNamespace  
+
+# ------------------------------------------------------------------
+# Hyper‑parameters controlling training and evaluation. The values
+# below are largely defaults used when running this script directly.
+#
+#   gpu_id              – CUDA device identifier.
+#   max_length/min_length – inclusive range of word lengths used for
+#                            selecting training samples (spaces ignored).
+#   eval_k              – length threshold used when reporting CER.
+#   n_aligned           – maximum number of aligned ground‑truth words
+#                          sampled for training.
+#   k_external_words    – number of external words to align against.
+#   num_epochs          – number of fine‑tuning epochs.
+#   batch_size          – mini‑batch size during training.
+#   learning_rate       – optimiser learning rate.
+#   main/aux_loss_weight – weights for the main and auxiliary CTC losses.
+#   dataset_fixed_size  – target (H, W) used when resizing dataset images.
+#   architecture_config – parameters defining the HTRNet architecture.
+#   dataset_base_folder_name – dataset folder containing processed words.
+#   figure_output_dir/filename – where to write diagnostic figures.
+# ------------------------------------------------------------------
 HP = {
     "gpu_id": "0",
     "max_length": 30,
@@ -23,11 +43,11 @@ HP = {
         "rnn_hidden_size": 256,
         "flattening": "maxpool",
         "stn": False,
-        "feat_dim": None
+        "feat_dim": None,
     },
     "dataset_base_folder_name": "GW",
     "figure_output_dir": "tests/figures",
-    "figure_filename": "long.png"
+    "figure_filename": "long.png",
 }
 os.environ["CUDA_VISIBLE_DEVICES"] = HP['gpu_id']
 from pathlib import Path
@@ -39,7 +59,8 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 from collections import Counter
-root = Path(__file__).resolve().parents[1]
+
+root = Path(__file__).resolve().parents[1]  # project root for local imports
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 from htr_base.utils.htr_dataset import HTRDataset
@@ -72,13 +93,11 @@ def save_char_histogram_png(
     """
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
-
     # Initialize histogram with all keys set to 0
     keys = [chr(c) for c in range(ord('a'), ord('z') + 1)] + \
            [str(d) for d in range(10)] + \
            [' ']
     histogram = {k: 0 for k in keys}
-
     # Count only valid characters (lowercased for letters)
     counter = Counter()
     for s in strings:
@@ -92,10 +111,8 @@ def save_char_histogram_png(
             elif ch == ' ':
                 counter[' '] += 1
             # ignore all other characters
-
     # Fill histogram with counts (zero for missing keys)
     counts = [int(counter.get(k, 0)) for k in keys]
-
     # Plot bar chart
     plt.figure(figsize=(12, 6))
     plt.bar(keys, counts)
@@ -104,12 +121,10 @@ def save_char_histogram_png(
     plt.title("Character Frequency Histogram")
     plt.xticks(rotation=45)  # Rotate labels to improve readability (space will appear blank)
     plt.tight_layout()
-
     # Save figure
     output_path = os.path.join(output_dir, filename)
     plt.savefig(output_path)
     plt.close()
-
     print(f"Character histogram PNG saved to: {output_path}")
 
 # ---------------------------------------------------------------------
@@ -145,7 +160,6 @@ def _ctc_loss_fn(logits: torch.Tensor,
 def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                   device, k: int, show_max: int = 5) -> float:
     """Compute CER over *loader* and print a few (gt, pred) pairs.
-
     In addition to the global CER, compute per-word-length CERs and
     display the relative proportion of each length in the dataset.
     Also calculate and print CER for transcriptions with length <= k and > k.
@@ -173,15 +187,11 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 if shown < show_max:
                     print(f"GT: '{t.strip()}'\nPR: '{p.strip()}'\n")
                     shown += 1
-
                 gt_stripped = t.strip()
                 pred_stripped = p.strip()
-
                 cer_total.update(pred_stripped, gt_stripped)
                 num_total += 1
-
                 transcription_len_no_spaces = len(gt_stripped.replace(" ", ""))
-
                 if transcription_len_no_spaces <= k:
                     cer_less_equal_k.update(pred_stripped, gt_stripped)
                     num_le_k += 1
@@ -190,14 +200,12 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                     cer_greater_k.update(pred_stripped, gt_stripped)
                     num_gt_k += 1
                     chars_gt_k += transcription_len_no_spaces
-
                 l = len(gt_stripped.replace(" ", ""))
                 if l not in per_len:
                     per_len[l] = (CER(), 0)
                 per_len[l][0].update(pred_stripped, gt_stripped)
                 per_len[l] = (per_len[l][0], per_len[l][1] + 1)
     model.train()
-
     print(
         f"\nCER for transcriptions with length <= {k}: {cer_less_equal_k.score():.4f} (n={num_le_k})"
     )
@@ -211,12 +219,10 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
     print(
         f"Total characters for length > {k}: {chars_gt_k}\n"
     )
-
     total = sum(v[1] for v in per_len.values()) or 1
     for l in sorted(per_len):
         pct = 100 * per_len[l][1] / total
         print(f"[Eval] len={l:2d} ({pct:5.2f}%): CER={per_len[l][0].score():.4f}")
-
     return cer_total.score()
 
 # ---------------------------------------------------------------------
@@ -234,13 +240,11 @@ def refine_visual_model(dataset: HTRDataset,
                         min_length: int = 0,
                         eval_k: int | None = None) -> None:
     """Fine-tune *backbone* on a subset of ground-truth words.
-
     Only words whose length (ignoring spaces) lies in the inclusive range
     ``[min_length, max_length]`` are used for training.  At most ``n_aligned``
     such words are randomly selected.  ``eval_k`` controls the length
     threshold used when computing CER during evaluation.
     """
-
     device = next(backbone.parameters()).device
     print(
         f"[Refine] min_len={min_length} max_len={max_length} "
@@ -262,6 +266,7 @@ def refine_visual_model(dataset: HTRDataset,
     sched = lr_scheduler.StepLR(opt, step_size=150, gamma=0.5)
 
     n_aligned = getattr(dataset.config, "n_aligned", len(dataset))
+    # how many ground-truth words to keep in the training subset
 
     # Pre-compute indices by length and build a fixed subset
     transcrs = [t.strip() for t in dataset.transcriptions]
@@ -271,6 +276,7 @@ def refine_visual_model(dataset: HTRDataset,
         if min_length <= len(t.replace(" ", "")) <= max_length
     ]
     subset_idx = random.sample(valid_idx, k=min(n_aligned, len(valid_idx)))
+    # randomly choose the desired number of samples from the valid indices
     subset_ds = Subset(dataset, subset_idx)
     train_loader = DataLoader(subset_ds, batch_size=batch_size, shuffle=True,
                               num_workers=0,
@@ -300,7 +306,7 @@ def refine_visual_model(dataset: HTRDataset,
     print("[Refine] finished.")
 
 if __name__ == "__main__":
-    proj_root = Path(__file__).resolve().parents[1]
+    proj_root = Path(__file__).resolve().parents[1]  # repository root
     gw_folder = proj_root / "htr_base" / "data" / HP['dataset_base_folder_name'] / "processed_words"
     if not gw_folder.exists():
         raise RuntimeError("GW processed dataset not found – generate it first!")
