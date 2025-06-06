@@ -119,7 +119,7 @@ class HTRDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def find_word_embeddings(self, word_list, n_components: int | None = None):
+    def find_word_embeddings(self, word_list, n_components: int = 512):
         """Compute embeddings of words using pairwise Levenshtein distances."""
         if len(word_list) == 0:
             if n_components is None:

@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
+from geomloss.samples_loss import SamplesLoss
 
 
 def _ctc_loss_fn(
@@ -67,6 +68,15 @@ class ProjectionLoss(torch.nn.Module):
         self.reg_m = reg_m
         self.sinkhorn_kwargs = sinkhorn_kwargs
 
+        if self.unbalanced:
+            self.unbalanced_ot_loss = SamplesLoss(
+                loss="sinkhorn", p=2, blur=self.reg, reach=self.reg_m, debias=True, **self.sinkhorn_kwargs
+            )
+        else:
+            self.balanced_ot_loss = SamplesLoss(
+                loss="sinkhorn", p=2, blur=self.reg, debias=True, **self.sinkhorn_kwargs
+            )
+
     def forward(
         self,
         descriptors: torch.Tensor,
@@ -99,15 +109,12 @@ class ProjectionLoss(torch.nn.Module):
             b = tgt_probs / tgt_probs.sum()
         else:
             b = tgt_probs
-        # cost matrix between descriptors and word embeddings (euclidean distance)
-        C = torch.cdist(descriptors, word_embeddings, p=2)
-        assert C.shape == (N, M), "cost matrix shape should be (N, M)"
 
         # compute OT loss depending on balanced/unbalanced mode
         if self.unbalanced:
-            ot_loss = ot.unbalanced.sinkhorn_unbalanced2(a, b, C, reg=self.reg, reg_m=self.reg_m, **self.sinkhorn_kwargs)
+            ot_loss = self.unbalanced_ot_loss(a, descriptors, b, word_embeddings)
         else:
-            ot_loss = ot.sinkhorn2(a, b, C, reg=self.reg, numItermax=6000, **self.sinkhorn_kwargs)
+            ot_loss = self.balanced_ot_loss(a, descriptors, b, word_embeddings)
         assert not torch.isnan(ot_loss).any(), "OT loss is NaN"
         assert not torch.isinf(ot_loss).any(), "OT loss is infinite"
 
