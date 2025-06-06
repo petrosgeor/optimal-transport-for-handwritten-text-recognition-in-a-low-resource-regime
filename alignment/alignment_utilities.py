@@ -160,6 +160,9 @@ def align_more_instances(
 
     feats = torch.cat(feats_all, dim=0)  # (N, D)
     proj_feats = projector(feats).detach()  # (N, E)
+    assert torch.isfinite(proj_feats).all(), (
+        "Non-finite values detected in projector features"
+    )
 
     n = proj_feats.size(0)
     v = word_embs.size(0)
