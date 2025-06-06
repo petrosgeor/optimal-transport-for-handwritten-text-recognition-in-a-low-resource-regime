@@ -2,9 +2,12 @@
 
 from typing import Optional
 
+import os
+import random
 import torch
 import numpy as np
 import ot
+import matplotlib.pyplot as plt
 from scipy.spatial import distance
 
 from htr_base.utils.htr_dataset import HTRDataset
@@ -304,4 +307,50 @@ def align_more_instances(
     projector.train()
 
     return plan_torch, proj_feats_ot, moved_distance
+
+
+def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
+    """Save a figure showing three images and their augmentations side by side.
+
+    Parameters
+    ----------
+    dataset : HTRDataset
+        Dataset providing images and augmentation transforms.
+    save_path : str
+        Where to write the PNG figure.
+    """
+
+    if len(dataset) < 3:
+        raise ValueError("dataset must contain at least three items")
+
+    if getattr(dataset, "transforms", None) is None:
+        raise ValueError("dataset.transforms must not be None")
+
+    orig_transforms = dataset.transforms
+
+    indices = random.sample(range(len(dataset)), 3)
+
+    # Load original images with transforms disabled
+    dataset.transforms = None
+    originals = [dataset[i][0].squeeze().cpu().numpy() for i in indices]
+
+    # Load augmented versions
+    dataset.transforms = orig_transforms
+    augments = [dataset[i][0].squeeze().cpu().numpy() for i in indices]
+
+    # Restore dataset transforms
+    dataset.transforms = orig_transforms
+
+    fig, axes = plt.subplots(3, 2, figsize=(6, 9))
+    for row, (orig, aug) in enumerate(zip(originals, augments)):
+        axes[row, 0].imshow(orig, cmap="gray")
+        axes[row, 0].axis("off")
+        axes[row, 1].imshow(aug, cmap="gray")
+        axes[row, 1].axis("off")
+    axes[0, 0].set_title("original")
+    axes[0, 1].set_title("augmented")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    plt.savefig(save_path)
+    plt.close(fig)
 
