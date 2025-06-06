@@ -179,6 +179,28 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `weight_decay`: weight decay for the optimiser.
 * `device`: computation device for training.
 
+## alternating\_refinement
+
+Also in `alignment/alignment_trainer.py`. This helper repeatedly refines the
+visual backbone and projector while progressively aligning more dataset
+instances using Optimal Transport.
+
+```python
+def alternating_refinement(dataset, backbone, projector, *, rounds=4,
+                           backbone_epochs=2, projector_epochs=100,
+                           refine_kwargs=None, projector_kwargs=None,
+                           align_kwargs=None):
+    """Alternately train ``backbone`` and ``projector`` with OT alignment."""
+```
+
+* `rounds`: number of backbone/projector cycles per alignment pass.
+* `backbone_epochs`: epochs for each backbone refinement round.
+* `projector_epochs`: epochs for each projector training round.
+* `refine_kwargs`: extra keyword arguments forwarded to
+  `refine_visual_backbone`.
+* `projector_kwargs`: keyword arguments for `train_projector`.
+* `align_kwargs`: parameters for `align_more_instances`.
+
 ## train\_by\_length.py
 
 `tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset.
