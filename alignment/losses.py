@@ -77,6 +77,23 @@ class ProjectionLoss(torch.nn.Module):
         aligned: torch.Tensor,
         tgt_probs: torch.Tensor,
     ) -> torch.Tensor:
+        # sanity checks on shapes
+        assert descriptors.ndim == 2, "descriptors must be 2-D (N, d)"
+        assert word_embeddings.ndim == 2, "word_embeddings must be 2-D (M, d)"
+        N, d = descriptors.shape
+        M, d2 = word_embeddings.shape
+        assert d == d2, "descriptor and embedding dimensions differ"
+        assert aligned.shape == (N,), "aligned must have shape (N,)"
+        assert tgt_probs.shape == (M,), "tgt_probs must have shape (M,)"
+
+        # check for NaN or Inf values
+        for tensor, name in [
+            (descriptors, "descriptors"),
+            (word_embeddings, "word_embeddings"),
+            (tgt_probs, "tgt_probs"),
+        ]:
+            assert not torch.isnan(tensor).any(), f"{name} contains NaN values"
+            assert not torch.isinf(tensor).any(), f"{name} contains infinite values"
         # create uniform source distribution
         n = descriptors.shape[0]
         a = torch.full((n,), 1.0 / n, dtype=descriptors.dtype, device=descriptors.device)
@@ -89,12 +106,15 @@ class ProjectionLoss(torch.nn.Module):
 
         # cost matrix between descriptors and word embeddings (euclidean distance)
         C = torch.cdist(descriptors, word_embeddings, p=2)
+        assert C.shape == (N, M), "cost matrix shape should be (N, M)"
 
         # compute OT loss depending on balanced/unbalanced mode
         if self.unbalanced:
             ot_loss = ot.unbalanced.sinkhorn_unbalanced2(a, b, C, reg=self.reg, reg_m=self.reg_m, **self.sinkhorn_kwargs)
         else:
             ot_loss = ot.sinkhorn2(a, b, C, reg=self.reg, **self.sinkhorn_kwargs)
+        assert not torch.isnan(ot_loss).any(), "OT loss is NaN"
+        assert not torch.isinf(ot_loss).any(), "OT loss is infinite"
 
         # compute supervised alignment loss when alignments are provided
         aligned_indices = torch.where(aligned != -1)[0]
