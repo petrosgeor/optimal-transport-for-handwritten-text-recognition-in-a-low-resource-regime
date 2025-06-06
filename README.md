@@ -43,6 +43,7 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 * `fixed_size`: target `(height, width)` used to resize images.
 * `transforms`: optional Albumentations augmentation pipeline applied to the images.
 * `character_classes`: list of characters. If `None`, the dataset infers it from the data.
+* `word_emb_dim`: dimensionality of the MDS word embeddings (default `512`).
 * `two_views`: if `True`, `__getitem__` returns two randomly augmented views of the same line image.
 
 If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, alignment_id)`.

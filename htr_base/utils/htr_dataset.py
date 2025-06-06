@@ -29,9 +29,11 @@ class HTRDataset(Dataset):
         self.two_views = two_views
         self.k_external_words = 0
         self.n_aligned = 0
+        self.word_emb_dim = 512
         if self.config is not None:
             self.k_external_words = int(getattr(self.config, 'k_external_words', 0))
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
+            self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
         # Load gt.txt from basefolder - each line contains image path and transcription
         data = []
         with open(os.path.join(basefolder, subset, 'gt.txt'), 'r') as f:
@@ -117,10 +119,14 @@ class HTRDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def find_word_embeddings(self, word_list):
-        """Compute 2D embeddings of words using pairwise Levenshtein distances."""
+    def find_word_embeddings(self, word_list, n_components: int | None = None):
+        """Compute embeddings of words using pairwise Levenshtein distances."""
         if len(word_list) == 0:
-            return torch.empty((0, 2))
+            if n_components is None:
+                n_components = self.word_emb_dim
+            return torch.empty((0, n_components))
+        if n_components is None:
+            n_components = self.word_emb_dim
         n = len(word_list)
         dist_matrix = np.zeros((n, n), dtype=np.float32)
         for i in range(n):
@@ -128,6 +134,6 @@ class HTRDataset(Dataset):
                 d = editdistance.eval(word_list[i], word_list[j])
                 dist_matrix[i, j] = d
                 dist_matrix[j, i] = d
-        mds = MDS(n_components=2, dissimilarity='precomputed', random_state=0)
+        mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=0)
         emb = mds.fit_transform(dist_matrix)
         return torch.FloatTensor(emb)
