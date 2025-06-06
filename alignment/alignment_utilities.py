@@ -39,6 +39,77 @@ def print_dataset_stats(dataset: HTRDataset) -> None:
     print(f"  in-dictionary: {in_dict_pct:.1f}%")
 
 
+def harvest_backbone_features(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    *,
+    batch_size: int = 512,
+    num_workers: int = 0,
+    device: torch.device | str = "cuda",
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return image descriptors and alignment info for the whole dataset.
+
+    Dataset augmentations are temporarily disabled while collecting
+    descriptors. The backbone is run in evaluation mode on ``device``.
+
+    Parameters
+    ----------
+    dataset : HTRDataset
+        Dataset providing images and alignment information.
+    backbone : HTRNet
+        Visual encoder used to extract per-image descriptors.
+    batch_size : int, optional
+        Mini-batch size when forwarding the dataset.
+    num_workers : int, optional
+        Worker processes used by the ``DataLoader``.
+    device : torch.device | str, optional
+        Device on which the backbone runs.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of descriptors with shape ``(N, D)`` where ``N`` is the
+        dataset size.
+    torch.Tensor
+        Alignment tensor of shape ``(N,)`` copied from the dataset.
+    """
+
+    device = torch.device(device)
+    backbone = backbone.to(device).eval()
+
+    orig_transforms = getattr(dataset, "transforms", None)
+    dataset.transforms = None
+
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    feats_buf: list[torch.Tensor] = []
+    align_buf: list[torch.Tensor] = []
+
+    with torch.no_grad():
+        for imgs, _txt, aligned in loader:
+            imgs = imgs.to(device)
+            feats = backbone(imgs, return_feats=True)[-1]
+            if feats.dim() != 2:
+                raise RuntimeError(
+                    f"Expected (B, feat_dim) descriptors, got {feats.shape}"
+                )
+            feats_buf.append(feats.cpu())
+            align_buf.append(aligned.cpu())
+
+    dataset.transforms = orig_transforms
+
+    feats_all = torch.cat(feats_buf, dim=0)
+    aligned_all = torch.cat(align_buf, dim=0)
+
+    return feats_all, aligned_all
+
+
 def calculate_ot_projections(
     pa: np.ndarray,
     X: np.ndarray,
