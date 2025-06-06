@@ -231,9 +231,11 @@ def train_projector(  # pylint: disable=too-many-arguments
                 "Non-finite values detected in projector output"
             )
             loss = criterion(pred, word_embs, align, word_probs)
-            optimiser.zero_grad(set_to_none=True)
+            
             loss.backward()
             optimiser.step()
+            optimiser.zero_grad()
+            
             running += loss.item()
         avg = running / max(1, len(proj_loader))
         if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:

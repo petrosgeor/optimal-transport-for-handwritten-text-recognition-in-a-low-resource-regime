@@ -3,7 +3,6 @@ import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
 
 
-
 def _ctc_loss_fn(
     logits: torch.Tensor,
     targets: torch.IntTensor,
@@ -12,16 +11,15 @@ def _ctc_loss_fn(
 ) -> torch.Tensor:
     """A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*."""
     log_probs = F.log_softmax(logits, dim=2)
-    return F.ctc_loss(
+    loss = F.ctc_loss(
         log_probs,
         targets,
-        inp_lens,
-        tgt_lens,
+        inp_lens.cpu(),
+        tgt_lens.cpu(),
         reduction="mean",
         zero_infinity=True,
     )
-
-
+    return loss.to(logits.device)
 
 
 class ProjectionLoss(torch.nn.Module):
@@ -62,7 +60,6 @@ class ProjectionLoss(torch.nn.Module):
     loss : torch.Tensor
         Scalar loss = OT loss + supervised alignment loss.
     """
-
     def __init__(self, reg: float = 0.1, *, unbalanced: bool = False, reg_m: float = 1.0, **sinkhorn_kwargs):
         super().__init__()
         self.reg = reg
@@ -97,13 +94,11 @@ class ProjectionLoss(torch.nn.Module):
         # create uniform source distribution
         n = descriptors.shape[0]
         a = torch.full((n,), 1.0 / n, dtype=descriptors.dtype, device=descriptors.device)
-
         # target distribution
         if not self.unbalanced:
             b = tgt_probs / tgt_probs.sum()
         else:
             b = tgt_probs
-
         # cost matrix between descriptors and word embeddings (euclidean distance)
         C = torch.cdist(descriptors, word_embeddings, p=2)
         assert C.shape == (N, M), "cost matrix shape should be (N, M)"
@@ -124,5 +119,4 @@ class ProjectionLoss(torch.nn.Module):
             aligned_descriptors = descriptors[aligned_indices]
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
             distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
-
         return ot_loss + distance_loss
