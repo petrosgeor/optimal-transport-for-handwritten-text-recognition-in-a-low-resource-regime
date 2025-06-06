@@ -89,7 +89,7 @@ def refine_visual_backbone(
         subset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,            # keep CI simple
+        num_workers=2,            # keep CI simple
         pin_memory=(device.type == "cuda"),
     )
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
@@ -120,11 +120,11 @@ def refine_visual_backbone(
             optimizer.step()
             epoch_loss += loss.item()
             effective_batches += 1
-        if effective_batches:
-            avg_loss = epoch_loss / effective_batches
-            print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        else:
-            print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+        # if effective_batches:
+        #     avg_loss = epoch_loss / effective_batches
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        # else:
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     print("[Refine] finished.")
 
 # File: alignment/alignment_trainer.py
@@ -243,8 +243,8 @@ def train_projector(  # pylint: disable=too-many-arguments
             running_loss += loss.item()
 
         avg_loss = running_loss / max(1, len(proj_loader))
-        if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
-            print(f"[Projector] epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        # if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
+        #     print(f"[Projector] epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
             
     print("[Projector] training complete ✔")
 
@@ -327,7 +327,7 @@ if __name__ == "__main__":
 
     class DummyCfg:
         k_external_words = 200   # top‑200 most frequent English words
-        n_aligned = 1000          # how many images to mark as aligned (≈ training signal)
+        n_aligned = 300          # how many images to mark as aligned (≈ training signal)
 
     dataset = HTRDataset(
         str(gw_folder),
