@@ -1,4 +1,4 @@
-import io,os
+import io, os
 import numpy as np
 import torch
 from torch.utils.data import Dataset
@@ -9,6 +9,7 @@ from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
 import random
+from typing import List
 
 class HTRDataset(Dataset):
     def __init__(self,
@@ -56,11 +57,22 @@ class HTRDataset(Dataset):
         # else:
         #     self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
         self.transcriptions = transcrs
+
+        if self.character_classes is None:
+            res = set()
+            for t in transcrs:
+                res.update(list(t))
+            res = sorted(list(res))
+            print('Character classes: {} ({} different characters)'.format(res, len(res)))
+            self.character_classes = res
+
         # External vocabulary and probabilities
         self.external_words = []
         self.external_word_probs = []
         if self.k_external_words > 0:
-            self.external_words = [w for w in top_n_list('en', self.k_external_words)] # no white spaces added
+            words = [w for w in top_n_list('en', self.k_external_words)]
+            words = self._filter_external_words(words)
+            self.external_words = words[: self.k_external_words]
             self.external_word_probs = [word_frequency(w.strip(), 'en') for w in self.external_words]
         self.external_word_embeddings = self.find_word_embeddings(self.external_words)
         # Check if each transcription is in external vocab
@@ -84,13 +96,6 @@ class HTRDataset(Dataset):
                         self.aligned[idx] = self.external_words.index(word)
                     else:
                         print(f'Warning: word {word} not found in external vocabulary')
-        if self.character_classes is None:
-            res = set()
-            for _, transcr in data:
-                res.update(list(transcr))
-            res = sorted(list(res))
-            print('Character classes: {} ({} different characters)'.format(res, len(res)))
-            self.character_classes = res
 
     def __getitem__(self, index):
         img_path = self.data[index][0]
@@ -118,6 +123,11 @@ class HTRDataset(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+    def _filter_external_words(self, words: List[str]) -> List[str]:
+        """Return words containing only known dataset characters."""
+        allowed = set(self.character_classes)
+        return [w for w in words if all(ch in allowed for ch in w)]
 
     def find_word_embeddings(self, word_list, n_components: int = 512):
         """Compute embeddings of words using pairwise Levenshtein distances."""
