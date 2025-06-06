@@ -118,6 +118,17 @@ def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metr
 * `dist_matrix`: pairwise distances used when `metric="gap"`.
 * `metric`: either `'gap'` (smallest nearest-neighbour gap) or `'entropy'`.
 
+## print_dataset_stats
+
+Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
+this helper prints some basic information about the dataset such as the number
+of samples, aligned items and external words.
+
+```python
+def print_dataset_stats(dataset):
+    """Print basic statistics about *dataset*."""
+```
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.
