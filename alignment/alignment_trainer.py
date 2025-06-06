@@ -39,6 +39,12 @@ HP = {
     "alt_rounds": 4,              # number of backbone/projector cycles
     "alt_backbone_epochs": 20,     # epochs for each backbone refinement phase
     "alt_projector_epochs": 100,    # epochs for each projector training phase
+    "align_batch_size": 512,       # mini-batch size for OT alignment
+    "align_device": "cpu",        # device used during alignment
+    "align_reg": 0.1,              # entropic regularisation for Sinkhorn
+    "align_unbalanced": False,     # use unbalanced OT formulation
+    "align_reg_m": 1.0,            # mass regularisation strength
+    "align_k": 0,                  # pseudo-label k least-moved descriptors
 }
 
 cfg_file = Path(__file__).with_name("config.yaml")
@@ -270,6 +276,12 @@ def alternating_refinement(
         projector_kwargs = {}
     if align_kwargs is None:
         align_kwargs = {}
+    align_kwargs.setdefault("batch_size", HP["align_batch_size"])
+    align_kwargs.setdefault("device", HP["align_device"])
+    align_kwargs.setdefault("reg", HP["align_reg"])
+    align_kwargs.setdefault("unbalanced", HP["align_unbalanced"])
+    align_kwargs.setdefault("reg_m", HP["align_reg_m"])
+    align_kwargs.setdefault("k", HP["align_k"])
 
     while (dataset.aligned == -1).any():
         for r in range(rounds):
