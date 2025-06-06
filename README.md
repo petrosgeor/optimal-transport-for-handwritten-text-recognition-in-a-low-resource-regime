@@ -144,6 +144,24 @@ def print_dataset_stats(dataset):
     """Print basic statistics about *dataset*."""
 ```
 
+## harvest_backbone_features
+
+Also in `alignment/alignment_utilities.py`. This routine harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
+
+```python
+def harvest_backbone_features(dataset, backbone, *, batch_size=512,
+                              num_workers=0, device="cuda"):
+    """Return (descriptors, alignment) tensors for the whole dataset."""
+```
+
+* `dataset`: dataset providing images and `aligned` flags.
+* `backbone`: network used to compute descriptors.
+* `batch_size`: mini-batch size during feature extraction.
+* `num_workers`: data loader workers used while harvesting.
+* `device`: computation device for feature extraction.
+
+Dataset augmentations are disabled while features are harvested.
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.
