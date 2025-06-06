@@ -387,7 +387,7 @@ if __name__ == "__main__":
         feat_dim=512,
     )
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
-    projector = Projector(arch.feat_dim, dataset.external_word_embeddings.size(1))
+    projector = Projector(arch.feat_dim, dataset.word_emb_dim)
 
     alternating_refinement(dataset, backbone, projector)
 
