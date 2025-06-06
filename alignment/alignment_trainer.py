@@ -17,6 +17,7 @@ from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 from alignment.alignment_utilities import align_more_instances
 from htr_base.utils.transforms import aug_transforms
+from omegaconf import OmegaConf
 
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
@@ -39,6 +40,10 @@ HP = {
     "alt_backbone_epochs": 20,     # epochs for each backbone refinement phase
     "alt_projector_epochs": 100,    # epochs for each projector training phase
 }
+
+cfg_file = Path(__file__).with_name("config.yaml")
+if cfg_file.is_file():
+    HP.update(OmegaConf.load(cfg_file))
 
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #

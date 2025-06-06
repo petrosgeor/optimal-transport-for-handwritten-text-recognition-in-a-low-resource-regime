@@ -1,0 +1,13 @@
+refine_batch_size: 128
+refine_lr: 1e-4
+refine_main_weight: 1.0
+refine_aux_weight: 0.1
+projector_epochs: 150
+projector_batch_size: 4000
+projector_lr: 1e-4
+projector_workers: 1
+projector_weight_decay: 1e-4
+device: cuda
+alt_rounds: 4
+alt_backbone_epochs: 20
+alt_projector_epochs: 100
