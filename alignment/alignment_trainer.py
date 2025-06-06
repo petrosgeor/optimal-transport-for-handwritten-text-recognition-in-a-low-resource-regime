@@ -267,7 +267,11 @@ def train_projector(  # pylint: disable=too-many-arguments
             # --- Optimization Step ---
             
             loss.backward()
-            grad_ok = all(torch.isinf(p.grad).all() for p in projector.parameters())
+            grad_ok = all(
+                torch.isfinite(p.grad).all()
+                for p in projector.parameters()
+                if p.grad is not None
+            )
             assert grad_ok, 'gradient explosion in projector - contains NaN/Inf'
 
             # (CRITICAL) Gradient Clipping: Prevents exploding gradients from corrupting model weights.
