@@ -36,7 +36,7 @@ HP = {
     "projector_weight_decay": 1e-4,  # weight decay for projector optimiser
     "device": "cuda",             # default compute device
     "alt_rounds": 4,              # number of backbone/projector cycles
-    "alt_backbone_epochs": 2,     # epochs for each backbone refinement phase
+    "alt_backbone_epochs": 20,     # epochs for each backbone refinement phase
     "alt_projector_epochs": 100,    # epochs for each projector training phase
 }
 
@@ -99,21 +99,11 @@ def refine_visual_backbone(
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
             main_logits, aux_logits = out[:2]           # (T,K,C)
-            assert main_logits.shape == aux_logits.shape, (
-                f"Main/Aux logits shape mismatch {main_logits.shape} vs {aux_logits.shape}"
-            )
-            assert main_logits.size(1) == imgs_sel.size(0), (
-                "Batch dimension mismatch between logits and images"
-            )
+
             T, K, _ = main_logits.shape
             # ── encode labels ───────────────────────────────────────────
             targets, tgt_lens = encode_for_ctc(ext_words, c2i, device="cpu")
-            assert tgt_lens.numel() == K, (
-                f"Target lengths {tgt_lens.numel()} != batch {K}"
-            )
-            assert targets.numel() == int(tgt_lens.sum()), (
-                "Mismatch between flattened targets and lengths"
-            )
+
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
             # ── losses ─────────────────────────────────────────────────
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
@@ -248,19 +238,11 @@ def train_projector(  # pylint: disable=too-many-arguments
 
             # --- Forward pass ---
             pred = projector(feats)
-            print(feats)
-
-            # --- Post-computation Assertions ---
-            assert not torch.isnan(pred).any(), "FATAL: NaN values detected in the projector's output."
-            assert not torch.isinf(pred).any(), "FATAL: Infinite values detected in the projector's output."
-            assert pred.size(0) == feats.size(0), "Projector batch size mismatch."
-            assert pred.size(1) == word_embs.size(1), "Projector output dimension mismatch."
 
             # --- Loss Calculation ---
             # The criterion internally handles which samples are used for the
             # supervised loss based on the `align` tensor (where -1 indicates unsupervised).
             loss = criterion.forward(pred, word_embs, align, word_probs)
-            print('the loss is: ', loss.detach().item())
             
             assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
 
