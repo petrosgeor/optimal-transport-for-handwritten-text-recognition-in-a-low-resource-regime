@@ -287,33 +287,23 @@ def align_more_instances(
     if word_embs is None:
         raise RuntimeError("dataset.external_word_embeddings is required")
 
-    # Temporarily disable dataset augmentations while harvesting descriptors
-    orig_transforms = getattr(dataset, "transforms", None)
-    dataset.transforms = None
-
     feat_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    loader = torch.utils.data.DataLoader(
+
+    # Harvest features using the utility function
+    # harvest_backbone_features handles backbone.eval(), torch.no_grad(),
+    # and moving features to CPU. It also handles dataset transforms.
+    feats, _ = harvest_backbone_features(
         dataset,
+        backbone,
         batch_size=batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=(feat_device.type == "cuda"),
+        num_workers=0, # Match current num_workers in the removed loader
+        device=feat_device
     )
 
-    backbone.eval().to(feat_device)
-    projector.eval().to("cpu")
-
-    feats_all = []
-    with torch.no_grad():
-        for imgs, _txt, _aligned in loader:
-            imgs = imgs.to(feat_device)
-            feat = backbone(imgs)[-1]
-            feats_all.append(feat.cpu())
-
-    if not feats_all:
+    if feats.numel() == 0:
         raise RuntimeError("Dataset yielded no images")
 
-    feats = torch.cat(feats_all, dim=0)  # (N, D)
+    projector.eval().to("cpu")
     proj_feats = projector(feats).detach()  # (N, E)
     assert torch.isfinite(proj_feats).all(), (
         "Non-finite values detected in projector features"
@@ -384,8 +374,8 @@ def align_more_instances(
         old_aligned[old_aligned != -1],
     ), "Pre-aligned items were modified"
 
-    # Restore original dataset transforms and training modes
-    dataset.transforms = orig_transforms
+    # Restore training modes
+    # dataset.transforms is handled by harvest_backbone_features
     backbone.train()
     projector.train()
 
