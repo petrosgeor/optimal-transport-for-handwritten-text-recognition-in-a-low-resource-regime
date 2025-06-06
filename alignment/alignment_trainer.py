@@ -78,8 +78,15 @@ def refine_visual_backbone(
     backbone.train().to(device)
     # Build CTC mapping once.
     c2i, _ = _build_vocab_dicts(dataset)
+
+    aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
+    if len(aligned_indices) == 0:
+        print("[Refine] no pre-aligned samples found – aborting.")
+        return
+    subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
+
     dataloader = DataLoader(
-        dataset,
+        subset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=0,            # keep CI simple
@@ -90,17 +97,10 @@ def refine_visual_backbone(
         epoch_loss: float = 0.0
         effective_batches = 0
         for imgs, _, aligned in dataloader:  # we ignore the transcription string
-            aligned_mask = aligned != -1
-            if not aligned_mask.any():
-                # nothing to learn from this mini‑batch
-                continue
-            # ── select only aligned items ────────────────────────────────
-            sel_idx = aligned_mask.nonzero(as_tuple=True)[0]             # (K,)
-            imgs_sel = imgs[sel_idx].to(device)                          # (K,1,H,W)
-            aligned_ids = aligned[sel_idx].tolist()                     # List[int]
-            ext_words = [dataset.external_words[i] for i in aligned_ids]
+            imgs = imgs.to(device)
+            ext_words = [dataset.external_words[i] for i in aligned.tolist()]
             # ── forward ─────────────────────────────────────────────────
-            out = backbone(imgs_sel, return_feats=False)
+            out = backbone(imgs, return_feats=False)
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
             main_logits, aux_logits = out[:2]           # (T,K,C)
