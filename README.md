@@ -100,6 +100,20 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 
 Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
 
+## select_uncertain_instances
+
+Located in `alignment/alignment_utilities.py`. Given either a distance matrix or a transport plan, this helper returns the indices of the most uncertain dataset instances.
+
+```python
+def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metric="gap"):
+    """Return indices of the ``m`` most uncertain dataset items."""
+```
+
+* `m`: how many indices to return.
+* `transport_plan`: OT matrix used when `metric="entropy"`.
+* `dist_matrix`: pairwise distances used when `metric="gap"`.
+* `metric`: either `'gap'` (smallest nearest-neighbour gap) or `'entropy'`.
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.

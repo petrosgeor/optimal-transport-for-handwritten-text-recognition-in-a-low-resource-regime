@@ -69,6 +69,61 @@ def calculate_ot_projections(
     return projections, T
 
 
+def select_uncertain_instances(
+    m: int,
+    *,
+    transport_plan: Optional[np.ndarray] = None,
+    dist_matrix: Optional[np.ndarray] = None,
+    metric: str = "gap",
+) -> np.ndarray:
+    """Return indices of the ``m`` most uncertain instances.
+
+    Parameters
+    ----------
+    m : int
+        Number of indices to return.
+    transport_plan : np.ndarray, optional
+        OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.
+    dist_matrix : np.ndarray, optional
+        Pre-computed pairwise distances ``(N, V)``. Required for
+        ``metric='gap'``.
+    metric : str, optional
+        Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.
+
+    Returns
+    -------
+    np.ndarray
+        Array of ``m`` indices sorted by decreasing uncertainty.
+    """
+    if metric not in {"gap", "entropy"}:
+        raise ValueError("metric must be 'gap' or 'entropy'")
+
+    if m <= 0:
+        raise ValueError("m must be positive")
+
+    if metric == "gap":
+        if dist_matrix is None:
+            raise ValueError("dist_matrix required for metric='gap'")
+        assert dist_matrix.ndim == 2, "dist_matrix must be 2D"
+        n = dist_matrix.shape[0]
+        assert m <= n, "m cannot exceed number of dataset instances"
+        sorted_d = np.sort(dist_matrix, axis=1)
+        gaps = sorted_d[:, 1] - sorted_d[:, 0]
+        order = np.argsort(gaps)
+    else:
+        if transport_plan is None:
+            raise ValueError("transport_plan required for metric='entropy'")
+        assert transport_plan.ndim == 2, "transport_plan must be 2D"
+        n = transport_plan.shape[0]
+        assert m <= n, "m cannot exceed number of dataset instances"
+        row_sum = transport_plan.sum(axis=1, keepdims=True)
+        p = np.divide(transport_plan, row_sum, out=np.zeros_like(transport_plan), where=row_sum != 0)
+        ent = -np.sum(p * np.log(p + 1e-12), axis=1)
+        order = np.argsort(-ent)
+
+    return order[:m]
+
+
 def align_more_instances(
     dataset: HTRDataset,
     backbone: HTRNet,
