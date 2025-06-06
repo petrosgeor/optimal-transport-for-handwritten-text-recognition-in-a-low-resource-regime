@@ -107,7 +107,7 @@ def refine_visual_backbone(
             )
             T, K, _ = main_logits.shape
             # ── encode labels ───────────────────────────────────────────
-            targets, tgt_lens = encode_for_ctc(ext_words, c2i, device=device)
+            targets, tgt_lens = encode_for_ctc(ext_words, c2i, device="cpu")
             assert tgt_lens.numel() == K, (
                 f"Target lengths {tgt_lens.numel()} != batch {K}"
             )
