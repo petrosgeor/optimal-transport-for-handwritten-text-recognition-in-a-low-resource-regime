@@ -36,7 +36,7 @@ HP = {
     "projector_weight_decay": 1e-4,  # weight decay for projector optimiser
     "device": "cuda",             # default compute device
     "alt_rounds": 4,              # number of backbone/projector cycles
-    "alt_backbone_epochs": 10,     # epochs for each backbone refinement phase
+    "alt_backbone_epochs": 2,     # epochs for each backbone refinement phase
     "alt_projector_epochs": 100,    # epochs for each projector training phase
 }
 
@@ -132,6 +132,9 @@ def refine_visual_backbone(
             print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     print("[Refine] finished.")
 
+# File: alignment/alignment_trainer.py
+
+
 def train_projector(  # pylint: disable=too-many-arguments
     dataset: "HTRDataset",
     backbone: "HTRNet",
@@ -143,105 +146,141 @@ def train_projector(  # pylint: disable=too-many-arguments
     weight_decay: float = HP["projector_weight_decay"],
     device: torch.device | str = HP["device"],
 ) -> None:
-    """Freeze *backbone*, collect image descriptors -> train *projector* with OT loss.
-
-    All images are first forwarded through `backbone` **without augmentation** so
-    that a descriptor is obtained for every sample. The descriptors together with
-    their `aligned` indices and `is_in_dict` flags are cached inside a temporary
-    :class:`torch.utils.data.TensorDataset`. The `projector` is then optimised
-    using :class:`ProjectionLoss` on this dataset.
+    """
+    Freeze `backbone`, collect all image descriptors, and then train the `projector`
+    using a combination of an unsupervised Optimal Transport loss on all samples
+    and a supervised MSE loss on the subset of pre-aligned samples.
+    
+    All images are first forwarded through the frozen `backbone` **without
+    augmentation** to obtain a stable descriptor for every sample. These descriptors,
+    along with their alignment information, are cached in a temporary TensorDataset.
+    The `projector` is then optimised using this dataset.
     """
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
     backbone = backbone.to(device).eval()          # freeze visual encoder
     projector = projector.to(device).train()       # learnable mapping
-
-    word_embs_cpu = dataset.external_word_embeddings  # (V, E)
+    
+    word_embs_cpu = dataset.external_word_embeddings
     if word_embs_cpu is None:
-        raise RuntimeError("dataset.external_word_embeddings is required")
-
-    # target probability for each external word – use uniform if absent
-    if hasattr(dataset, "external_word_probs") and dataset.external_word_probs is not None:
-        word_probs_cpu = dataset.external_word_probs.float()
+        raise RuntimeError("FATAL: dataset.external_word_embeddings is required but was not found.")
+        
+    # Target probability for each external word – use uniform if absent
+    # --- THIS BLOCK IS NOW FIXED ---
+    probs_attr = getattr(dataset, "external_word_probs", None)
+    if probs_attr is not None and len(probs_attr) > 0:
+        if isinstance(probs_attr, list):
+            word_probs_cpu = torch.tensor(probs_attr, dtype=torch.float)
+        else: # It's already a tensor
+            word_probs_cpu = probs_attr.float()
     else:
         v = word_embs_cpu.size(0)
+        print("Warning: `dataset.external_word_probs` not found or is empty. Using uniform distribution.")
         word_probs_cpu = torch.full((v,), 1.0 / v)
-
+        
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
+
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
-    feats_buf, align_buf, dict_buf = [], [], []
-    subset_bak = dataset.subset
+    # It's crucial to disable augmentations during this phase to get consistent
+    # features for each image.
+    feats_buf, align_buf = [], []
+    
+    # Backup and temporarily modify dataset state for harvesting
     transforms_bak = dataset.transforms
-    if dataset.subset == "train":
-        dataset.subset = "eval"
     dataset.transforms = None
+    
     harvest_loader = DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=False,
+        shuffle=False, # Shuffle must be False to maintain order
         num_workers=num_workers,
         pin_memory=(device.type == "cuda"),
     )
-    start = 0
+    
+    print("Harvesting image descriptors from the backbone...")
     with torch.no_grad():
         for imgs, _txt, aligned in harvest_loader:
             imgs = imgs.to(device)
-            out = backbone(imgs)
-            feats = out[-1]
+            # The last element of the backbone's output is the feature descriptor
+            feats = backbone(imgs, return_feats=True)[-1]
             if feats.dim() != 2:
-                raise RuntimeError("Expected (B, feat_dim) descriptors")
-            end = start + imgs.size(0)
+                raise RuntimeError(f"Expected (B, feat_dim) descriptors, but got shape {feats.shape}")
+                
             feats_buf.append(feats.cpu())
             align_buf.append(aligned.cpu())
-            dict_buf.append(dataset.is_in_dict[start:end].clone())
-            start = end
-    dataset.subset = subset_bak
+
+    # Restore dataset's original state
     dataset.transforms = transforms_bak
-    if not feats_buf:
-        raise RuntimeError("Empty dataset – cannot train projector")
+    
+
+    # Consolidate all harvested data into single tensors
     feats_all = torch.cat(feats_buf, dim=0)
     aligned_all = torch.cat(align_buf, dim=0)
-    dict_all = torch.cat(dict_buf, dim=0)
-    # ---------------------------------------------------------------- 2. Loader for projector training only
+
+    # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
+    # This loader will shuffle the collected features for effective training.
     proj_loader = DataLoader(
-        TensorDataset(feats_all, aligned_all, dict_all),
+        TensorDataset(feats_all, aligned_all),
         batch_size=batch_size,
-        shuffle=True,
+        shuffle=True, # Shuffle is True here for training
         pin_memory=(device.type == "cuda"),
     )
+
     # ---------------------------------------------------------------- 3. Optimiser + loss
     criterion = ProjectionLoss().to(device)
     optimiser = optim.AdamW(projector.parameters(), lr=lr, weight_decay=weight_decay)
-    # ---------------------------------------------------------------- 4. Training loop
-    for epoch in range(1, num_epochs + 1):
-        running = 0.0
-        for feats_cpu, align_cpu, dict_cpu in proj_loader:
-            mask = dict_cpu.bool()
-            if not mask.any():
-                continue
-            feats = feats_cpu[mask].to(device)
-            align = align_cpu[mask].to(device)
-            pred = projector(feats)
-            assert pred.size(0) == feats.size(0), "Projector batch size mismatch"
-            assert pred.size(1) == word_embs.size(1), (
-                "Projector output dimension mismatch"
-            )
-            assert torch.isfinite(pred).all(), (
-                "Non-finite values detected in projector output"
-            )
-            loss = criterion(pred, word_embs, align, word_probs)
-            
-            loss.backward()
-            optimiser.step()
-            optimiser.zero_grad()
-            
-            running += loss.item()
-        avg = running / max(1, len(proj_loader))
-        if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
-            print(f"[Projector] epoch {epoch:03}/{num_epochs}  loss={avg:.4f}")
 
+    # ---------------------------------------------------------------- 4. Training loop
+    print("Starting projector training...")
+    for epoch in range(1, num_epochs + 1):
+        running_loss = 0.0
+        # The dataloader now yields batches of (features, alignment_info)
+        for feats_cpu, align_cpu in proj_loader:
+            
+            # Move the entire batch to the training device. No filtering!
+            feats = feats_cpu.to(device)
+            align = align_cpu.to(device)
+
+            # --- Pre-computation Assertions ---
+            assert torch.isfinite(feats).all(), \
+                "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
+
+            # --- Forward pass ---
+            pred = projector(feats)
+            print(feats)
+
+            # --- Post-computation Assertions ---
+            assert not torch.isnan(pred).any(), "FATAL: NaN values detected in the projector's output."
+            assert not torch.isinf(pred).any(), "FATAL: Infinite values detected in the projector's output."
+            assert pred.size(0) == feats.size(0), "Projector batch size mismatch."
+            assert pred.size(1) == word_embs.size(1), "Projector output dimension mismatch."
+
+            # --- Loss Calculation ---
+            # The criterion internally handles which samples are used for the
+            # supervised loss based on the `align` tensor (where -1 indicates unsupervised).
+            loss = criterion(pred, word_embs, align, word_probs)
+            print('the loss is: ', loss.detach().item())
+            
+            assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
+
+            # --- Optimization Step ---
+            optimiser.zero_grad(set_to_none=True)
+            loss.backward()
+
+            # (CRITICAL) Gradient Clipping: Prevents exploding gradients from corrupting model weights.
+            torch.nn.utils.clip_grad_norm_(projector.parameters(), max_norm=1.0)
+            
+            optimiser.step()
+            
+            running_loss += loss.item()
+
+        avg_loss = running_loss / max(1, len(proj_loader))
+        if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
+            print(f"[Projector] epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+            
     print("[Projector] training complete ✔")
+
 
 
 def alternating_refinement(
