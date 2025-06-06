@@ -11,6 +11,7 @@ htr_base/saved_models/
 instructions.txt
 
 tests/figures/
+tests/test_projloss.py
 
 # Ignore all __pycache__ directories
 __pycache__/

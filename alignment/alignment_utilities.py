@@ -46,7 +46,7 @@ def harvest_backbone_features(
     *,
     batch_size: int = 512,
     num_workers: int = 0,
-    device: torch.device | str = "cuda",
+    device: torch.device = "cuda",
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return image descriptors and alignment info for the whole dataset.
 
