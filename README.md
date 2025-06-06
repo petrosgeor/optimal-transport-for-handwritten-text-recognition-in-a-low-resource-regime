@@ -164,7 +164,7 @@ Dataset augmentations are disabled while features are harvested.
 
 ## refine\_visual\_backbone
 
-Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.
+Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
 
 ```python
 def refine_visual_backbone(dataset, backbone, num_epochs, *, batch_size=128,
