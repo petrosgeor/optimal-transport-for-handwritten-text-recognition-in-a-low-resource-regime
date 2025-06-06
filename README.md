@@ -131,6 +131,18 @@ def plot_dataset_augmentations(dataset, save_path):
 * `dataset`: `HTRDataset` instance with augmentation transforms.
 * `save_path`: where to write the resulting PNG file.
 
+
+## print_dataset_stats
+
+Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
+this helper prints some basic information about the dataset such as the number
+of samples, aligned items and external words.
+
+```python
+def print_dataset_stats(dataset):
+    """Print basic statistics about *dataset*."""
+```
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words.

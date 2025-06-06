@@ -14,6 +14,31 @@ from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
 
 
+def print_dataset_stats(dataset: HTRDataset) -> None:
+    """Print basic statistics about a dataset instance.
+
+    Parameters
+    ----------
+    dataset : HTRDataset
+        Dataset to inspect.
+    """
+    n_samples = len(dataset)
+    n_aligned = int((dataset.aligned != -1).sum().item())
+    n_external = len(getattr(dataset, "external_words", []))
+    vocab_size = len(getattr(dataset, "character_classes", []))
+    in_dict_pct = 0.0
+    if hasattr(dataset, "is_in_dict") and dataset.is_in_dict.numel() > 0:
+        in_dict_pct = 100 * float(dataset.is_in_dict.sum().item()) / dataset.is_in_dict.numel()
+
+    print("Dataset statistics:")
+    print(f"  subset: {dataset.subset}")
+    print(f"  samples: {n_samples}")
+    print(f"  aligned: {n_aligned}")
+    print(f"  external words: {n_external}")
+    print(f"  vocabulary size: {vocab_size}")
+    print(f"  in-dictionary: {in_dict_pct:.1f}%")
+
+
 def calculate_ot_projections(
     pa: np.ndarray,
     X: np.ndarray,
