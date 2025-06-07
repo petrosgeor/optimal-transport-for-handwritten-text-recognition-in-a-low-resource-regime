@@ -1,7 +1,7 @@
 # Ignore data and saved models directories
 htr_base/data/
 htr_base/saved_models/
-
+tests/figures/
 # Ignore all __pycache__ directories
 __pycache__/
 **/__pycache__/
