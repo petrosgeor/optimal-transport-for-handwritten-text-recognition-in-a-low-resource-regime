@@ -132,6 +132,7 @@ class HTRDataset(Dataset):
                 img_b = torch.cat([v1_b, v2_b], dim=-1)
                 img_a = F.interpolate(img_a.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
                 img_b = F.interpolate(img_b.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
+
                 transcr = f" {transcr1.strip()}   {transcr2.strip()} "
                 return (img_a, img_b), transcr, self.aligned[index]
             else:
@@ -139,6 +140,7 @@ class HTRDataset(Dataset):
                 img_b = build_view(img2)
                 img_cat = torch.cat([img_a, img_b], dim=-1)
                 img_cat = F.interpolate(img_cat.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
+
                 transcr = f" {transcr1.strip()}   {transcr2.strip()} "
                 return img_cat, transcr, self.aligned[index]
         else:

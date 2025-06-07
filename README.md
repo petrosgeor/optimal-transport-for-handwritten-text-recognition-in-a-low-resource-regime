@@ -53,6 +53,7 @@ Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` 
 
 If `concat_prob` is greater than `0`, two line images may be stitched horizontally and resized back to `fixed_size`. The transcription then contains both ground-truth strings separated by **three** spaces.
 
+
 ## encode\_for\_ctc
 
 Defined in `alignment/ctc_utils.py`. This helper converts a batch of strings into the flattened `(targets, lengths)` representation required by `torch.nn.CTCLoss`.

@@ -3,6 +3,7 @@ from pathlib import Path
 
 
 def test_concat_prob_fixed_width_and_transcription():
+
     proj_root = Path(__file__).resolve().parents[1]
     if str(proj_root) not in sys.path:
         sys.path.insert(0, str(proj_root))
@@ -31,3 +32,4 @@ def test_concat_prob_fixed_width_and_transcription():
     for img_t in batch_imgs:
         assert img_t.shape[-2:] == ds.fixed_size
     assert batch_transcrs[0] == expected
+
