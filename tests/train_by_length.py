@@ -151,18 +151,20 @@ def _ctc_loss_fn(logits: torch.Tensor,
 # examples are printed, as well as CER by word length and overall.
 # ---------------------------------------------------------------------
 def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
-                  device, k: int, show_max: int = 5) -> float:
-    """Compute CER over *loader* and print a few (gt, pred) pairs.
+                  device, k: int, show_max: int = 5,
+                  *, seed: int | None = None) -> float:
+    """Compute CER over *loader* and print a random selection of pairs.
     In addition to the global CER, compute per-word-length CERs and
     display the relative proportion of each length in the dataset.
     Also calculate and print CER for transcriptions with length <= k and > k.
     The number of samples contributing to each CER is printed as well.
+    If ``seed`` is given, the random examples are reproducible.
     """
     model.eval()
     cer_less_equal_k = CER()
     cer_greater_k = CER()
     cer_total = CER()
-    shown = 0
+    pairs: List[Tuple[str, str]] = []
     per_len: Dict[int, Tuple[CER, int]] = {}
     num_le_k = 0
     num_gt_k = 0
@@ -177,11 +179,9 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 logits = logits[0]
             preds = greedy_ctc_decode(logits, i2c)
             for p, t in zip(preds, transcrs):
-                if shown < show_max:
-                    print(f"GT: '{t.strip()}'\nPR: '{p.strip()}'\n")
-                    shown += 1
                 gt_stripped = t.strip()
                 pred_stripped = p.strip()
+                pairs.append((gt_stripped, pred_stripped))
                 cer_total.update(pred_stripped, gt_stripped)
                 num_total += 1
                 transcription_len_no_spaces = len(gt_stripped.replace(" ", ""))
@@ -199,6 +199,11 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
                 per_len[l][0].update(pred_stripped, gt_stripped)
                 per_len[l] = (per_len[l][0], per_len[l][1] + 1)
     model.train()
+
+    # Show a random subset of prediction examples
+    rng = random.Random(seed) if seed is not None else random
+    for gt, pr in rng.sample(pairs, k=min(show_max, len(pairs))):
+        print(f"GT: '{gt}'\nPR: '{pr}'\n")
     print(
         f"\nCER for transcriptions with length <= {k}: {cer_less_equal_k.score():.4f} (n={num_le_k})"
     )
