@@ -19,7 +19,8 @@ class HTRDataset(Dataset):
         transforms: list = None,                 # List of augmentation transforms to apply on input
         character_classes: list = None,          # If None, computed automatically; else list of characters
         config=None,                            # Configuration object with optional parameters
-        two_views: bool = False                 # Whether to return two views of each image
+        two_views: bool = False,                # Whether to return two views of each image
+        concat_prob: float = 0.0                # Probability of concatenating two samples
         ):
         self.basefolder = basefolder
         self.subset = subset
@@ -28,6 +29,7 @@ class HTRDataset(Dataset):
         self.character_classes = character_classes
         self.config = config
         self.two_views = two_views
+        self.concat_prob = concat_prob
         self.k_external_words = 0
         self.n_aligned = 0
         self.word_emb_dim = 512
@@ -99,7 +101,7 @@ class HTRDataset(Dataset):
 
     def __getitem__(self, index):
         img_path = self.data[index][0]
-        transcr = " " + self.data[index][1] + " "
+        transcr1 = " " + self.data[index][1] + " "
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
 
@@ -113,13 +115,36 @@ class HTRDataset(Dataset):
                 im = self.transforms(image=im)['image']
             return torch.Tensor(im).float().unsqueeze(0)
 
-        if self.two_views:
-            img1 = build_view(img.copy())
-            img2 = build_view(img.copy())
-            return (img1, img2), transcr, self.aligned[index]
+        rand = random.random()
+        if rand < self.concat_prob:
+            idx2 = random.randint(0, len(self.data) - 1)
+            img_path2 = self.data[idx2][0]
+            transcr2 = " " + self.data[idx2][1] + " "
+            img2 = load_image(img_path2)
+
+            if self.two_views:
+                v1_a = build_view(img.copy())
+                v1_b = build_view(img.copy())
+                v2_a = build_view(img2.copy())
+                v2_b = build_view(img2.copy())
+                img_a = torch.cat([v1_a, v2_a], dim=-1)
+                img_b = torch.cat([v1_b, v2_b], dim=-1)
+                transcr = f" {transcr1.strip()}   {transcr2.strip()} "
+                return (img_a, img_b), transcr, self.aligned[index]
+            else:
+                img_a = build_view(img)
+                img_b = build_view(img2)
+                img_cat = torch.cat([img_a, img_b], dim=-1)
+                transcr = f" {transcr1.strip()}   {transcr2.strip()} "
+                return img_cat, transcr, self.aligned[index]
         else:
-            img_tensor = build_view(img)
-            return img_tensor, transcr, self.aligned[index]
+            if self.two_views:
+                img1 = build_view(img.copy())
+                img2 = build_view(img.copy())
+                return (img1, img2), transcr1, self.aligned[index]
+            else:
+                img_tensor = build_view(img)
+                return img_tensor, transcr1, self.aligned[index]
 
     def __len__(self):
         return len(self.data)

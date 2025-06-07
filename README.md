@@ -45,10 +45,13 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 * `character_classes`: list of characters. If `None`, the dataset infers it from the data.
 * `word_emb_dim`: dimensionality of the MDS word embeddings (default `512`).
 * `two_views`: if `True`, `__getitem__` returns two randomly augmented views of the same line image.
+* `concat_prob`: probability of concatenating two random samples when fetching a datum.
 * The external vocabulary is automatically filtered so that all words only contain characters present in the dataset.
 
 If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, alignment_id)`.
 Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` and `img2` are independent views of the same image.
+
+If `concat_prob` is greater than `0`, two line images may be stitched horizontally. The returned tensor then has width `2 * fixed_size[1]` and the transcription contains both ground-truth strings separated by **three** spaces.
 
 ## encode\_for\_ctc
 
