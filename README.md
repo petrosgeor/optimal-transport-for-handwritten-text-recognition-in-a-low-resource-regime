@@ -51,7 +51,8 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, alignment_id)`.
 Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` and `img2` are independent views of the same image.
 
-If `concat_prob` is greater than `0`, two line images may be stitched horizontally. The returned tensor then has width `2 * fixed_size[1]` and the transcription contains both ground-truth strings separated by **three** spaces.
+If `concat_prob` is greater than `0`, two line images may be stitched horizontally and resized back to `fixed_size`. The transcription then contains both ground-truth strings separated by **three** spaces.
+
 
 ## encode\_for\_ctc
 

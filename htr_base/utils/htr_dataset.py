@@ -1,6 +1,7 @@
 import io, os
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 from os.path import isfile
 from skimage.transform import resize
@@ -124,17 +125,22 @@ class HTRDataset(Dataset):
 
             if self.two_views:
                 v1_a = build_view(img.copy())
-                v1_b = build_view(img.copy())
                 v2_a = build_view(img2.copy())
+                v1_b = build_view(img.copy())
                 v2_b = build_view(img2.copy())
                 img_a = torch.cat([v1_a, v2_a], dim=-1)
                 img_b = torch.cat([v1_b, v2_b], dim=-1)
+                img_a = F.interpolate(img_a.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
+                img_b = F.interpolate(img_b.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
+
                 transcr = f" {transcr1.strip()}   {transcr2.strip()} "
                 return (img_a, img_b), transcr, self.aligned[index]
             else:
                 img_a = build_view(img)
                 img_b = build_view(img2)
                 img_cat = torch.cat([img_a, img_b], dim=-1)
+                img_cat = F.interpolate(img_cat.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
+
                 transcr = f" {transcr1.strip()}   {transcr2.strip()} "
                 return img_cat, transcr, self.aligned[index]
         else:
