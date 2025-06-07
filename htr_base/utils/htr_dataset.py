@@ -21,7 +21,7 @@ class HTRDataset(Dataset):
         character_classes: list = None,          # If None, computed automatically; else list of characters
         config=None,                            # Configuration object with optional parameters
         two_views: bool = False,                # Whether to return two views of each image
-        concat_prob: float = 0.0                # Probability of concatenating two samples
+        concat_prob: float = 0.0                # Probability of concatenating a sample with itself
         ):
         self.basefolder = basefolder
         self.subset = subset
@@ -118,10 +118,8 @@ class HTRDataset(Dataset):
 
         rand = random.random()
         if rand < self.concat_prob:
-            idx2 = random.randint(0, len(self.data) - 1)
-            img_path2 = self.data[idx2][0]
-            transcr2 = " " + self.data[idx2][1] + " "
-            img2 = load_image(img_path2)
+            transcr2 = transcr1
+            img2 = img
 
             if self.two_views:
                 v1_a = build_view(img.copy())
@@ -133,7 +131,7 @@ class HTRDataset(Dataset):
                 img_a = F.interpolate(img_a.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
                 img_b = F.interpolate(img_b.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
 
-                transcr = f" {transcr1.strip()}   {transcr2.strip()} "
+                transcr = f" {transcr1.strip()}   {transcr1.strip()} "
                 return (img_a, img_b), transcr, self.aligned[index]
             else:
                 img_a = build_view(img)
@@ -141,7 +139,7 @@ class HTRDataset(Dataset):
                 img_cat = torch.cat([img_a, img_b], dim=-1)
                 img_cat = F.interpolate(img_cat.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
 
-                transcr = f" {transcr1.strip()}   {transcr2.strip()} "
+                transcr = f" {transcr1.strip()}   {transcr1.strip()} "
                 return img_cat, transcr, self.aligned[index]
         else:
             if self.two_views:
