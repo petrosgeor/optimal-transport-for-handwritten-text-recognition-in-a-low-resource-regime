@@ -165,7 +165,7 @@ class HTRDataset(Dataset):
         emb = mds.fit_transform(dist_matrix)
         return torch.FloatTensor(emb)
 
-    def save_image(self, index: int, out_dir: str, filename: str | None = None) -> str:
+    def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
         """Save the preprocessed image at *index* to *out_dir* and return its path."""
         img_path = self.data[index][0]
         img = load_image(img_path)
