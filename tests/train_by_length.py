@@ -283,12 +283,22 @@ def refine_visual_model(dataset: HTRDataset,
         for imgs, trans, _ in train_loader:
             imgs = imgs.to(device)
             targets_s = [t if t.startswith(" ") else f" {t.strip()} " for t in trans]
-            main_logits, aux_logits = backbone(imgs, return_feats=False)[:2]
+            outputs = backbone(imgs, return_feats=False)
+            if isinstance(outputs, (tuple, list)):
+                main_logits = outputs[0]
+                aux_logits = outputs[1] if len(outputs) > 1 else None
+            else:
+                main_logits = outputs
+                aux_logits = None
             T, B, _ = main_logits.shape
             targets, tgt_lens = encode_for_ctc(targets_s, c2i, device="cpu")
             inp_lens = torch.full((B,), T, dtype=torch.int32)
             loss_m = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_a = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+            loss_a = (
+                _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+                if aux_logits is not None
+                else torch.tensor(0.0, device=main_logits.device)
+            )
             loss = main_weight * loss_m + aux_weight * loss_a
             opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
             epoch_loss += loss.item(); effective_batches += 1
