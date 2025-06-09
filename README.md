@@ -40,6 +40,7 @@ model = HTRNet(arch, nclasses=80 + 1)
 Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and corresponding transcriptions. It automatically builds the character vocabulary if not provided. Main arguments include:
 
 * `basefolder`: root folder containing `train/`, `val/` and `test/` subdirectories with a `gt.txt` file inside each.
+* **Data path**: the default configuration expects processed line images under `./data/IAM/processed_lines`.  A small sample dataset for the unit tests lives in `htr_base/data/GW/processed_words`.
 * `fixed_size`: target `(height, width)` used to resize images.
 * `transforms`: optional Albumentations augmentation pipeline applied to the images.
 * `character_classes`: list of characters. If `None`, the dataset infers it from the data.
