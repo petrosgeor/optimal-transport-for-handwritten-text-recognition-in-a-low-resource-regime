@@ -10,4 +10,4 @@ torch==2.0.1
 tqdm==4.64.0
 editdistance==0.8.1
 wordfreq
-POT
+matplotlib==3.8.3

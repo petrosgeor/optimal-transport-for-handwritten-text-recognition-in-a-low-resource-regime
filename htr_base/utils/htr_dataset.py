@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from os.path import isfile
 from skimage.transform import resize
 from utils.preprocessing import load_image, preprocess
+import matplotlib.pyplot as plt
 
 class HTRDataset(Dataset): 
     def __init__(self, 
@@ -59,3 +60,32 @@ class HTRDataset(Dataset):
     
     def __len__(self):
         return len(self.data)
+
+    def plot_image(self, index, save_dir):
+        """Save the image at ``index`` to ``save_dir`` as a PNG file.
+
+        Parameters
+        ----------
+        index : int
+            Index of the sample to save.
+        save_dir : str
+            Directory where the image file will be stored. It will be
+            created if it does not exist.
+        """
+
+        if index < 0 or index >= len(self.data):
+            raise IndexError("index out of range")
+
+        if not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+
+        img_path = self.data[index][0]
+        img = load_image(img_path)
+
+        plt.imshow(img, cmap="gray")
+        plt.axis("off")
+        out_path = os.path.join(save_dir, os.path.basename(img_path))
+        plt.savefig(out_path, bbox_inches="tight", pad_inches=0)
+        plt.close()
+
+        return out_path
