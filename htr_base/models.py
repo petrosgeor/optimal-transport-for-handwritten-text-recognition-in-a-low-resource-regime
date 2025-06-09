@@ -130,6 +130,26 @@ class CTCtopB(nn.Module):
         aux = self.cnn(x).permute(2,3,0,1)[0]
         return y, aux
 
+class CTCtopT(nn.Module):
+    """Transformer-based CTC head."""
+    def __init__(self, input_size, transf_cfg, nclasses):
+        super().__init__()
+        d_model, nhead, nlayers, dim_ff = transf_cfg
+        self.proj = nn.Linear(input_size, d_model)
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead,
+            dim_feedforward=dim_ff, dropout=0.2,
+            batch_first=False
+        )
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=nlayers)
+        self.fc = nn.Linear(d_model, nclasses)
+
+    def forward(self, x):
+        y = x.permute(2,3,0,1)[0]
+        y = self.proj(y)
+        y = self.encoder(y)
+        return self.fc(y)
+
 ###############################################################################
 #                 ─────  HTRNet with optional feat head  ─────                #
 ###############################################################################
@@ -171,6 +191,13 @@ class HTRNet(nn.Module):
                                 arch_cfg.rnn_layers),
                                nclasses,
                                arch_cfg.rnn_type)
+        elif head == 'transf':
+            self.top = CTCtopT(cnn_out_ch,
+                               (arch_cfg.transf_d_model,
+                                arch_cfg.transf_nhead,
+                                arch_cfg.transf_layers,
+                                arch_cfg.transf_dim_ff),
+                               nclasses)
         else:
             raise ValueError(f'Unknown head_type: {head}')
 

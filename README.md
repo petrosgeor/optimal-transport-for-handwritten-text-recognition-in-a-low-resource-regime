@@ -13,9 +13,11 @@ Most of the logic for alignment and model training lives in the `alignment` dire
 Key features:
 
 - **Configurable CNN** using residual blocks and pooling as defined by `cnn_cfg`.
-- **CTC heads**: `cnn`, `rnn` or `both` (a combination of convolutional and recurrent heads). See `CTCtopC`, `CTCtopR` and `CTCtopB` in the same file.
+- **CTC heads**: `cnn`, `rnn`, `both` or `transf` (transformer-based). See `CTCtopC`, `CTCtopR`, `CTCtopB` and `CTCtopT` in the same file.
 - Optional **feature projection** producing a global feature vector per image (`feat_dim`).
 - The `forward` method returns CTC logits and optionally image descriptors.
+  For the transformer head, provide `transf_d_model`, `transf_nhead`,
+  `transf_layers` and `transf_dim_ff` in the architecture config.
 
 Example usage:
 ```python
@@ -24,7 +26,7 @@ from htr_base.models import HTRNet
 
 arch = SimpleNamespace(
     cnn_cfg=[[2, 64], 'M', [3, 128], 'M', [2, 256]],
-    head_type='both',  # or 'rnn', 'cnn'
+    head_type='both',  # or 'rnn', 'cnn', 'transf'
     rnn_type='lstm',
     rnn_layers=3,
     rnn_hidden_size=256,

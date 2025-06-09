@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import types
 
 
 class DummyCfg:
@@ -13,6 +14,10 @@ def test_external_vocab_characters() -> None:
     proj_root = Path(__file__).resolve().parents[1]
     if str(proj_root) not in sys.path:
         sys.path.insert(0, str(proj_root))
+
+    # stub out matplotlib to avoid heavy dependency
+    sys.modules.setdefault('matplotlib', types.ModuleType('matplotlib'))
+    sys.modules.setdefault('matplotlib.pyplot', types.ModuleType('matplotlib.pyplot'))
 
     from htr_base.utils.htr_dataset import HTRDataset
 
