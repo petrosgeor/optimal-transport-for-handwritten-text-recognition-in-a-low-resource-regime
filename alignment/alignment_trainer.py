@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import sys
 from pathlib import Path
 from typing import Dict, Tuple, List
@@ -36,6 +37,7 @@ HP = {
     "projector_workers": 1,       # dataloader workers when collecting features
     "projector_weight_decay": 1e-4,  # weight decay for projector optimiser
     "device": "cuda",             # default compute device
+    "gpu_id": 0,                  # CUDA device index
     "alt_rounds": 4,              # number of backbone/projector cycles
     "alt_backbone_epochs": 20,     # epochs for each backbone refinement phase
     "alt_projector_epochs": 100,    # epochs for each projector training phase
@@ -50,6 +52,11 @@ HP = {
 cfg_file = Path(__file__).with_name("config.yaml")
 if cfg_file.is_file():
     HP.update(OmegaConf.load(cfg_file))
+
+# Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
+os.environ["CUDA_VISIBLE_DEVICES"] = str(HP["gpu_id"])
+if str(HP["device"]).startswith("cuda"):
+    HP["device"] = f"cuda:{HP['gpu_id']}"
 
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
