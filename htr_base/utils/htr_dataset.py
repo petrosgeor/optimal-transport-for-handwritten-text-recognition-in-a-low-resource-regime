@@ -1,4 +1,5 @@
 import io, os
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -11,7 +12,6 @@ from sklearn.manifold import MDS
 import editdistance
 import random
 from typing import List
-
 class HTRDataset(Dataset):
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
@@ -54,13 +54,11 @@ class HTRDataset(Dataset):
             # img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
             # img = torch.tensor(img).float().unsqueeze(0)
             # imgs.append(img)
-            
         # if len(imgs) > 0:
         #     self.images = torch.stack(imgs)
         # else:
         #     self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
         self.transcriptions = transcrs
-
         if self.character_classes is None:
             res = set()
             for t in transcrs:
@@ -68,7 +66,6 @@ class HTRDataset(Dataset):
             res = sorted(list(res))
             print('Character classes: {} ({} different characters)'.format(res, len(res)))
             self.character_classes = res
-
         # External vocabulary and probabilities
         self.external_words = []
         self.external_word_probs = []
@@ -99,13 +96,11 @@ class HTRDataset(Dataset):
                         self.aligned[idx] = self.external_words.index(word)
                     else:
                         print(f'Warning: word {word} not found in external vocabulary')
-
     def __getitem__(self, index):
         img_path = self.data[index][0]
         transcr1 = " " + self.data[index][1] + " "
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
-
         def build_view(im):
             if self.subset == 'train':
                 nwidth = int(np.random.uniform(.75, 1.25) * im.shape[1])
@@ -115,12 +110,10 @@ class HTRDataset(Dataset):
             if self.transforms is not None:
                 im = self.transforms(image=im)['image']
             return torch.Tensor(im).float().unsqueeze(0)
-
         rand = random.random()
         if rand < self.concat_prob:
             transcr2 = transcr1
             img2 = img
-
             if self.two_views:
                 v1_a = build_view(img.copy())
                 v2_a = build_view(img2.copy())
@@ -130,7 +123,6 @@ class HTRDataset(Dataset):
                 img_b = torch.cat([v1_b, v2_b], dim=-1)
                 img_a = F.interpolate(img_a.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
                 img_b = F.interpolate(img_b.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
-
                 transcr = f" {transcr1.strip()}   {transcr1.strip()} "
                 return (img_a, img_b), transcr, self.aligned[index]
             else:
@@ -138,7 +130,6 @@ class HTRDataset(Dataset):
                 img_b = build_view(img2)
                 img_cat = torch.cat([img_a, img_b], dim=-1)
                 img_cat = F.interpolate(img_cat.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
-
                 transcr = f" {transcr1.strip()}   {transcr1.strip()} "
                 return img_cat, transcr, self.aligned[index]
         else:
@@ -149,15 +140,12 @@ class HTRDataset(Dataset):
             else:
                 img_tensor = build_view(img)
                 return img_tensor, transcr1, self.aligned[index]
-
     def __len__(self):
         return len(self.data)
-
     def _filter_external_words(self, words: List[str]) -> List[str]:
         """Return words containing only known dataset characters."""
         allowed = set(self.character_classes)
         return [w for w in words if all(ch in allowed for ch in w)]
-
     def find_word_embeddings(self, word_list, n_components: int = 512):
         """Compute embeddings of words using pairwise Levenshtein distances."""
         if len(word_list) == 0:
@@ -176,3 +164,19 @@ class HTRDataset(Dataset):
         mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=0)
         emb = mds.fit_transform(dist_matrix)
         return torch.FloatTensor(emb)
+
+    def save_image(self, index: int, out_dir: str, filename: str | None = None) -> str:
+        """Save the preprocessed image at *index* to *out_dir* and return its path."""
+        img_path = self.data[index][0]
+        img = load_image(img_path)
+        img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        if filename is None:
+            filename = os.path.basename(img_path)
+        if not filename.lower().endswith(".png"):
+            filename = f"{os.path.splitext(filename)[0]}.png"
+
+        save_path = os.path.join(out_dir, filename)
+        plt.imsave(save_path, img, cmap="gray")
