@@ -15,7 +15,7 @@ from typing import List
 class HTRDataset(Dataset):
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
-        subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test')
+        subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all')
         fixed_size: tuple =(128, None),          # Resize inputs to this size
         transforms: list = None,                 # List of augmentation transforms to apply on input
         character_classes: list = None,          # If None, computed automatically; else list of characters
@@ -39,11 +39,16 @@ class HTRDataset(Dataset):
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
         # Load gt.txt from basefolder - each line contains image path and transcription
+        if subset not in {'train', 'val', 'test', 'all'}:
+            raise ValueError("subset must be 'train', 'val', 'test' or 'all'")
         data = []
-        with open(os.path.join(basefolder, subset, 'gt.txt'), 'r') as f:
-            for line in f:
-                img_path, transcr = line.strip().split(' ')[0], ' '.join(line.strip().split(' ')[1:])
-                data += [(os.path.join(basefolder, subset, img_path + '.png'), transcr)]
+        subsets = ['train', 'val', 'test'] if subset == 'all' else [subset]
+        for sub in subsets:
+            gt_file = os.path.join(basefolder, sub, 'gt.txt')
+            with open(gt_file, 'r') as f:
+                for line in f:
+                    img_path, transcr = line.strip().split(' ')[0], ' '.join(line.strip().split(' ')[1:])
+                    data.append((os.path.join(basefolder, sub, img_path + '.png'), transcr))
         self.data = data
         # Load images into memory and store transcriptions
         # imgs = []
@@ -102,7 +107,7 @@ class HTRDataset(Dataset):
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
         def build_view(im):
-            if self.subset == 'train':
+            if self.subset in {'train', 'all'}:
                 nwidth = int(np.random.uniform(.75, 1.25) * im.shape[1])
                 nheight = int((np.random.uniform(.9, 1.1) * im.shape[0] / im.shape[1]) * nwidth)
                 im = resize(image=im, output_shape=(nheight, nwidth)).astype(np.float32)
