@@ -250,8 +250,8 @@ def align_more_instances(
     batch_size : int, optional
         Mini-batch size used when harvesting descriptors.
     device : torch.device | str, optional
-        Device on which post-processing will take place. Feature extraction is
-        always performed on GPU if available.
+        Device on which descriptors are processed. Both feature extraction and
+        the projector run on this device.
     reg : float, optional
         Entropic regularisation strength for Sinkhorn.
     unbalanced : bool, optional
@@ -287,7 +287,7 @@ def align_more_instances(
     if word_embs is None:
         raise RuntimeError("dataset.external_word_embeddings is required")
 
-    feat_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(device)
 
     # Harvest features using the utility function
     # harvest_backbone_features handles backbone.eval(), torch.no_grad(),
@@ -297,14 +297,14 @@ def align_more_instances(
         backbone,
         batch_size=batch_size,
         num_workers=0, # Match current num_workers in the removed loader
-        device=feat_device
+        device=device
     )
 
     if feats.numel() == 0:
         raise RuntimeError("Dataset yielded no images")
 
-    projector.eval().to("cpu")
-    proj_feats = projector(feats).detach()  # (N, E)
+    projector.eval().to(device)
+    proj_feats = projector(feats.to(device)).detach().cpu()  # (N, E)
     assert torch.isfinite(proj_feats).all(), (
         "Non-finite values detected in projector features"
     )
