@@ -19,7 +19,7 @@ projector_weight_decay: 1e-4  # weight decay for the projector optimiser
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training
-gpu_id: 0                   # which CUDA device index to use
+gpu_id: 2                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle

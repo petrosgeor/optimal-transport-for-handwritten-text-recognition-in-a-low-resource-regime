@@ -320,7 +320,7 @@ if __name__ == "__main__":
             self.k_external_words = hp_config['k_external_words']
             self.n_aligned = hp_config['n_aligned']
     train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=HP['dataset_fixed_size'],
-                            transforms=aug_transforms, config=DummyCfg(HP), concat_prob=0.8)
+                            transforms=aug_transforms, config=DummyCfg(HP), concat_prob=0.)
     c2i, _ = _build_vocab_dicts(train_set)
     arch_cfg_dict = HP['architecture_config']
     net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
