@@ -111,7 +111,8 @@ def refine_visual_backbone(
         effective_batches = 0
         for imgs, _, aligned in dataloader:  # we ignore the transcription string
             imgs = imgs.to(device)
-            ext_words = [dataset.external_words[i] for i in aligned.tolist()]
+            # Pad each external word with spaces to mimic dataset transcriptions
+            ext_words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
             # ── forward ─────────────────────────────────────────────────
             out = backbone(imgs, return_feats=False)
             if not isinstance(out, (tuple, list)) or len(out) < 2:

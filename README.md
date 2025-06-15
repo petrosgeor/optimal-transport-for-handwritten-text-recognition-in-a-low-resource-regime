@@ -188,6 +188,8 @@ def refine_visual_backbone(dataset, backbone, num_epochs, *, batch_size=128,
 * `batch_size`: mini-batch size.
 * `lr`: learning rate.
 * `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
+* External words are automatically wrapped with spaces before encoding so that
+  no persistent changes are made to `dataset.external_words`.
 
 ## train\_projector
 
