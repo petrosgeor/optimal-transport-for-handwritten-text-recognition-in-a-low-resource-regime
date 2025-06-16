@@ -119,6 +119,9 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 After each call, the function now reports round-wise pseudo-labelling accuracy
 and the cumulative accuracy over all aligned samples.
 
+The underlying OT projection step handles rows with zero mass safely, avoiding
+`inf` or `nan` values when some descriptors receive no transport mass.
+
 Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
 
 ## select_uncertain_instances
