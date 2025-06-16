@@ -544,3 +544,48 @@ def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) 
     plt.close(fig)
     # print("Plot saved successfully.")
 
+
+def plot_projector_tsne(
+    projections: torch.Tensor, dataset: HTRDataset, save_path: str
+) -> None:
+    """Plot t-SNE of projector outputs and word embeddings.
+
+    Parameters
+    ----------
+    projections : torch.Tensor
+        Output of the projector with shape ``(N, E)``.
+    dataset : HTRDataset
+        Provides ``external_word_embeddings`` of shape ``(V, E)``.
+    save_path : str
+        Destination path for the PNG figure.
+    """
+
+    word_embs = dataset.external_word_embeddings
+    if word_embs is None:
+        raise RuntimeError("dataset.external_word_embeddings is required")
+
+    all_vecs = torch.cat([projections, word_embs], dim=0).cpu().numpy()
+    perplexity = min(30, max(1, all_vecs.shape[0] // 3))
+    tsne = TSNE(
+        n_components=2,
+        random_state=42,
+        perplexity=perplexity,
+        n_iter=1000,
+        init="pca",
+        learning_rate="auto",
+    )
+    tsne_res = tsne.fit_transform(all_vecs)
+    n_proj = projections.size(0)
+    proj_2d = tsne_res[:n_proj]
+    word_2d = tsne_res[n_proj:]
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.scatter(proj_2d[:, 0], proj_2d[:, 1], s=5, c="blue", label="projections")
+    ax.scatter(word_2d[:, 0], word_2d[:, 1], s=20, c="black", label="words")
+    ax.legend()
+    ax.set_title("t-SNE of projector outputs")
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close(fig)
+
