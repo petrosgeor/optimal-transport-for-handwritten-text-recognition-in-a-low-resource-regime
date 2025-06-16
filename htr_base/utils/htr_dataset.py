@@ -64,6 +64,7 @@ class HTRDataset(Dataset):
         # else:
         #     self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
         self.transcriptions = transcrs
+        self.prior_char_probs = self.letter_priors()
         if self.character_classes is None:
             res = set()
             for t in transcrs:
@@ -151,6 +152,34 @@ class HTRDataset(Dataset):
         """Return words containing only known dataset characters."""
         allowed = set(self.character_classes)
         return [w for w in words if all(ch in allowed for ch in w)]
+
+    @staticmethod
+    def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):
+        """Return prior probabilities for ``a-z0-9``.
+
+        If ``transcriptions`` is ``None`` the distribution is computed from the
+        ``n_words`` most common English words provided by ``wordfreq``.
+        Otherwise ``transcriptions`` are used directly.
+        """
+
+        letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+        counts = {c: 0 for c in letters}
+
+        if transcriptions is None:
+            corpus = top_n_list("en", n_words)
+        else:
+            corpus = transcriptions
+
+        for t in corpus:
+            for ch in t.lower():
+                if ch in counts:
+                    counts[ch] += 1
+
+        total = float(sum(counts.values()))
+        if total == 0:
+            return {c: 0.0 for c in letters}
+
+        return {c: counts[c] / total for c in letters}
     def find_word_embeddings(self, word_list, n_components: int = 512):
         """Compute embeddings of words using pairwise Levenshtein distances."""
         if len(word_list) == 0:

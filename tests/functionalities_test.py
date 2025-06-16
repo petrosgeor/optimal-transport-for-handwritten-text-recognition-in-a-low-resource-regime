@@ -37,3 +37,18 @@ def test_align_logging(capsys):
     out = capsys.readouterr().out
     assert '[Align] round accuracy' in out
     assert '[Align] cumulative accuracy' in out
+
+
+def test_letter_priors():
+    ds = HTRDataset('htr_base/data/GW/processed_words', subset='train', fixed_size=(32, 128))
+    # priors computed from wordfreq by default
+    total = sum(ds.prior_char_probs.values())
+    assert abs(total - 1.0) < 1e-4
+    assert ('a' in ds.prior_char_probs) or ('0' in ds.prior_char_probs)
+
+    wf_priors = HTRDataset.letter_priors()
+    assert ds.prior_char_probs == wf_priors
+
+    tr_priors = HTRDataset.letter_priors(ds.transcriptions)
+    total_tr = sum(tr_priors.values())
+    assert abs(total_tr - 1.0) < 1e-4
