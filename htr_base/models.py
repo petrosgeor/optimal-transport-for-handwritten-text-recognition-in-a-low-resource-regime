@@ -208,7 +208,8 @@ class HTRNet(nn.Module):
                 nn.AdaptiveAvgPool2d((1,1)),
                 nn.Flatten(1),
                 nn.Linear(cnn_out_ch, self.feat_dim),
-                nn.ReLU(inplace=True)
+                nn.ReLU(inplace=True),
+                nn.Linear(self.feat_dim, self.feat_dim)
             )
 
     def forward(self, x, *, return_feats: bool = True):
