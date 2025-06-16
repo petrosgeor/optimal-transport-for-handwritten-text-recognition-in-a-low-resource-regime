@@ -1,113 +1,123 @@
 
-# AGENTS.md – Operational Rules for Codebase Integrity & Context-Aware Behaviour  
+---
 
-These rules tell agents **exactly how to behave inside this repository** so it stays:
+# AGENTS.md – Operational Rules for Codebase Integrity
 
-- **Self-testing** – every change is covered by `pytest`.
-- **Well-documented** – `README.md` always matches the code.
-- **Clean & minimal** – no dead code or duplicate effort.
-- **Context-sensitive** – agents either **plan** or **code**, but **never both at once**.
+These rules define how agents must operate on the codebase to ensure it remains **self-testing**, **well-documented**, and **clean**.
 
 ---
 
-## 🚦 Interaction Contract (Read First!)
+## 1. 🧾 Sync the Docs
 
-1. **Detect intent by keywords**  
-   If the user’s request contains **“plan”**, **“task”**, **“proposal”**, or **“road-map”** → You are in **Planning Mode**.  
-   Otherwise, assume **Coding Mode** unless the user explicitly says otherwise.
+Whenever you **add**, **remove**, **rename**, or **modify** any class, function, or script:
 
-2. **Planning Mode**  
-   - Output only a structured **Task Proposal** (see template).  
-   - Do **not** write code, commit, or open PRs.  
-   - Await approval / changes.
+* **Update the corresponding section in `README.md` in the same commit.**
+* This includes docstring or signature changes, not just new files.
 
-3. **Coding Mode**  
-   - Implement the requested code change following the rules below (docs, tests, etc.).  
-   - Planning is unnecessary unless the user asks.
+### 📌 Important:
 
-4. **If in doubt** – ask the user: **“Do you want a plan or code?”**
+If you find a **function or class** in the repository that:
 
----
+* Appears to be **central to the codebase**, and
+* Is **not yet documented in `README.md`**,
 
-### 📄 Task Proposal Template (Planning Mode)
-
-task: <Concise title, imperative voice>
-context:
-  - file: path/to/file.py            # existing files to touch
-  - snippet: |                       # user-supplied code, if any
-      def example(): ...
-steps:
-  - Step-by-step bullet list.
-acceptance_criteria:
-  - Observable, testable checklist.
-notes:
-  - Optional clarifications or open questions.
+Then you **must add it** to the appropriate section of `README.md`, along with a brief usage description or summary. This ensures the documentation reflects the true operational structure of the codebase.
 
 ---
 
-## 🧭 Implementation Workflow (Coding Mode)
+## 2. 🧪 Self-Test All Changes with `pytest`
 
-Follow **all** steps for every commit that changes code:
+Whenever you **introduce or modify** any functionality:
 
-1. **Sync the docs**
-   Update `README.md` for any added, removed, renamed, or modified class/function/script.
-   This includes changes to docstrings or signatures.
-   *(Where: Same commit as the code change)*
+* Create or update a **minimal working test** that exercises its **core behavior**.
+* Use the `pytest` framework exclusively.
+* Always add or update tests in the file:
+  `tests/functionalities_test.py`.
 
-2. **Add or update tests**
-   Modify `tests/functionalities_test.py` (create the file if it doesn't exist).
-   Include `assert`-based checks for core behavior.
-   Remove tests **only** if the related behavior was intentionally removed.
-   *(Where: Same commit as the code change)*
+### If `tests/functionalities_test.py`:
 
-3. **Run the test suite**
-   Execute `pytest` locally and **only commit if all tests pass**.
-   (CI should block merges on failure.)
+* **Does not exist** → Create it and include at least one test for the new/changed functionality.
+* **Exists** → Append relevant new test(s) in the same file.
 
-4. **Report test results**
-   Include a pass/fail summary in the PR description.
+### If a test becomes **obsolete** (e.g., due to interface change or removed behavior):
 
-5. **Avoid duplication**
-   Search the repo before adding new features.
-   If the functionality already exists, link to it and explain why no new code is needed.
+* **Remove it**, as long as it no longer represents the updated truth and would raise an invalid assertion.
 
-If any step fails, fix it before marking the task complete.
+### Test expectations:
+
+* **Use `assert` statements** to check meaningful output.
+* Test **core logic only** (no edge-case overfitting).
+* **Commit the test** in the **same commit** as the corresponding code change.
 
 ---
 
-## ✅ Example (Abridged)
+## 3. ▶️ Run the Tests and Report Results
 
-> **User**: “Add a `normalize(vec)` utility.”
+After making any change and writing/updating the tests:
 
-**Agent (Coding Mode)**
+* **Run all tests** using `pytest`.
+* **Report the result**:
 
-1. Add `normalize` in `utils/vector.py`.
-2. Update `README.md` “Vector utilities” section.
-3. Append the following to `tests/functionalities_test.py`:
+  * Confirm **all tests passed**, or
+  * Identify and explain any test failures (whether from new or existing tests).
+
+Do **not** consider the task complete until all tests pass and the test suite is clean.
+
+---
+
+## 4. 🔁 Avoid Redundant Work
+
+Before implementing any change:
+
+* Check whether the requested functionality **already exists** in the codebase.
+* If it does, do **not** re-implement it.
+* Instead, **explain** that the functionality is already implemented and reference where it exists.
+
+---
+
+## 5. 📋 Propose Specific Tasks with Context
+
+When proposing a new task:
+
+* Be **very specific** about what needs to be done.
+* If the user has provided **code snippets**, **pseudo code**, or **partial implementations** in the conversation:
+
+  * **Include those in the proposed task description.**
+  * Clearly indicate **how** the user-provided code is to be integrated, adapted, or extended.
+* Avoid generic task descriptions; always ground your suggestions in the actual context of the conversation and the codebase.
+
+This ensures that proposed tasks are **directly actionable**, **context-aware**, and aligned with the user's intentions and inputs.
+
+---
+
+## ✅ Example Workflow
+
+> 🔧 You introduce a new function `def normalize(vec): ...`
+
+* Update `README.md` to reflect the new function.
+* Add a test like:
 
 ```python
 def test_normalize():
     assert normalize([3, 4]) == [0.6, 0.8]
 ```
 
-4. Run `pytest` → **all green**.
-5. Commit code + docs + test in one commit, push PR, include pass report.
+* Save this inside `tests/functionalities_test.py`. Create the file if needed.
+* Remove any obsolete tests if needed.
+* Run `pytest` and confirm all tests pass.
+* Report the test result clearly.
 
 ---
 
-## 🔁 Redundancy-Check Details
+## 🎯 Goal
 
-* If a requested function already exists, **do not** re-implement.
-* Respond in *either* Planning Mode (link & propose usage example) *or* Coding Mode (point to existing code, no change needed).
+Keep the repo:
 
----
-
-## 🎯 Golden Rules
-
-* **One user intent → One agent mode** (Plan *or* Code, never both).
-* Every code commit leaves the suite **green** and the docs **accurate**.
-* Task proposals are **actionable**, **specific**, and require user approval before code begins.
+* **Self-verifying** through tests
+* **Up-to-date** through docs
+* **Minimal and truthful** through careful removals
+* **Reliable** by ensuring every commit leaves the test suite in a passing state
+* **Context-sensitive** in all task planning and recommendations
 
 ---
-
 
