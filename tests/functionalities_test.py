@@ -10,6 +10,7 @@ from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_utilities import align_more_instances
 from alignment.alignment_trainer import tee_output
+from htr_base.utils.transforms import aug_transforms
 
 
 def test_align_logging(capsys):
@@ -66,3 +67,19 @@ def test_tee_output(tmp_path, capsys):
     with tee_output(out_file):
         print("bye")
     assert out_file.read_text() == "bye\n"
+
+
+def test_dataset_prealignment():
+    class DummyCfg:
+        k_external_words = 200
+        n_aligned = 300
+
+    base = 'htr_base/data/GW/processed_words'
+    dataset = HTRDataset(
+        base,
+        subset='train',
+        fixed_size=(64, 256),
+        transforms=aug_transforms,
+        config=DummyCfg(),
+    )
+    assert (dataset.aligned != -1).sum().item() > 0
