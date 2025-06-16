@@ -77,6 +77,7 @@ class HTRDataset(Dataset):
         self.external_word_probs = []
         if self.k_external_words > 0:
             words = [w for w in top_n_list('en', self.k_external_words)]
+            words = [w.lower() for w in words]
             words = self._filter_external_words(words)
             self.external_words = words[: self.k_external_words]
             self.external_word_probs = [word_frequency(w.strip(), 'en') for w in self.external_words]

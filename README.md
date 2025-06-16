@@ -55,6 +55,9 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 * If none of the dataset's transcriptions overlap with the selected `k_external_words`,
   the dataset will contain **zero** pre-aligned samples so `n_aligned` has no effect and
   refinement cannot start.
+
+* External vocabulary words are stored in lowercase.
+
 * `prior_char_probs`: mapping of character frequencies computed from the 50,000 most common English words.
 
 `letter_priors(transcriptions=None, n_words=50000)` builds this mapping. If no transcriptions are provided it relies on `wordfreq` to return probabilities for `a-z0-9`.
@@ -121,6 +124,9 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 
 After each call, the function now reports round-wise pseudo-labelling accuracy
 and the cumulative accuracy over all aligned samples.
+
+The underlying OT projection step handles rows with zero mass safely, avoiding
+`inf` or `nan` values when some descriptors receive no transport mass.
 
 Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
 

@@ -56,6 +56,18 @@ def test_letter_priors():
     assert abs(total_tr - 1.0) < 1e-4
 
 
+def test_external_words_lowercase():
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    dataset = HTRDataset(
+        'htr_base/data/GW/processed_words',
+        subset='train',
+        fixed_size=(32, 128),
+        transforms=None,
+        config=cfg,
+    )
+    assert all(w.islower() for w in dataset.external_words)
+
+
 def test_tee_output(tmp_path, capsys):
     out_file = tmp_path / "log.txt"
     with tee_output(out_file):
@@ -67,6 +79,7 @@ def test_tee_output(tmp_path, capsys):
     with tee_output(out_file):
         print("bye")
     assert out_file.read_text() == "bye\n"
+
 
 
 def test_dataset_prealignment():
@@ -83,3 +96,30 @@ def test_dataset_prealignment():
         config=DummyCfg(),
     )
     assert (dataset.aligned != -1).sum().item() > 0
+
+def test_align_zero_row(tmp_path):
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    ds = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=None, config=cfg)
+    ds.data = ds.data[:3]
+    ds.transcriptions = ds.transcriptions[:3]
+    ds.aligned = ds.aligned[:3]
+    ds.is_in_dict = ds.is_in_dict[:3]
+    emb = ds.find_word_embeddings(ds.external_words, n_components=8)
+    ds.external_word_embeddings = emb * 1e6
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16], 'M', [1, 32]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=32,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=8,
+    )
+    backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+    projector = Projector(arch.feat_dim, ds.word_emb_dim)
+
+    align_more_instances(ds, backbone, projector, batch_size=1, device='cpu', unbalanced=True, reg_m=0.1, k=1)
+    assert (ds.aligned != -1).any(), "No samples were pseudo-labelled"
