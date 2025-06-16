@@ -8,7 +8,7 @@ if str(root) not in sys.path:
 
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
-from alignment.alignment_utilities import align_more_instances
+from alignment.alignment_utilities import align_more_instances, print_dataset_stats
 from alignment.alignment_trainer import tee_output
 from htr_base.utils.transforms import aug_transforms
 
@@ -123,3 +123,18 @@ def test_align_zero_row(tmp_path):
 
     align_more_instances(ds, backbone, projector, batch_size=1, device='cpu', unbalanced=True, reg_m=0.1, k=1)
     assert (ds.aligned != -1).any(), "No samples were pseudo-labelled"
+
+
+def test_print_dataset_stats(capsys):
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    ds = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=None, config=cfg)
+    ds.data = ds.data[:3]
+    ds.transcriptions = ds.transcriptions[:3]
+    ds.aligned = ds.aligned[:3]
+    ds.is_in_dict = ds.is_in_dict[:3]
+    print_dataset_stats(ds)
+    out = capsys.readouterr().out
+    assert 'external vocab size' in out
+    assert 'in-dictionary samples' in out
+    assert 'transcriptions lowercase' in out
