@@ -55,6 +55,18 @@ def test_letter_priors():
     assert abs(total_tr - 1.0) < 1e-4
 
 
+def test_external_words_lowercase():
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    dataset = HTRDataset(
+        'htr_base/data/GW/processed_words',
+        subset='train',
+        fixed_size=(32, 128),
+        transforms=None,
+        config=cfg,
+    )
+    assert all(w.islower() for w in dataset.external_words)
+
+
 def test_tee_output(tmp_path, capsys):
     out_file = tmp_path / "log.txt"
     with tee_output(out_file):

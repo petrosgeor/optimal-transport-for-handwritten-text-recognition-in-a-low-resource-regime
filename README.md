@@ -52,6 +52,7 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 * `two_views`: if `True`, `__getitem__` returns two randomly augmented views of the same line image.
 * `concat_prob`: probability of concatenating a sample with itself when fetching a datum.
 * The external vocabulary is automatically filtered so that all words only contain characters present in the dataset.
+* External vocabulary words are stored in lowercase.
 * `prior_char_probs`: mapping of character frequencies computed from the 50,000 most common English words.
 
 `letter_priors(transcriptions=None, n_words=50000)` builds this mapping. If no transcriptions are provided it relies on `wordfreq` to return probabilities for `a-z0-9`.
