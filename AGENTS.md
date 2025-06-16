@@ -1,4 +1,3 @@
-Here's the updated `AGENTS.md` with your requested addition, placed under the documentation section for clarity:
 
 ---
 
@@ -76,6 +75,21 @@ Before implementing any change:
 
 ---
 
+## 5. 📋 Propose Specific Tasks with Context
+
+When proposing a new task:
+
+* Be **very specific** about what needs to be done.
+* If the user has provided **code snippets**, **pseudo code**, or **partial implementations** in the conversation:
+
+  * **Include those in the proposed task description.**
+  * Clearly indicate **how** the user-provided code is to be integrated, adapted, or extended.
+* Avoid generic task descriptions; always ground your suggestions in the actual context of the conversation and the codebase.
+
+This ensures that proposed tasks are **directly actionable**, **context-aware**, and aligned with the user's intentions and inputs.
+
+---
+
 ## ✅ Example Workflow
 
 > 🔧 You introduce a new function `def normalize(vec): ...`
@@ -103,5 +117,7 @@ Keep the repo:
 * **Up-to-date** through docs
 * **Minimal and truthful** through careful removals
 * **Reliable** by ensuring every commit leaves the test suite in a passing state
+* **Context-sensitive** in all task planning and recommendations
 
 ---
+

@@ -22,7 +22,7 @@ from types import SimpleNamespace
 #   figure_output_dir/filename – where to write diagnostic figures.
 # ------------------------------------------------------------------
 HP = {
-    "gpu_id": "0",
+    "gpu_id": "2",
     "max_length": 4,
     "min_length": 0,
     "eval_k": 4,
@@ -35,7 +35,7 @@ HP = {
     "aux_loss_weight": 0.1,
     "dataset_fixed_size": (64, 256),
     "architecture_config": {
-        "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
+        "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
         "head_type": "both",
         "rnn_type": "gru",
         "rnn_layers": 3,
