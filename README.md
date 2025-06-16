@@ -157,6 +157,22 @@ def plot_dataset_augmentations(dataset, save_path):
 * `dataset`: `HTRDataset` instance with augmentation transforms.
 * `save_path`: where to write the resulting PNG file.
 
+## plot_tsne_embeddings
+
+Also in `alignment/alignment_utilities.py`. This helper projects backbone descriptors with t-SNE and colours samples by their alignment label.
+
+```python
+def plot_tsne_embeddings(dataset, backbone, save_path):
+    """Generate a coloured t-SNE plot of backbone embeddings."""
+```
+
+* `dataset`: dataset providing images and `aligned` flags.
+* `backbone`: visual encoder used to compute descriptors.
+* `save_path`: destination for the resulting PNG file.
+
+Points with `aligned == 1` appear in **blue** while the rest are **black**.
+
+
 
 ## print_dataset_stats
 

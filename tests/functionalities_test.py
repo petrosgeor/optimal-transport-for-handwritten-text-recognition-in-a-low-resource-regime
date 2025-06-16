@@ -11,6 +11,8 @@ from htr_base.models import HTRNet, Projector
 from alignment.alignment_utilities import align_more_instances, print_dataset_stats
 from alignment.alignment_trainer import tee_output
 from htr_base.utils.transforms import aug_transforms
+import numpy as np
+import torch
 
 
 def test_align_logging(capsys):
@@ -138,3 +140,43 @@ def test_print_dataset_stats(capsys):
     assert 'external vocab size' in out
     assert 'in-dictionary samples' in out
     assert 'transcriptions lowercase' in out
+
+
+def test_plot_tsne_colours(monkeypatch):
+    from alignment import alignment_utilities as au
+
+    dummy_feats = torch.zeros(3, 2)
+    dummy_align = torch.tensor([1, 0, -1])
+
+    def fake_harvest(dataset, backbone, device=None):
+        return dummy_feats, dummy_align
+
+    class DummyTSNE:
+        def fit_transform(self, X):
+            return np.zeros((3, 2))
+
+    monkeypatch.setattr(au, "harvest_backbone_features", fake_harvest)
+    monkeypatch.setattr(au, "TSNE", lambda *a, **k: DummyTSNE())
+
+    colours_captured = {}
+
+    class DummyAx:
+        def scatter(self, x, y, s, c):
+            colours_captured["c"] = c
+        def set_title(self, *a, **kw):
+            pass
+        def set_xlabel(self, *a, **kw):
+            pass
+        def set_ylabel(self, *a, **kw):
+            pass
+
+    def dummy_subplots(*args, **kwargs):
+        return None, DummyAx()
+
+    monkeypatch.setattr(au.plt, "subplots", dummy_subplots)
+    monkeypatch.setattr(au.plt, "savefig", lambda *a, **k: None)
+    monkeypatch.setattr(au.plt, "close", lambda *a, **k: None)
+
+    au.plot_tsne_embeddings(object(), object(), "out.png")
+
+    assert colours_captured["c"] == ["blue", "black", "black"]

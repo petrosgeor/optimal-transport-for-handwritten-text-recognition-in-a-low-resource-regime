@@ -462,11 +462,11 @@ def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
 
 
 def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) -> None:
-    """Generates a t-SNE plot of image embeddings from the backbone and saves it.
+    """Generate a coloured t-SNE plot of backbone embeddings and save it.
 
-    The function first harvests features from the provided dataset using the
-    specified backbone, then applies t-SNE to reduce dimensions to 2,
-    and finally plots and saves the resulting visualization.
+    Features and current alignment labels are harvested from ``dataset`` using
+    ``backbone``. t-SNE then projects the descriptors to 2‑D and the scatter
+    plot colours samples in blue when ``aligned == 1`` and black otherwise.
 
     Parameters
     ----------
@@ -481,7 +481,7 @@ def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Harvesting features for t-SNE plot on device: {device}")
-    features, _ = harvest_backbone_features(dataset, backbone, device=device)
+    features, aligned = harvest_backbone_features(dataset, backbone, device=device)
 
     print(f"Performing t-SNE transformation on {features.shape[0]} samples...")
     # Ensure features are on CPU and are NumPy arrays for scikit-learn
@@ -493,7 +493,8 @@ def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) 
     print("t-SNE transformation complete.")
 
     fig, ax = plt.subplots(figsize=(12, 10))
-    ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5)
+    colors = ["blue" if int(a.item()) == 1 else "black" for a in aligned]
+    ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5, c=colors)
     ax.set_title("t-SNE projection of backbone embeddings")
     ax.set_xlabel("t-SNE dimension 1")
     ax.set_ylabel("t-SNE dimension 2")
