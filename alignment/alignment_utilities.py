@@ -162,9 +162,10 @@ def calculate_ot_projections(
     else:
         T = ot.sinkhorn(pa, pb, M, reg=reg, **sinkhorn_kwargs)
 
-    row_sum = T.sum(axis=1)
-    inv_matrix = np.diag(1.0 / row_sum)
-    projections = inv_matrix @ T @ Y
+    row_sum = T.sum(axis=1, keepdims=True)
+    inv_row_sum = np.divide(1.0, row_sum, out=np.zeros_like(row_sum), where=row_sum != 0)
+    projections = inv_row_sum * (T @ Y)
+    assert np.all(np.isfinite(projections)), "Non-finite values in projections"
 
     return projections, T
 
