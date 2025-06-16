@@ -20,7 +20,8 @@ from alignment.alignment_utilities import (
     align_more_instances,
     harvest_backbone_features,
     print_dataset_stats,
-    plot_tsne_embeddings
+    plot_tsne_embeddings,
+    plot_projector_tsne
 )
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
@@ -238,6 +239,8 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers=num_workers,
         device=device,
     )
+    
+    
 
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
@@ -298,7 +301,13 @@ def train_projector(  # pylint: disable=too-many-arguments
         # if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
         #     print(f"[Projector] epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
             
-    print("[Projector] training complete ✔")
+    print("[Projector] training complete ✔")   
+
+    projector.eval()
+    with torch.no_grad():
+        proj_vecs = projector(feats_all.to(device)).cpu()
+    
+    plot_projector_tsne(proj_vecs, dataset, save_path='tests/figures/tsne_projections.png')
 
 
 
