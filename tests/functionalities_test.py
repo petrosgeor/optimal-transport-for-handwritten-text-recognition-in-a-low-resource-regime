@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+import torch
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -8,7 +9,11 @@ if str(root) not in sys.path:
 
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
-from alignment.alignment_utilities import align_more_instances, print_dataset_stats
+from alignment.alignment_utilities import (
+    align_more_instances,
+    print_dataset_stats,
+    plot_projector_tsne,
+)
 from alignment.alignment_trainer import tee_output
 from htr_base.utils.transforms import aug_transforms
 
@@ -138,3 +143,19 @@ def test_print_dataset_stats(capsys):
     assert 'external vocab size' in out
     assert 'in-dictionary samples' in out
     assert 'transcriptions lowercase' in out
+
+
+def test_plot_projector_tsne(tmp_path):
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    ds = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=None, config=cfg)
+    ds.data = ds.data[:3]
+    ds.transcriptions = ds.transcriptions[:3]
+    ds.aligned = ds.aligned[:3]
+    ds.is_in_dict = ds.is_in_dict[:3]
+    ds.external_word_embeddings = ds.find_word_embeddings(ds.external_words, n_components=8)
+
+    projections = torch.randn(len(ds), ds.word_emb_dim)
+    out_file = tmp_path / 'proj_tsne.png'
+    plot_projector_tsne(projections, ds, out_file)
+    assert out_file.exists()

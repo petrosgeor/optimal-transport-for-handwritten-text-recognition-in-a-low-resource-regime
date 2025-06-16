@@ -157,6 +157,20 @@ def plot_dataset_augmentations(dataset, save_path):
 * `dataset`: `HTRDataset` instance with augmentation transforms.
 * `save_path`: where to write the resulting PNG file.
 
+## plot_projector_tsne
+
+Also in `alignment/alignment_utilities.py`. Creates a 2‑D t‑SNE plot of
+projector outputs alongside the external word embeddings.
+
+```python
+def plot_projector_tsne(projections, dataset, save_path):
+    """Visualise projector outputs against word embeddings."""
+```
+
+* `projections`: tensor of projector outputs `(N, E)`.
+* `dataset`: `HTRDataset` providing `external_word_embeddings`.
+* `save_path`: destination PNG path.
+
 
 ## print_dataset_stats
 
