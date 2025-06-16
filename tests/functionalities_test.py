@@ -9,6 +9,7 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_utilities import align_more_instances
+from alignment.alignment_trainer import tee_output
 
 
 def test_align_logging(capsys):
@@ -52,3 +53,16 @@ def test_letter_priors():
     tr_priors = HTRDataset.letter_priors(ds.transcriptions)
     total_tr = sum(tr_priors.values())
     assert abs(total_tr - 1.0) < 1e-4
+
+
+def test_tee_output(tmp_path, capsys):
+    out_file = tmp_path / "log.txt"
+    with tee_output(out_file):
+        print("hello")
+    captured = capsys.readouterr().out
+    assert captured.strip() == "hello"
+    assert out_file.read_text() == "hello\n"
+
+    with tee_output(out_file):
+        print("bye")
+    assert out_file.read_text() == "bye\n"

@@ -238,6 +238,18 @@ def alternating_refinement(dataset, backbone, projector, *, rounds=4,
 * `projector_kwargs`: keyword arguments for `train_projector`.
 * `align_kwargs`: parameters for `align_more_instances`.
 
+## tee_output
+
+Also in `alignment/alignment_trainer.py`. This context manager duplicates
+`stdout` to a file while it is active, recreating the file on each run.
+
+```python
+from alignment.alignment_trainer import tee_output
+
+with tee_output("results.txt"):
+    alternating_refinement(dataset, backbone, projector)
+```
+
 ## alignment/config.yaml
 
 Additional hyperparameters for the alignment workflow are stored in
