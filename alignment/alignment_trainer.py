@@ -20,6 +20,36 @@ from alignment.alignment_utilities import align_more_instances, harvest_backbone
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
 
+from contextlib import contextmanager
+
+
+class _Tee:
+    """Write to multiple streams simultaneously."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
+@contextmanager
+def tee_output(path: str = "results.txt"):
+    """Duplicate stdout to *path* while the context is active."""
+
+    original = sys.stdout
+    with open(path, "w") as f:
+        sys.stdout = _Tee(original, f)
+        try:
+            yield
+        finally:
+            sys.stdout = original
+
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
 # --------------------------------------------------------------------------- #
@@ -371,5 +401,6 @@ if __name__ == "__main__":
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
     projector = Projector(arch.feat_dim, dataset.word_emb_dim)
 
-    alternating_refinement(dataset, backbone, projector)
+    with tee_output("results.txt"):
+        alternating_refinement(dataset, backbone, projector)
 
