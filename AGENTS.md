@@ -1,3 +1,7 @@
+Here's the updated `AGENTS.md` with your requested addition, placed under the documentation section for clarity:
+
+---
+
 # AGENTS.md – Operational Rules for Codebase Integrity
 
 These rules define how agents must operate on the codebase to ensure it remains **self-testing**, **well-documented**, and **clean**.
@@ -10,6 +14,15 @@ Whenever you **add**, **remove**, **rename**, or **modify** any class, function,
 
 * **Update the corresponding section in `README.md` in the same commit.**
 * This includes docstring or signature changes, not just new files.
+
+### 📌 Important:
+
+If you find a **function or class** in the repository that:
+
+* Appears to be **central to the codebase**, and
+* Is **not yet documented in `README.md`**,
+
+Then you **must add it** to the appropriate section of `README.md`, along with a brief usage description or summary. This ensures the documentation reflects the true operational structure of the codebase.
 
 ---
 
@@ -91,3 +104,4 @@ Keep the repo:
 * **Minimal and truthful** through careful removals
 * **Reliable** by ensuring every commit leaves the test suite in a passing state
 
+---
