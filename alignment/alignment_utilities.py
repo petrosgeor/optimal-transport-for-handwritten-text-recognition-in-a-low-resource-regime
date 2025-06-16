@@ -461,12 +461,48 @@ def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
     plt.close(fig)
 
 
-def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) -> None:
-    """Generates a t-SNE plot of image embeddings from the backbone and saves it.
+def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
+    """Save a figure showing three images and their augmentations side by side.
+    Parameters
+    ----------
+    dataset : HTRDataset
+        Dataset providing images and augmentation transforms.
+    save_path : str
+        Where to write the PNG figure.
+    """
+    if len(dataset) < 3:
+        raise ValueError("dataset must contain at least three items")
+    if getattr(dataset, "transforms", None) is None:
+        raise ValueError("dataset.transforms must not be None")
+    orig_transforms = dataset.transforms
+    indices = random.sample(range(len(dataset)), 3)
+    # Load original images with transforms disabled
+    dataset.transforms = None
+    originals = [dataset[i][0].squeeze().cpu().numpy() for i in indices]
+    # Load augmented versions
+    dataset.transforms = orig_transforms
+    augments = [dataset[i][0].squeeze().cpu().numpy() for i in indices]
+    # Restore dataset transforms
+    dataset.transforms = orig_transforms
+    fig, axes = plt.subplots(3, 2, figsize=(6, 9))
+    for row, (orig, aug) in enumerate(zip(originals, augments)):
+        axes[row, 0].imshow(orig, cmap="gray")
+        axes[row, 0].axis("off")
+        axes[row, 1].imshow(aug, cmap="gray")
+        axes[row, 1].axis("off")
+    axes[0, 0].set_title("original")
+    axes[0, 1].set_title("augmented")
+    plt.tight_layout()
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    plt.savefig(save_path)
+    plt.close(fig)
 
-    The function first harvests features from the provided dataset using the
-    specified backbone, then applies t-SNE to reduce dimensions to 2,
-    and finally plots and saves the resulting visualization.
+def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) -> None:
+    """Generate a coloured t-SNE plot of backbone embeddings and save it.
+
+    Features and current alignment labels are harvested from ``dataset`` using
+    ``backbone``. t-SNE then projects the descriptors to 2‑D and the scatter
+    plot colours samples in blue when ``aligned == 1`` and black otherwise.
 
     Parameters
     ----------
@@ -480,20 +516,21 @@ def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) 
     # Determine device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print(f"Harvesting features for t-SNE plot on device: {device}")
-    features, _ = harvest_backbone_features(dataset, backbone, device=device)
+    # print(f"Harvesting features for t-SNE plot on device: {device}")
+    features, aligned = harvest_backbone_features(dataset, backbone, device=device)
 
-    print(f"Performing t-SNE transformation on {features.shape[0]} samples...")
+    # print(f"Performing t-SNE transformation on {features.shape[0]} samples...")
     # Ensure features are on CPU and are NumPy arrays for scikit-learn
     features_np = features.cpu().numpy()
 
     tsne = TSNE(n_components=2, random_state=42, perplexity=30, n_iter=1000, init='pca', learning_rate='auto')
     tsne_results = tsne.fit_transform(features_np)
 
-    print("t-SNE transformation complete.")
+    # print("t-SNE transformation complete.")
 
     fig, ax = plt.subplots(figsize=(12, 10))
-    ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5)
+    colors = ["blue" if int(a.item()) == 1 else "black" for a in aligned]
+    ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5, c=colors)
     ax.set_title("t-SNE projection of backbone embeddings")
     ax.set_xlabel("t-SNE dimension 1")
     ax.set_ylabel("t-SNE dimension 2")
@@ -505,5 +542,5 @@ def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) 
 
     plt.savefig(save_path, bbox_inches='tight')
     plt.close(fig)
-    print("Plot saved successfully.")
+    # print("Plot saved successfully.")
 

@@ -20,6 +20,7 @@ from alignment.alignment_utilities import (
     align_more_instances,
     harvest_backbone_features,
     print_dataset_stats,
+    plot_tsne_embeddings
 )
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
@@ -224,6 +225,8 @@ def train_projector(  # pylint: disable=too-many-arguments
         
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
+
+    plot_tsne_embeddings(dataset, backbone=backbone, save_path='tests/figures/tsne_backbone.png')
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
     # Augmentations are temporarily disabled inside ``harvest_backbone_features``

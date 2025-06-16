@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # Create the dataset instance
     dataset = HTRDataset(
         basefolder=str(gw_folder),
-        subset="train",
+        subset="all",
         fixed_size=(64, 256),
         transforms=None,
         config=SimpleCfg()
