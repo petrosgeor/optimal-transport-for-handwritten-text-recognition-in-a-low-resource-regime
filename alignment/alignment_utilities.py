@@ -364,6 +364,11 @@ def align_more_instances(
                 f"[Align] newly pseudo‑labelled {len(chosen)} items; "
                 f"{correct_new} match ground truth"
             )
+            if len(chosen) > 0:
+                print(
+                    f"[Align] round accuracy: {correct_new}/{len(chosen)} "
+                    f"({correct_new / len(chosen):.1%})"
+                )
 
     # Restore moved distances for pre-aligned items
     moved_distance[old_aligned != -1] = moved_distance_orig[old_aligned != -1]
@@ -388,8 +393,9 @@ def align_more_instances(
             correct_total += 1
     if aligned_idx.numel() > 0:
         print(
-            f"[Align] overall accuracy: "
-            f"{correct_total}/{aligned_idx.numel()} correct"
+            f"[Align] cumulative accuracy: {correct_total}/{aligned_idx.numel()} "
+            f"({correct_total / aligned_idx.numel():.1%}) – "
+            f"{aligned_idx.numel()} of {len(dataset)} samples aligned"
         )
 
 
