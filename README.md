@@ -161,8 +161,13 @@ def plot_dataset_augmentations(dataset, save_path):
 ## print_dataset_stats
 
 Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
-this helper prints some basic information about the dataset such as the number
-of samples, aligned items and external words.
+this helper prints useful information such as:
+
+- total number of samples and how many are already aligned,
+- size of the external vocabulary,
+- number and percentage of dataset items found in that vocabulary,
+- whether all transcriptions and external words are lowercase,
+- average transcription length.
 
 ```python
 def print_dataset_stats(dataset):

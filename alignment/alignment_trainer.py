@@ -16,7 +16,11 @@ from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
-from alignment.alignment_utilities import align_more_instances, harvest_backbone_features
+from alignment.alignment_utilities import (
+    align_more_instances,
+    harvest_backbone_features,
+    print_dataset_stats,
+)
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
 
@@ -308,6 +312,8 @@ def alternating_refinement(
     align_kwargs: dict | None = None,
 ) -> None:
     """Alternately train ``backbone`` and ``projector`` with OT alignment."""
+
+    print_dataset_stats(dataset)
 
     if refine_kwargs is None:
         refine_kwargs = {}
