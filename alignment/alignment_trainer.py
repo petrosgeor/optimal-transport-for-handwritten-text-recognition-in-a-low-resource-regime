@@ -47,6 +47,7 @@ HP = {
     "align_unbalanced": False,     # use unbalanced OT formulation
     "align_reg_m": 1.0,            # mass regularisation strength
     "align_k": 0,                  # pseudo-label k least-moved descriptors
+    "n_aligned": 300,             # number of pre-aligned samples
 }
 
 cfg_file = Path(__file__).with_name("config.yaml")
@@ -347,7 +348,7 @@ if __name__ == "__main__":
 
     class DummyCfg:
         k_external_words = 200   # top‑200 most frequent English words
-        n_aligned = 300          # how many images to mark as aligned (≈ training signal)
+        n_aligned = HP["n_aligned"]   # how many images to mark as aligned (≈ training signal)
 
     dataset = HTRDataset(
         str(gw_folder),

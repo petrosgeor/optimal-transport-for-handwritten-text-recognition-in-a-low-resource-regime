@@ -232,6 +232,13 @@ def alternating_refinement(dataset, backbone, projector, *, rounds=4,
 * `projector_kwargs`: keyword arguments for `train_projector`.
 * `align_kwargs`: parameters for `align_more_instances`.
 
+## alignment/config.yaml
+
+Additional hyperparameters for the alignment workflow are stored in
+`alignment/config.yaml`. A new option, `n_aligned`, controls how many
+dataset samples are initially marked as aligned to external words.
+These pre-aligned items give a warm start to backbone refinement.
+
 ## train\_by\_length.py
 
 `tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset.

@@ -37,3 +37,8 @@ align_reg: 0.1              # entropic regularisation for Sinkhorn
 align_unbalanced: false     # use unbalanced OT formulation
 align_reg_m: 1.0            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
+
+# ----------------------------------------------------------------------
+# Dataset parameters
+# ----------------------------------------------------------------------
+n_aligned: 300               # number of pre-aligned samples for warm start
