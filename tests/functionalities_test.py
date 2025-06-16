@@ -1,0 +1,39 @@
+from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+root = Path(__file__).resolve().parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
+
+from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.models import HTRNet, Projector
+from alignment.alignment_utilities import align_more_instances
+
+
+def test_align_logging(capsys):
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    dataset = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=None, config=cfg)
+    dataset.data = dataset.data[:3]
+    dataset.transcriptions = dataset.transcriptions[:3]
+    dataset.aligned = dataset.aligned[:3]
+    dataset.is_in_dict = dataset.is_in_dict[:3]
+    dataset.external_word_embeddings = dataset.find_word_embeddings(dataset.external_words, n_components=8)
+
+    arch_cfg = SimpleNamespace(
+        cnn_cfg=[[1, 16], 'M', [1, 32]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=32,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=8,
+    )
+    backbone = HTRNet(arch_cfg, nclasses=len(dataset.character_classes) + 1)
+    projector = Projector(arch_cfg.feat_dim, dataset.word_emb_dim)
+    align_more_instances(dataset, backbone, projector, batch_size=1, device='cpu', k=1)
+    out = capsys.readouterr().out
+    assert '[Align] round accuracy' in out
+    assert '[Align] cumulative accuracy' in out

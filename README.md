@@ -113,6 +113,9 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 * `sinkhorn_kwargs`: extra arguments for the Sinkhorn solver.
 * `k`: number of least-moved descriptors to pseudo-label.
 
+After each call, the function now reports round-wise pseudo-labelling accuracy
+and the cumulative accuracy over all aligned samples.
+
 Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
 
 ## select_uncertain_instances
