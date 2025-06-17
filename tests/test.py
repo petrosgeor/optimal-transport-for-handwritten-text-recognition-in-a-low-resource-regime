@@ -33,6 +33,7 @@ if __name__ == "__main__":
         transforms=None,
         config=SimpleCfg()
     )
+    dataset.external_word_histogram()
     
     print(f"Dataset created successfully!")
     print(f"Number of samples: {len(dataset)}")

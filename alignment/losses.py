@@ -126,4 +126,4 @@ class ProjectionLoss(torch.nn.Module):
             aligned_descriptors = descriptors[aligned_indices]
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
             distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
-        return ot_loss + 10*distance_loss
+        return ot_loss + 100*distance_loss

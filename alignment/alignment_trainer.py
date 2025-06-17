@@ -80,7 +80,7 @@ HP = {
     "align_device": "cpu",        # device used during alignment
     "align_reg": 0.1,              # entropic regularisation for Sinkhorn
     "align_unbalanced": False,     # use unbalanced OT formulation
-    "align_reg_m": 1.0,            # mass regularisation strength
+    "align_reg_m": 0.1,            # mass regularisation strength
     "align_k": 0,                  # pseudo-label k least-moved descriptors
     "n_aligned": 300,             # number of pre-aligned samples
     "ensemble_size": 1,           # number of projectors in the ensemble
@@ -394,7 +394,7 @@ if __name__ == "__main__":
 
     dataset = HTRDataset(
         str(gw_folder),
-        subset="train",
+        subset="all",
         fixed_size=(64, 256),
         transforms=aug_transforms,
         config=DummyCfg(),

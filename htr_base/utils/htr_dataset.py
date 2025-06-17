@@ -215,3 +215,64 @@ class HTRDataset(Dataset):
 
         save_path = os.path.join(out_dir, filename)
         plt.imsave(save_path, img, cmap="gray")
+    
+    def external_word_histogram(
+        self,
+        *,
+        save_dir: str = "tests/figures",
+        filename: str = "external_word_hist.png",
+        dpi: int = 200,
+    ) -> None:
+        """
+        Plot a histogram showing how many ground-truth transcriptions
+        exactly match each external vocabulary word and save it under
+        *tests/figures/* by default.
+
+        Parameters
+        ----------
+        save_dir : str | Path, default "tests/figures"
+            Directory where the PNG will be written.  Created if missing.
+        filename : str, default "external_word_hist.png"
+            Name of the output file inside *save_dir*.
+        dpi : int, default 200
+            Resolution of the saved figure.
+
+        Notes
+        -----
+        • The method **returns nothing**; its side-effect is a saved PNG.  
+        • An exception is raised if the dataset was built without
+            ``external_words``.
+        """
+        # ── sanity check ────────────────────────────────────────────────
+        if not getattr(self, "external_words", None):
+            raise RuntimeError(
+                "Dataset was created without external words – nothing to plot."
+            )
+        # ── count matches ───────────────────────────────────────────────
+        from collections import Counter
+        import os, matplotlib.pyplot as plt, torch
+
+        hits = Counter()
+        for t in self.transcriptions:                  # list of GT strings
+            w = t.lower()
+            if w in self.external_words:               # external vocab list
+                hits[w] += 1
+        counts = [hits.get(w, 0) for w in self.external_words]
+
+        # ── build & save plot ───────────────────────────────────────────
+        os.makedirs(save_dir, exist_ok=True)
+        save_path = os.path.join(save_dir, filename)
+        plt.figure(figsize=(max(8, len(self.external_words) * 0.25), 4))
+        plt.bar(range(len(self.external_words)), counts)
+        plt.xticks(
+            range(len(self.external_words)),
+            self.external_words,
+            rotation=90,
+            fontsize=8,
+        )
+        plt.ylabel("Frequency in dataset")
+        plt.title("Ground-truth matches per external word")
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=dpi)
+        plt.close()
+        print(f"[external_word_histogram] Figure saved to: {save_path}")

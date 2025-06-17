@@ -6,7 +6,7 @@ refine_lr: 1e-4             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
 
-refine_epochs: 10           # epochs used for backbone refinement
+# refine_epochs: 0           # epochs used for backbone refinement
 
 
 # ----------------------------------------------------------------------
@@ -35,13 +35,13 @@ alt_rounds: 4               # number of backbone/projector cycles per pass
 align_batch_size: 512       # mini-batch size when harvesting descriptors
 align_device: cpu           # device used during alignment post-processing
 align_reg: 0.1              # entropic regularisation for Sinkhorn
-align_unbalanced: true     # use unbalanced OT formulation
-align_reg_m: 1.0            # mass regularisation when unbalanced OT is used
+align_unbalanced: false     # use unbalanced OT formulation
+align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 
 # ----------------------------------------------------------------------
 # Dataset parameters
 # ----------------------------------------------------------------------
 n_aligned: 300               # number of pre-aligned samples for warm start
-ensemble_size: 1             # how many projectors to train in parallel
+ensemble_size: 3             # how many projectors to train in parallel
 agree_threshold: 1           # votes required when pseudo-labelling
