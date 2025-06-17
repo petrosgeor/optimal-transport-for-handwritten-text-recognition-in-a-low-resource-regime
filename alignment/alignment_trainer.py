@@ -67,6 +67,7 @@ HP = {
     "refine_lr": 1e-4,            # learning rate for backbone refinement
     "refine_main_weight": 1.0,    # weight for the main CTC loss branch
     "refine_aux_weight": 0.1,     # weight for the auxiliary CTC loss branch
+    "refine_epochs": 10,          # epochs used for backbone refinement
     "projector_epochs": 150,      # training epochs for the projector network
     "projector_batch_size": 4000,  # mini-batch size for projector training
     "projector_lr": 1e-4,         # learning rate for projector optimisation
@@ -115,7 +116,7 @@ def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, s
 def refine_visual_backbone(
     dataset: HTRDataset,
     backbone: HTRNet,
-    num_epochs: int,
+    num_epochs: int = HP["refine_epochs"],
     *,
     batch_size: int = HP["refine_batch_size"],
     lr: float = HP["refine_lr"],
