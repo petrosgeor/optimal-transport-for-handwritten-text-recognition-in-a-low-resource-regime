@@ -383,6 +383,22 @@ def align_more_instances(
                     f"({correct_new / len(chosen):.1%})"
                 )
 
+            # ---- display a few examples and moved-distance stats --------------
+            show_indices = random.sample(
+                chosen.tolist(), min(10, len(chosen))
+            )
+            for idx in show_indices:
+                true = dataset.transcriptions[idx]
+                pred = dataset.external_words[dataset.aligned[idx].item()]
+                print(f"[Align] sample: '{true}' -> '{pred}'")
+
+            dist_vals = moved_distance[chosen]
+            mean_dist = dist_vals.mean().item()
+            std_dist = dist_vals.std(unbiased=False).item()
+            print(
+                f"[Align] mean moved distance: {mean_dist:.4f} ± {std_dist:.4f}"
+            )
+
     # Restore moved distances for pre-aligned items
     moved_distance[old_aligned != -1] = moved_distance_orig[old_aligned != -1]
 

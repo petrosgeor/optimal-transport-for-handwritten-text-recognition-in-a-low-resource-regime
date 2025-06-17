@@ -123,7 +123,10 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 * `k`: number of least-moved descriptors to pseudo-label.
 
 After each call, the function now reports round-wise pseudo-labelling accuracy
-and the cumulative accuracy over all aligned samples.
+and the cumulative accuracy over all aligned samples. It also prints up to ten
+sample pairs showing the ground-truth transcription and the predicted external
+word, followed by the mean and standard deviation of the moved distance for the
+newly pseudo-labelled items.
 
 The underlying OT projection step handles rows with zero mass safely, avoiding
 `inf` or `nan` values when some descriptors receive no transport mass.
