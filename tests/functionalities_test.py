@@ -16,6 +16,7 @@ from alignment.alignment_utilities import (
 )
 from alignment.alignment_trainer import tee_output
 from htr_base.utils.transforms import aug_transforms
+from omegaconf import OmegaConf
 
 
 def test_align_logging(capsys):
@@ -161,3 +162,10 @@ def test_plot_projector_tsne(tmp_path):
     out_file = tmp_path / 'proj_tsne.png'
     plot_projector_tsne(projections, ds, out_file)
     assert out_file.exists()
+
+
+def test_refine_epochs_hparam():
+    from alignment.alignment_trainer import HP
+    cfg = OmegaConf.load('alignment/config.yaml')
+    assert 'refine_epochs' in HP
+    assert HP['refine_epochs'] == cfg['refine_epochs']

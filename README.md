@@ -214,14 +214,14 @@ Dataset augmentations are disabled while features are harvested.
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
 
 ```python
-def refine_visual_backbone(dataset, backbone, num_epochs, *, batch_size=128,
+def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
                            lr=1e-4, main_weight=1.0, aux_weight=0.1):
     """Fine‑tune *backbone* only on words already aligned to external words."""
 ```
 
 * `dataset`: training dataset with alignment information.
 * `backbone`: network to refine.
-* `num_epochs`: number of optimisation epochs.
+* `num_epochs`: number of optimisation epochs (default from `refine_epochs` in `alignment/config.yaml`).
 * `batch_size`: mini-batch size.
 * `lr`: learning rate.
 * `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
@@ -286,7 +286,9 @@ with tee_output("results.txt"):
 Additional hyperparameters for the alignment workflow are stored in
 `alignment/config.yaml`. A new option, `n_aligned`, controls how many
 dataset samples are initially marked as aligned to external words.
-These pre-aligned items give a warm start to backbone refinement.
+These pre-aligned items give a warm start to backbone refinement. Another
+parameter, `refine_epochs`, sets how many epochs are used for backbone
+refinement by default.
 
 ## train\_by\_length.py
 
