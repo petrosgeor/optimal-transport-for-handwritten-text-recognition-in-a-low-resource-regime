@@ -304,6 +304,12 @@ pseudo‑labelling a sample.
 
 `tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset.
 
+## Utilities / Metrics
+
+* **CER** – accumulates character error rate over multiple predictions.
+* **WER** – accumulates word error rate; supports tokeniser and space modes.
+* **word_silhouette_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
+
 ## Requirements
 
 Python dependencies are listed in `requirements.txt`. Install them with:

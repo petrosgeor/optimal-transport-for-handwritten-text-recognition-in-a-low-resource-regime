@@ -217,3 +217,12 @@ def test_majority_vote_alignment():
     assert (ds.aligned == -1).all()
     align_more_instances(ds, backbone, projectors, batch_size=1, device='cpu', k=2, agree_threshold=1)
     assert (ds.aligned != -1).all()
+
+def test_word_silhouette_score():
+    feats = torch.tensor([[0.0, 0.0], [0.0, 1.0], [3.0, 0.0], [3.0, 1.0]])
+    words = ["a", "a", "b", "b"]
+    from htr_base.utils.metrics import word_silhouette_score
+
+    score = word_silhouette_score(feats, words)
+    assert 0.6 < score <= 1.0
+
