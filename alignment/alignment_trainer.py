@@ -238,7 +238,7 @@ def train_projector(  # pylint: disable=too-many-arguments
     feats_all, aligned_all = harvest_backbone_features(
         dataset,
         backbone,
-        batch_size=batch_size,
+        batch_size=64,
         num_workers=num_workers,
         device=device,
     )
