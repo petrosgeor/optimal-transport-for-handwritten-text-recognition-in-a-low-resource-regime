@@ -171,6 +171,7 @@ def train_projector(  # pylint: disable=too-many-arguments
     num_workers: int = cfg.projector_workers,
     weight_decay: float = cfg.projector_weight_decay,
     device: torch.device | str = cfg.device,
+    plot_tsne: bool = cfg.plot_tsne,
 ) -> None:
     """
     Freeze `backbone`, collect all image descriptors, and then train the
@@ -209,7 +210,12 @@ def train_projector(  # pylint: disable=too-many-arguments
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
 
-    plot_tsne_embeddings(dataset, backbone=backbone, save_path='tests/figures/tsne_backbone.png')
+    if plot_tsne:
+        plot_tsne_embeddings(
+            dataset,
+            backbone=backbone,
+            save_path='tests/figures/tsne_backbone.png'
+        )
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
     # Augmentations are temporarily disabled inside ``harvest_backbone_features``
@@ -271,7 +277,12 @@ def train_projector(  # pylint: disable=too-many-arguments
         with torch.no_grad():
             proj_vecs = proj(feats_all.to(device)).cpu()
 
-        plot_projector_tsne(proj_vecs, dataset, save_path=f'tests/figures/tsne_projections_{idx}.png')
+        if plot_tsne:
+            plot_projector_tsne(
+                proj_vecs,
+                dataset,
+                save_path=f'tests/figures/tsne_projections_{idx}.png'
+            )
 
     print("[Projector] training complete ✔")
 

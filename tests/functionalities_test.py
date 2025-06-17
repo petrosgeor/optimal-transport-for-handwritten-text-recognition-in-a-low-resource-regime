@@ -16,7 +16,8 @@ from alignment.alignment_utilities import (
     plot_projector_tsne,
 )
 from alignment.alignment_trainer import tee_output
-from alignment.alignment_trainer import refine_visual_backbone
+from alignment.alignment_trainer import refine_visual_backbone, train_projector
+import shutil
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
 
@@ -256,4 +257,87 @@ def test_refine_prints_silhouette(capsys):
     refine_visual_backbone(ds, backbone, num_epochs=1, batch_size=1, lr=1e-3)
     out = capsys.readouterr().out
     assert 'silhouette score' in out.lower()
+
+
+def _tiny_dataset():
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    ds = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=None, config=cfg)
+    ds.data = ds.data[:35]
+    ds.transcriptions = ds.transcriptions[:35]
+    ds.aligned = ds.aligned[:35]
+    ds.is_in_dict = ds.is_in_dict[:35]
+    ds.external_word_embeddings = ds.find_word_embeddings(ds.external_words, n_components=8)
+    return ds
+
+
+def test_train_projector_no_tsne(tmp_path):
+    ds = _tiny_dataset()
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16], 'M', [1, 32]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=32,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=8,
+    )
+    backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+    projector = Projector(arch.feat_dim, ds.word_emb_dim)
+
+    figs = Path('tests/figures')
+    if figs.exists():
+        shutil.rmtree(figs)
+
+    train_projector(
+        ds,
+        backbone,
+        projector,
+        num_epochs=1,
+        batch_size=1,
+        lr=1e-3,
+        num_workers=0,
+        device='cpu',
+        plot_tsne=False,
+    )
+
+    assert not figs.exists() or not any(figs.iterdir())
+
+
+def test_train_projector_with_tsne(tmp_path):
+    ds = _tiny_dataset()
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16], 'M', [1, 32]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=32,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=8,
+    )
+    backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+    projector = Projector(arch.feat_dim, ds.word_emb_dim)
+
+    figs = Path('tests/figures')
+    if figs.exists():
+        shutil.rmtree(figs)
+
+    train_projector(
+        ds,
+        backbone,
+        projector,
+        num_epochs=1,
+        batch_size=1,
+        lr=1e-3,
+        num_workers=0,
+        device='cpu',
+        plot_tsne=True,
+    )
+
+    assert (figs / 'tsne_backbone.png').exists()
+    assert any(figs.glob('tsne_projections_*.png'))
 
