@@ -166,22 +166,20 @@ def test_plot_projector_tsne(tmp_path):
 
 
 def test_refine_epochs_hparam():
-    from alignment.alignment_trainer import HP
+    from alignment.alignment_trainer import cfg as loaded
     cfg = OmegaConf.load('alignment/config.yaml')
-    assert 'refine_epochs' in HP
-    assert HP['refine_epochs'] == cfg['refine_epochs']
+    assert loaded.refine_epochs == cfg['refine_epochs']
 
 
 def test_projector_epochs_hparam():
-    from alignment.alignment_trainer import HP
+    from alignment.alignment_trainer import cfg as loaded
     cfg = OmegaConf.load('alignment/config.yaml')
-    assert 'projector_epochs' in HP
-    assert HP['projector_epochs'] == cfg['projector_epochs']
+    assert loaded.projector_epochs == cfg['projector_epochs']
 
 
 def test_no_alt_backbone_hparam():
-    from alignment.alignment_trainer import HP
-    assert 'alt_backbone_epochs' not in HP
+    from alignment.alignment_trainer import cfg as loaded
+    assert not hasattr(loaded, 'alt_backbone_epochs')
 
 
 def test_majority_vote_alignment():
