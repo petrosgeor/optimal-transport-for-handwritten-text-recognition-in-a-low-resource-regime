@@ -104,15 +104,15 @@ Returns a list of decoded strings, one for each element in the batch.
 Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.
 
 ```python
-def align_more_instances(dataset, backbone, projector, *, batch_size=512,
+def align_more_instances(dataset, backbone, projectors, *, batch_size=512,
                          device="cpu", reg=0.1, unbalanced=False, reg_m=1.0,
-                         sinkhorn_kwargs=None, k=0):
+                         sinkhorn_kwargs=None, k=0, agree_threshold=1):
     """Automatically align dataset images to external words using OT."""
 ```
 
 * `dataset`: instance of `HTRDataset` providing images and `external_word_embeddings`.
 * `backbone`: `HTRNet` used to extract visual descriptors.
-* `projector`: projects descriptors to the embedding space.
+* `projectors`: list of projectors mapping descriptors to the embedding space.
 * `batch_size`: mini-batch size when harvesting descriptors.
 * `device`: device used for feature extraction, descriptor processing and
   the projector.
@@ -121,6 +121,7 @@ def align_more_instances(dataset, backbone, projector, *, batch_size=512,
 * `reg_m`: additional unbalanced regularisation parameter.
 * `sinkhorn_kwargs`: extra arguments for the Sinkhorn solver.
 * `k`: number of least-moved descriptors to pseudo-label.
+* `agree_threshold`: minimum number of agreeing projectors for a pseudo-label.
 
 After each call, the function now reports round-wise pseudo-labelling accuracy
 and the cumulative accuracy over all aligned samples. It also prints up to ten
@@ -236,12 +237,14 @@ Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects im
 def train_projector(dataset, backbone, projector, num_epochs=150,
                     batch_size=512, lr=1e-4, num_workers=0,
                     weight_decay=1e-4, device="cuda"):
-    """Freeze *backbone*, collect image descriptors -> train *projector*."""
+    """Freeze *backbone*, collect image descriptors → train *projector*.
+    ``projector`` may also be a list which will be trained sequentially."""
 ```
 
 * `dataset`: dataset with `external_word_embeddings`.
 * `backbone`: frozen encoder producing descriptors.
-* `projector`: learnable mapping to the embedding space.
+* `projector`: learnable mapping to the embedding space. Can be a list for
+  ensemble training.
 * `num_epochs`, `batch_size`, `lr`: training hyperparameters. The default value
   for `num_epochs` comes from `projector_epochs` in `alignment/config.yaml`.
 * `num_workers`: data loading workers during descriptor harvesting.
@@ -255,11 +258,11 @@ visual backbone and projector while progressively aligning more dataset
 instances using Optimal Transport.
 
 ```python
-def alternating_refinement(dataset, backbone, projector, *, rounds=4,
+def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
                            backbone_epochs=2, projector_epochs=100,
                            refine_kwargs=None, projector_kwargs=None,
                            align_kwargs=None):
-    """Alternately train ``backbone`` and ``projector`` with OT alignment."""
+    """Alternately train ``backbone`` and multiple projectors with OT alignment."""
 ```
 
 * `rounds`: number of backbone/projector cycles per alignment pass.
@@ -280,7 +283,7 @@ Also in `alignment/alignment_trainer.py`. This context manager duplicates
 from alignment.alignment_trainer import tee_output
 
 with tee_output("results.txt"):
-    alternating_refinement(dataset, backbone, projector)
+    alternating_refinement(dataset, backbone, projectors)
 ```
 
 ## alignment/config.yaml
@@ -293,6 +296,9 @@ parameter, `refine_epochs`, sets how many epochs are used for backbone
 refinement by default. The same file defines `projector_epochs` which
 controls projector training both on its own and during alternating
 refinement.
+Two additional options, `ensemble_size` and `agree_threshold`, configure
+how many projectors are trained and how many votes are needed before
+pseudo‑labelling a sample.
 
 ## train\_by\_length.py
 

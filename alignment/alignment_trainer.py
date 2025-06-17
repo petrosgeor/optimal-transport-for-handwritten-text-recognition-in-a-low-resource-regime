@@ -84,6 +84,8 @@ HP = {
     "align_reg_m": 1.0,            # mass regularisation strength
     "align_k": 0,                  # pseudo-label k least-moved descriptors
     "n_aligned": 300,             # number of pre-aligned samples
+    "ensemble_size": 1,           # number of projectors in the ensemble
+    "agree_threshold": 1,         # votes required for pseudo-labelling
 }
 
 cfg_file = Path(__file__).with_name("config.yaml")
@@ -184,7 +186,7 @@ def refine_visual_backbone(
 def train_projector(  # pylint: disable=too-many-arguments
     dataset: "HTRDataset",
     backbone: "HTRNet",
-    projector: nn.Module,
+    projector: nn.Module | List[nn.Module],
     num_epochs: int = HP["projector_epochs"],
     batch_size: int = HP["projector_batch_size"],
     lr: float = HP["projector_lr"],
@@ -193,9 +195,10 @@ def train_projector(  # pylint: disable=too-many-arguments
     device: torch.device | str = HP["device"],
 ) -> None:
     """
-    Freeze `backbone`, collect all image descriptors, and then train the `projector`
-    using a combination of an unsupervised Optimal Transport loss on all samples
-    and a supervised MSE loss on the subset of pre-aligned samples.
+    Freeze `backbone`, collect all image descriptors, and then train the
+    `projector` (or a list of projectors) using a combination of an
+    unsupervised Optimal Transport loss on all samples and a supervised MSE
+    loss on the subset of pre-aligned samples.
     
     All images are first forwarded through the frozen `backbone` **without
     augmentation** to obtain a stable descriptor for every sample. These descriptors,
@@ -205,7 +208,8 @@ def train_projector(  # pylint: disable=too-many-arguments
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
     backbone = backbone.to(device).eval()          # freeze visual encoder
-    projector = projector.to(device).train()       # learnable mapping
+    projs = projector if isinstance(projector, (list, tuple)) else [projector]
+    projs = [p.to(device).train() for p in projs]
     
     word_embs_cpu = dataset.external_word_embeddings
     if word_embs_cpu is None:
@@ -253,68 +257,52 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     # ---------------------------------------------------------------- 3. Optimiser + loss
     criterion = ProjectionLoss().to(device)
-    optimiser = optim.AdamW(projector.parameters(), lr=lr, weight_decay=weight_decay)
-
-    # ---------------------------------------------------------------- 4. Training loop
     print("Starting projector training...")
-    for epoch in range(1, num_epochs + 1):
-        running_loss = 0.0
-        # The dataloader now yields batches of (features, alignment_info)
-        for feats_cpu, align_cpu in proj_loader:
-            
-            # Move the entire batch to the training device. No filtering!
-            feats = feats_cpu.to(device)
-            align = align_cpu.to(device)
+    for idx, proj in enumerate(projs):
+        optimiser = optim.AdamW(proj.parameters(), lr=lr, weight_decay=weight_decay)
 
-            # --- Pre-computation Assertions ---
-            assert torch.isfinite(feats).all(), \
-                "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
+        for epoch in range(1, num_epochs + 1):
+            running_loss = 0.0
+            for feats_cpu, align_cpu in proj_loader:
+                feats = feats_cpu.to(device)
+                align = align_cpu.to(device)
 
-            # --- Forward pass ---
-            pred = projector(feats)
+                assert torch.isfinite(feats).all(), \
+                    "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
 
-            # --- Loss Calculation ---
-            # The criterion internally handles which samples are used for the
-            # supervised loss based on the `align` tensor (where -1 indicates unsupervised).
-            loss = criterion.forward(pred, word_embs, align, word_probs)
-            
-            assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
+                pred = proj(feats)
+                loss = criterion.forward(pred, word_embs, align, word_probs)
 
-            # --- Optimization Step ---
-            
-            loss.backward()
-            grad_ok = all(
-                torch.isfinite(p.grad).all()
-                for p in projector.parameters()
-                if p.grad is not None
-            )
-            assert grad_ok, 'gradient explosion in projector - contains NaN/Inf'
+                assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
 
-            # (CRITICAL) Gradient Clipping: Prevents exploding gradients from corrupting model weights.
-            torch.nn.utils.clip_grad_norm_(projector.parameters(), max_norm=1.0)
-            
-            optimiser.step()
-            optimiser.zero_grad(set_to_none=True)
-            running_loss += loss.item()
+                loss.backward()
+                grad_ok = all(
+                    torch.isfinite(p.grad).all()
+                    for p in proj.parameters()
+                    if p.grad is not None
+                )
+                assert grad_ok, 'gradient explosion in projector - contains NaN/Inf'
 
-        avg_loss = running_loss / max(1, len(proj_loader))
-        # if epoch == 1 or epoch % 10 == 0 or epoch == num_epochs:
-        #     print(f"[Projector] epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-            
-    print("[Projector] training complete ✔")   
+                torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0)
 
-    projector.eval()
-    with torch.no_grad():
-        proj_vecs = projector(feats_all.to(device)).cpu()
-    
-    plot_projector_tsne(proj_vecs, dataset, save_path='tests/figures/tsne_projections.png')
+                optimiser.step()
+                optimiser.zero_grad(set_to_none=True)
+                running_loss += loss.item()
+
+        proj.eval()
+        with torch.no_grad():
+            proj_vecs = proj(feats_all.to(device)).cpu()
+
+        plot_projector_tsne(proj_vecs, dataset, save_path=f'tests/figures/tsne_projections_{idx}.png')
+
+    print("[Projector] training complete ✔")
 
 
 
 def alternating_refinement(
     dataset: HTRDataset,
     backbone: HTRNet,
-    projector: nn.Module,
+    projectors: List[nn.Module],
     *,
     rounds: int = HP["alt_rounds"],
     backbone_epochs: int = HP["alt_backbone_epochs"],
@@ -323,7 +311,7 @@ def alternating_refinement(
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
 ) -> None:
-    """Alternately train ``backbone`` and ``projector`` with OT alignment."""
+    """Alternately train ``backbone`` and one or more projectors with OT alignment."""
 
     print_dataset_stats(dataset)
 
@@ -339,6 +327,7 @@ def alternating_refinement(
     align_kwargs.setdefault("unbalanced", HP["align_unbalanced"])
     align_kwargs.setdefault("reg_m", HP["align_reg_m"])
     align_kwargs.setdefault("k", HP["align_k"])
+    align_kwargs.setdefault("agree_threshold", HP["agree_threshold"])
 
     while (dataset.aligned == -1).any():
         for r in range(rounds):
@@ -353,8 +342,9 @@ def alternating_refinement(
 
             for param in backbone.parameters():
                 param.requires_grad_(False)
-            for param in projector.parameters():
-                param.requires_grad_(True)
+            for proj in projectors:
+                for param in proj.parameters():
+                    param.requires_grad_(True)
 
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
@@ -368,7 +358,7 @@ def alternating_refinement(
                 train_projector(
                     dataset,
                     backbone,
-                    projector,
+                    projectors,
                     num_epochs=projector_epochs,
                     **projector_kwargs,
                 )
@@ -378,11 +368,12 @@ def alternating_refinement(
 
             for param in backbone.parameters():
                 param.requires_grad_(True)
-            for param in projector.parameters():
-                param.requires_grad_(False)
+            for proj in projectors:
+                for param in proj.parameters():
+                    param.requires_grad_(False)
 
         print("[Cycle] Aligning more instances...")
-        align_more_instances(dataset, backbone, projector, **align_kwargs)
+        align_more_instances(dataset, backbone, projectors, **align_kwargs)
 
 
 if __name__ == "__main__":
@@ -421,8 +412,11 @@ if __name__ == "__main__":
         feat_dim=512,
     )
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
-    projector = Projector(arch.feat_dim, dataset.word_emb_dim)
+    projectors = [
+        Projector(arch.feat_dim, dataset.word_emb_dim)
+        for _ in range(HP["ensemble_size"])
+    ]
 
     with tee_output("results.txt"):
-        alternating_refinement(dataset, backbone, projector)
+        alternating_refinement(dataset, backbone, projectors)
 

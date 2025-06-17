@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import torch
+import torch.nn as nn
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -177,6 +178,45 @@ def test_projector_epochs_hparam():
     assert 'projector_epochs' in HP
     assert HP['projector_epochs'] == cfg['projector_epochs']
 
+
+def test_majority_vote_alignment():
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    ds = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=None, config=cfg)
+    ds.data = ds.data[:2]
+    ds.transcriptions = ds.transcriptions[:2]
+    ds.aligned = torch.full((2,), -1, dtype=torch.int32)
+    ds.is_in_dict = ds.is_in_dict[:2]
+    ds.external_word_embeddings = ds.find_word_embeddings(ds.external_words, n_components=8)
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16], 'M', [1, 32]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=32,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=8,
+    )
+    backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+
+    class ConstProj(nn.Module):
+        def __init__(self, vec):
+            super().__init__()
+            self.vec = nn.Parameter(vec, requires_grad=False)
+
+        def forward(self, x):
+            return self.vec.expand(x.size(0), -1)
+
+    vec0 = ds.external_word_embeddings[0]
+    vec1 = ds.external_word_embeddings[1]
+    projectors = [ConstProj(vec0), ConstProj(vec0), ConstProj(vec1)]
+
+    align_more_instances(ds, backbone, projectors, batch_size=1, device='cpu', k=2, agree_threshold=4)
+    assert (ds.aligned == -1).all()
+    align_more_instances(ds, backbone, projectors, batch_size=1, device='cpu', k=2, agree_threshold=1)
+    assert (ds.aligned != -1).all()
 
 def test_word_silhouette_score():
     feats = torch.tensor([[0.0, 0.0], [0.0, 1.0], [3.0, 0.0], [3.0, 1.0]])
