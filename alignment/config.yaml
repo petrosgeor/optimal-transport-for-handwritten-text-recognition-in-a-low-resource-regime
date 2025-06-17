@@ -16,6 +16,7 @@ projector_batch_size: 4000  # mini-batch size when collecting descriptors
 projector_lr: 1e-4          # learning rate for projector optimisation
 projector_workers: 1        # dataloader workers used during descriptor caching
 projector_weight_decay: 1e-4  # weight decay for the projector optimiser
+plot_tsne: true              # save t-SNE plots during projector training
 
 # ----------------------------------------------------------------------
 # Compute device

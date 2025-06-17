@@ -236,7 +236,7 @@ Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects im
 ```python
 def train_projector(dataset, backbone, projector, num_epochs=150,
                     batch_size=512, lr=1e-4, num_workers=0,
-                    weight_decay=1e-4, device="cuda"):
+                    weight_decay=1e-4, device="cuda", plot_tsne=True):
     """Freeze *backbone*, collect image descriptors → train *projector*.
     ``projector`` may also be a list which will be trained sequentially."""
 ```
@@ -250,6 +250,7 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `num_workers`: data loading workers during descriptor harvesting.
 * `weight_decay`: weight decay for the optimiser.
 * `device`: computation device for training.
+* `plot_tsne`: whether to generate t-SNE plots of backbone and projector outputs.
 
 ## alternating\_refinement
 
@@ -300,6 +301,7 @@ refinement.
 Two additional options, `ensemble_size` and `agree_threshold`, configure
 how many projectors are trained and how many votes are needed before
 pseudo‑labelling a sample.
+Setting `plot_tsne` to `true` enables t-SNE visualisations during projector training.
 
 ## train\_by\_length.py
 
