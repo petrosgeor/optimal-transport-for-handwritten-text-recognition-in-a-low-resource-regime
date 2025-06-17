@@ -259,14 +259,14 @@ instances using Optimal Transport.
 
 ```python
 def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
-                           backbone_epochs=2, projector_epochs=100,
+                           backbone_epochs=10, projector_epochs=100,
                            refine_kwargs=None, projector_kwargs=None,
                            align_kwargs=None):
     """Alternately train ``backbone`` and multiple projectors with OT alignment."""
 ```
 
 * `rounds`: number of backbone/projector cycles per alignment pass.
-* `backbone_epochs`: epochs for each backbone refinement round.
+* `backbone_epochs`: epochs for each backbone refinement round (default from `refine_epochs`).
 * `projector_epochs`: epochs for each projector training round.
   This value is also used as the default when calling `train_projector`.
 * `refine_kwargs`: extra keyword arguments forwarded to
