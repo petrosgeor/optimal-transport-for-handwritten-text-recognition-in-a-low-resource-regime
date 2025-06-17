@@ -353,6 +353,8 @@ def alternating_refinement(
 
             for param in backbone.parameters():
                 param.requires_grad_(False)
+            for param in projector.parameters():
+                param.requires_grad_(True)
 
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
@@ -376,6 +378,8 @@ def alternating_refinement(
 
             for param in backbone.parameters():
                 param.requires_grad_(True)
+            for param in projector.parameters():
+                param.requires_grad_(False)
 
         print("[Cycle] Aligning more instances...")
         align_more_instances(dataset, backbone, projector, **align_kwargs)

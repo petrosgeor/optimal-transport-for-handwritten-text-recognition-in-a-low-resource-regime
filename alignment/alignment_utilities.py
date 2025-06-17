@@ -1,6 +1,6 @@
 """Utility functions for aligning dataset instances to external words."""
 
-from typing import Optional
+from typing import Optional, Tuple, List
 
 import os
 import random
@@ -236,199 +236,151 @@ def select_uncertain_instances(
 
     return order[:m]
 
-
+@torch.no_grad()
 def align_more_instances(
     dataset: HTRDataset,
     backbone: HTRNet,
     projector: Projector,
     *,
     batch_size: int = 512,
-    device = "cpu",
+    device: str = "cpu",
     reg: float = 0.1,
     unbalanced: bool = False,
     reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Automatically align dataset images to external words using OT.
+    metric: str = "gap",          # 'gap' or 'entropy'  (assignment certainty)
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Use OT to project *projector*-space descriptors onto the external
+    word-embedding space, then pseudo-label the **k most-certain yet-unaligned**
+    images.
 
     Parameters
     ----------
-    dataset : HTRDataset
-        Dataset providing images and ``external_word_embeddings``.
-    backbone : HTRNet
-        Visual backbone used to extract per-image features.
-    projector : Projector
-        Module projecting features to the word embedding space.
-    batch_size : int, optional
-        Mini-batch size used when harvesting descriptors.
-    device : torch.device | str, optional
-        Device on which descriptors are processed. Both feature extraction and
-        the projector run on this device.
-    reg : float, optional
-        Entropic regularisation strength for Sinkhorn.
-    unbalanced : bool, optional
-        If ``True`` uses the unbalanced OT formulation.
-    reg_m : float, optional
-        Additional unbalanced regularisation parameter.
-    sinkhorn_kwargs : dict, optional
-        Extra arguments forwarded to the Sinkhorn solver.
-    k : int, optional
-        How many of the least-moved descriptors to pseudo-label.
-
-    Notes
-    -----
-    Dataset augmentations are temporarily disabled while collecting
-    descriptors and re-enabled afterwards. Both ``backbone`` and
-    ``projector`` are returned to training mode once alignment
-    completes.
+    metric : {'gap', 'entropy'}
+        How certainty is measured:
+        * **gap**     – nearest-word margin  (large ⇒ confident)
+        * **entropy** – OT row entropy       (small ⇒ confident)
 
     Returns
     -------
-    torch.Tensor
-        Transport plan of shape ``(N, V)`` where ``N`` is the number of
-        dataset samples and ``V`` the vocabulary size.
-    torch.Tensor
-        Projected descriptors after OT (``(N, E)``).
-    torch.Tensor
-        Distance moved by each descriptor (``(N,)``).
+    plan_torch   : (N, V) float32  – OT transport plan
+    proj_feats_ot: (N, E) float32  – barycentric projections
+    moved_dist   : (N,)  float32   – L2 distance projector→projection
     """
+    if metric not in {"gap", "entropy"}:
+        raise ValueError("metric must be 'gap' or 'entropy'")
     if sinkhorn_kwargs is None:
         sinkhorn_kwargs = {}
 
-    word_embs = dataset.external_word_embeddings  # (V, E)
-    if word_embs is None:
-        raise RuntimeError("dataset.external_word_embeddings is required")
-
     device = torch.device(device)
+    word_embs = dataset.external_word_embeddings.to(device)  # (V, E)
 
-    # Harvest features using the utility function
-    # harvest_backbone_features handles backbone.eval(), torch.no_grad(),
-    # and moving features to CPU. It also handles dataset transforms.
-    feats, _ = harvest_backbone_features(
-        dataset,
-        backbone,
-        batch_size=batch_size,
-        num_workers=0, # Match current num_workers in the removed loader
-        device=device
-    )
-
-    if feats.numel() == 0:
-        raise RuntimeError("Dataset yielded no images")
-
+    # --------------------------------------------------------- 1. descriptors
+    feats_all, aligned_all = harvest_backbone_features(
+        dataset, backbone,
+        batch_size=batch_size, num_workers=0, device=device
+    )                                     # both tensors on CPU
     projector.eval().to(device)
-    proj_feats = projector(feats.to(device)).detach().cpu()  # (N, E)
-    assert torch.isfinite(proj_feats).all(), (
-        "Non-finite values detected in projector features"
-    )
+    proj_feats = projector(feats_all.to(device)).cpu()        # (N, E)
 
-    n = proj_feats.size(0)
-    v = word_embs.size(0)
-
-    a = np.full((n,), 1.0 / n, dtype=np.float64)
-    if hasattr(dataset, "external_word_probs") and dataset.external_word_probs:
+    # --------------------------------------------------------- 2. OT
+    N, V = proj_feats.size(0), word_embs.size(0)
+    a = np.full((N,), 1.0 / N, dtype=np.float64)
+    if getattr(dataset, "external_word_probs", None):
         b = np.asarray(dataset.external_word_probs, dtype=np.float64)
         if not unbalanced:
-            s = b.sum()
-            if s > 0:
-                b = b / s
+            b /= b.sum()
     else:
-        b = np.full((v,), 1.0 / v, dtype=np.float64)
+        b = np.full((V,), 1.0 / V, dtype=np.float64)
 
     proj_np, plan = calculate_ot_projections(
-        a,
-        proj_feats.numpy(),
-        b,
-        word_embs.numpy(),
-        reg,
-        unbalanced=unbalanced,
-        reg_m=reg_m,
+        a, proj_feats.numpy(), b, word_embs.cpu().numpy(),
+        reg, unbalanced=unbalanced, reg_m=reg_m,
         sinkhorn_kwargs=sinkhorn_kwargs,
     )
-
-    plan_torch = torch.from_numpy(plan).float()
+    plan_torch    = torch.from_numpy(plan).float()
     proj_feats_ot = torch.from_numpy(proj_np).float()
 
-    old_aligned = dataset.aligned.clone()
-    moved_distance = (proj_feats_ot - proj_feats).norm(p=2, dim=1)
-    moved_distance_orig = moved_distance.clone()
-    moved_distance[old_aligned != -1] = float("inf")
+    # --------------------------------------------------------- 3. distances
+    moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)           # (N,)
+    dist_matrix = torch.cdist(proj_feats_ot, word_embs.cpu())            # (N,V)
+    nearest_word = dist_matrix.argmin(dim=1)                             # (N,)
 
-    # ── assign OT-projected descriptors to closest word embedding ────────────
-    dists_to_words = torch.cdist(proj_feats_ot, word_embs)
-    nearest_word = dists_to_words.argmin(dim=1)  # (N,)
+    # --------------------------------------------------------- 4. certainty
+    # We first obtain all indices ordered *by decreasing uncertainty*,
+    # then traverse that list backwards to pick the most-certain rows.
+    order_unc = select_uncertain_instances(
+        m=len(dataset),
+        transport_plan=plan if metric == "entropy" else None,
+        dist_matrix=dist_matrix.numpy() if metric == "gap" else None,
+        metric=metric,
+    )                                         # most-uncertain → least-certain
+    order_cert = order_unc[::-1]              # least-uncertain first
 
-    # ── pseudo‑label k least-moved instances ────────────────────────────────
-    if k > 0:
-        valid_idx = torch.nonzero(moved_distance.isfinite(), as_tuple=True)[0]
-        if valid_idx.numel() > 0:
-            k_sel = min(k, valid_idx.numel())
-            sorted_idx = moved_distance[valid_idx].argsort()[:k_sel]
-            chosen = valid_idx[sorted_idx]
-            dataset.aligned[chosen] = nearest_word[chosen].to(torch.int32)
+    mask_new = (aligned_all == -1).numpy()
+    chosen: List[int] = []
+    for idx in order_cert:
+        if mask_new[idx]:
+            chosen.append(idx)
+            if len(chosen) == min(k, mask_new.sum()):
+                break
+    chosen_tensor = torch.tensor(chosen, dtype=torch.long)
 
-            # ---- print pseudo‑labelling accuracy ---------------------------------
-            correct_new = 0
-            for idx in chosen.tolist():
-                pred = dataset.external_words[dataset.aligned[idx].item()]
-                if pred == dataset.transcriptions[idx].strip():
-                    correct_new += 1
-            print(
-                f"[Align] newly pseudo‑labelled {len(chosen)} items; "
-                f"{correct_new} match ground truth"
-            )
-            if len(chosen) > 0:
-                print(
-                    f"[Align] round accuracy: {correct_new}/{len(chosen)} "
-                    f"({correct_new / len(chosen):.1%})"
-                )
+    # --------------------------------------------------------- 5. label writing
+    if chosen:
+        dataset.aligned[chosen_tensor] = nearest_word[chosen_tensor].to(torch.int32)
 
-            # ---- display a few examples and moved-distance stats --------------
-            show_indices = random.sample(
-                chosen.tolist(), min(10, len(chosen))
-            )
-            for idx in show_indices:
-                true = dataset.transcriptions[idx]
-                pred = dataset.external_words[dataset.aligned[idx].item()]
-                print(f"[Align] sample: '{true}' -> '{pred}'")
-
-            dist_vals = moved_distance[chosen]
-            mean_dist = dist_vals.mean().item()
-            std_dist = dist_vals.std(unbiased=False).item()
-            print(
-                f"[Align] mean moved distance: {mean_dist:.4f} ± {std_dist:.4f}"
-            )
-
-    # Restore moved distances for pre-aligned items
-    moved_distance[old_aligned != -1] = moved_distance_orig[old_aligned != -1]
-
-    # Ensure already aligned entries remain unchanged
-    assert torch.equal(
-        dataset.aligned[old_aligned != -1],
-        old_aligned[old_aligned != -1],
-    ), "Pre-aligned items were modified"
-
-    # Restore training modes
-    # dataset.transforms is handled by harvest_backbone_features
-    backbone.train()
-    projector.train()
-
-    # ---- overall alignment accuracy ---------------------------------------
-    aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
-    correct_total = 0
-    for idx in aligned_idx.tolist():
-        pred = dataset.external_words[dataset.aligned[idx].item()]
-        if pred == dataset.transcriptions[idx].strip():
-            correct_total += 1
-    if aligned_idx.numel() > 0:
+    # --------------------------------------------------------- 6. logging
+    if k > 0 and chosen:
+        # accuracy on *just* the new items
+        correct_new = sum(
+            dataset.external_words[dataset.aligned[i].item()] ==
+            dataset.transcriptions[i].strip()
+            for i in chosen
+        )
         print(
-            f"[Align] cumulative accuracy: {correct_total}/{aligned_idx.numel()} "
-            f"({correct_total / aligned_idx.numel():.1%}) – "
+            f"[Align] newly pseudo-labelled {len(chosen)} items; "
+            f"[Align] round accuracy {correct_new}/{len(chosen)} "
+            f"({correct_new/len(chosen):.1%})"
+        )
+
+        # 10 random examples
+        for idx in random.sample(chosen, min(10, len(chosen))):
+            gt   = dataset.transcriptions[idx].strip()
+            pred = dataset.external_words[dataset.aligned[idx].item()]
+            print(f"[Align] sample: '{gt}' → '{pred}'")
+
+        # stats
+        md = moved_dist[chosen_tensor]
+        print(f"[Align] mean moved distance: {md.mean():.4f} ± {md.std(unbiased=False):.4f}")
+
+        if metric == "gap":
+            top2 = torch.topk(dist_matrix[chosen_tensor], 2, largest=False).values
+            gap_vals = (top2[:, 1] - top2[:, 0])
+            print(f"[Align] mean NN-gap: {gap_vals.mean():.4f} ± {gap_vals.std(unbiased=False):.4f}")
+        else:  # entropy
+            row = plan[chosen] / plan[chosen].sum(axis=1, keepdims=True)
+            ent = -(row * np.log(row + 1e-12)).sum(axis=1)
+            print(f"[Align] mean row entropy: {ent.mean():.4f} ± {ent.std():.4f}")
+
+    # cumulative accuracy
+    aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
+    if aligned_idx.numel():
+        correct_tot = sum(
+            dataset.external_words[dataset.aligned[i].item()] ==
+            dataset.transcriptions[i].strip()
+            for i in aligned_idx.tolist()
+        )
+        print(
+            f"[Align] cumulative accuracy: {correct_tot}/{aligned_idx.numel()} "
+            f"({correct_tot/aligned_idx.numel():.1%}) – "
             f"{aligned_idx.numel()} of {len(dataset)} samples aligned"
         )
 
-
-    return plan_torch, proj_feats_ot, moved_distance
+    backbone.train(); projector.train()
+    return plan_torch, proj_feats_ot, moved_dist
 
 
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
