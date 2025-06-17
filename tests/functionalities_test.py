@@ -179,6 +179,11 @@ def test_projector_epochs_hparam():
     assert HP['projector_epochs'] == cfg['projector_epochs']
 
 
+def test_no_alt_backbone_hparam():
+    from alignment.alignment_trainer import HP
+    assert 'alt_backbone_epochs' not in HP
+
+
 def test_majority_vote_alignment():
     cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
     base = 'htr_base/data/GW/processed_words'
