@@ -1,10 +1,11 @@
 """Utility functions for aligning dataset instances to external words."""
 
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Sequence
 
 import os
 import random
 import torch
+import torch.nn as nn
 import numpy as np
 import ot
 import matplotlib.pyplot as plt
@@ -12,7 +13,7 @@ from sklearn.manifold import TSNE
 from scipy.spatial import distance
 
 from htr_base.utils.htr_dataset import HTRDataset
-from htr_base.models import HTRNet, Projector
+from htr_base.models import HTRNet
 
 
 def print_dataset_stats(dataset: HTRDataset) -> None:
@@ -240,7 +241,7 @@ def select_uncertain_instances(
 def align_more_instances(
     dataset: HTRDataset,
     backbone: HTRNet,
-    projector: Projector,
+    projectors: Sequence[nn.Module],
     *,
     batch_size: int = 512,
     device: str = "cpu",
@@ -250,23 +251,30 @@ def align_more_instances(
     sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
     metric: str = "gap",          # 'gap' or 'entropy'  (assignment certainty)
+    agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Use OT to project *projector*-space descriptors onto the external
+    Use OT to project each projector's descriptors onto the external
     word-embedding space, then pseudo-label the **k most-certain yet-unaligned**
-    images.
+    images. Predictions are combined by majority vote and only accepted when the
+    number of agreeing projectors meets ``agree_threshold``.
 
     Parameters
     ----------
+    projectors : sequence of nn.Module
+        One or more projector networks producing word-space descriptors.
     metric : {'gap', 'entropy'}
         How certainty is measured:
         * **gap**     – nearest-word margin  (large ⇒ confident)
         * **entropy** – OT row entropy       (small ⇒ confident)
 
+    agree_threshold : int
+        Minimum number of votes required for a pseudo-label to be accepted.
+
     Returns
     -------
     plan_torch   : (N, V) float32  – OT transport plan
-    proj_feats_ot: (N, E) float32  – barycentric projections
+    proj_feats_ot: (N, E) float32  – averaged barycentric projections
     moved_dist   : (N,)  float32   – L2 distance projector→projection
     """
     if metric not in {"gap", "entropy"}:
@@ -282,31 +290,47 @@ def align_more_instances(
         dataset, backbone,
         batch_size=batch_size, num_workers=0, device=device
     )                                     # both tensors on CPU
-    projector.eval().to(device)
-    proj_feats = projector(feats_all.to(device)).cpu()        # (N, E)
+    projs = projectors if isinstance(projectors, Sequence) else [projectors]
+    Z_list = []
+    dist_list = []
+    nearest_list = []
+    moved_list = []
+    plan = None
+    for proj in projs:
+        proj.eval().to(device)
+        proj_feats = proj(feats_all.to(device)).cpu()        # (N, E)
 
-    # --------------------------------------------------------- 2. OT
-    N, V = proj_feats.size(0), word_embs.size(0)
-    a = np.full((N,), 1.0 / N, dtype=np.float64)
-    if getattr(dataset, "external_word_probs", None):
-        b = np.asarray(dataset.external_word_probs, dtype=np.float64)
-        if not unbalanced:
-            b /= b.sum()
-    else:
-        b = np.full((V,), 1.0 / V, dtype=np.float64)
+        N, V = proj_feats.size(0), word_embs.size(0)
+        a = np.full((N,), 1.0 / N, dtype=np.float64)
+        if getattr(dataset, "external_word_probs", None):
+            b = np.asarray(dataset.external_word_probs, dtype=np.float64)
+            if not unbalanced:
+                b /= b.sum()
+        else:
+            b = np.full((V,), 1.0 / V, dtype=np.float64)
 
-    proj_np, plan = calculate_ot_projections(
-        a, proj_feats.numpy(), b, word_embs.cpu().numpy(),
-        reg, unbalanced=unbalanced, reg_m=reg_m,
-        sinkhorn_kwargs=sinkhorn_kwargs,
-    )
-    plan_torch    = torch.from_numpy(plan).float()
-    proj_feats_ot = torch.from_numpy(proj_np).float()
+        proj_np, plan = calculate_ot_projections(
+            a, proj_feats.numpy(), b, word_embs.cpu().numpy(),
+            reg, unbalanced=unbalanced, reg_m=reg_m,
+            sinkhorn_kwargs=sinkhorn_kwargs,
+        )
+        proj_feats_ot = torch.from_numpy(proj_np).float()
+        moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)           # (N,)
+        dist_matrix = torch.cdist(proj_feats_ot, word_embs.cpu())            # (N,V)
+        nearest_word = dist_matrix.argmin(dim=1)
 
-    # --------------------------------------------------------- 3. distances
-    moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)           # (N,)
-    dist_matrix = torch.cdist(proj_feats_ot, word_embs.cpu())            # (N,V)
-    nearest_word = dist_matrix.argmin(dim=1)                             # (N,)
+        Z_list.append(proj_feats_ot)
+        dist_list.append(dist_matrix)
+        nearest_list.append(nearest_word)
+        moved_list.append(moved_dist)
+
+    Z = torch.stack(Z_list)                             # (M,N,E)
+    dist_matrix = torch.stack(dist_list).mean(dim=0)    # (N,V)
+    moved_dist = torch.stack(moved_list).mean(dim=0)    # (N,)
+    preds = torch.stack(nearest_list)                   # (M,N)
+    nearest_word, _ = preds.mode(dim=0)
+    counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
+    plan_torch = torch.from_numpy(plan).float() if plan is not None else torch.empty(0)
 
     # --------------------------------------------------------- 4. certainty
     # We first obtain all indices ordered *by decreasing uncertainty*,
@@ -322,7 +346,7 @@ def align_more_instances(
     mask_new = (aligned_all == -1).numpy()
     chosen: List[int] = []
     for idx in order_cert:
-        if mask_new[idx]:
+        if mask_new[idx] and counts[idx].item() >= agree_threshold:
             chosen.append(idx)
             if len(chosen) == min(k, mask_new.sum()):
                 break
@@ -379,8 +403,11 @@ def align_more_instances(
             f"{aligned_idx.numel()} of {len(dataset)} samples aligned"
         )
 
-    backbone.train(); projector.train()
-    return plan_torch, proj_feats_ot, moved_dist
+    for proj in projs:
+        proj.train()
+    backbone.train()
+    proj_feats_mean = Z.mean(dim=0)
+    return plan_torch, proj_feats_mean, moved_dist
 
 
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:

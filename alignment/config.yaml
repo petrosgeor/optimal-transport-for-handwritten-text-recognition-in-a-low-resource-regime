@@ -5,6 +5,7 @@ refine_batch_size: 128      # mini-batch size used when fine-tuning the backbone
 refine_lr: 1e-4             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
+refine_epochs: 10           # number of epochs used for backbone refinement
 
 # ----------------------------------------------------------------------
 # Projector training
@@ -41,3 +42,5 @@ align_k: 200                  # pseudo-label this many least-moved descriptors
 # Dataset parameters
 # ----------------------------------------------------------------------
 n_aligned: 300               # number of pre-aligned samples for warm start
+ensemble_size: 1             # how many projectors to train in parallel
+agree_threshold: 1           # votes required when pseudo-labelling
