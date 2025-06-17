@@ -242,7 +242,8 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `dataset`: dataset with `external_word_embeddings`.
 * `backbone`: frozen encoder producing descriptors.
 * `projector`: learnable mapping to the embedding space.
-* `num_epochs`, `batch_size`, `lr`: training hyperparameters.
+* `num_epochs`, `batch_size`, `lr`: training hyperparameters. The default value
+  for `num_epochs` comes from `projector_epochs` in `alignment/config.yaml`.
 * `num_workers`: data loading workers during descriptor harvesting.
 * `weight_decay`: weight decay for the optimiser.
 * `device`: computation device for training.
@@ -264,6 +265,7 @@ def alternating_refinement(dataset, backbone, projector, *, rounds=4,
 * `rounds`: number of backbone/projector cycles per alignment pass.
 * `backbone_epochs`: epochs for each backbone refinement round.
 * `projector_epochs`: epochs for each projector training round.
+  This value is also used as the default when calling `train_projector`.
 * `refine_kwargs`: extra keyword arguments forwarded to
   `refine_visual_backbone`.
 * `projector_kwargs`: keyword arguments for `train_projector`.
@@ -288,7 +290,9 @@ Additional hyperparameters for the alignment workflow are stored in
 dataset samples are initially marked as aligned to external words.
 These pre-aligned items give a warm start to backbone refinement. Another
 parameter, `refine_epochs`, sets how many epochs are used for backbone
-refinement by default.
+refinement by default. The same file defines `projector_epochs` which
+controls projector training both on its own and during alternating
+refinement.
 
 ## train\_by\_length.py
 

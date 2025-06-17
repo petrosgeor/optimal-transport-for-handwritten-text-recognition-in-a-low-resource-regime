@@ -169,3 +169,10 @@ def test_refine_epochs_hparam():
     cfg = OmegaConf.load('alignment/config.yaml')
     assert 'refine_epochs' in HP
     assert HP['refine_epochs'] == cfg['refine_epochs']
+
+
+def test_projector_epochs_hparam():
+    from alignment.alignment_trainer import HP
+    cfg = OmegaConf.load('alignment/config.yaml')
+    assert 'projector_epochs' in HP
+    assert HP['projector_epochs'] == cfg['projector_epochs']

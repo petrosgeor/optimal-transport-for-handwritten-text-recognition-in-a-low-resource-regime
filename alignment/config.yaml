@@ -27,7 +27,6 @@ gpu_id: 2                   # which CUDA device index to use
 # ----------------------------------------------------------------------
 alt_rounds: 4               # number of backbone/projector cycles per pass
 alt_backbone_epochs: 10     # epochs for each backbone refinement phase
-alt_projector_epochs: 200   # epochs for each projector training phase
 
 # ----------------------------------------------------------------------
 # Align-more-instances defaults

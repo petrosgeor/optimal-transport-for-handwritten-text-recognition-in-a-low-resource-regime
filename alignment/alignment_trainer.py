@@ -77,7 +77,6 @@ HP = {
     "gpu_id": 0,                  # CUDA device index
     "alt_rounds": 4,              # number of backbone/projector cycles
     "alt_backbone_epochs": 20,     # epochs for each backbone refinement phase
-    "alt_projector_epochs": 100,    # epochs for each projector training phase
     "align_batch_size": 512,       # mini-batch size for OT alignment
     "align_device": "cpu",        # device used during alignment
     "align_reg": 0.1,              # entropic regularisation for Sinkhorn
@@ -319,7 +318,7 @@ def alternating_refinement(
     *,
     rounds: int = HP["alt_rounds"],
     backbone_epochs: int = HP["alt_backbone_epochs"],
-    projector_epochs: int = HP["alt_projector_epochs"],
+    projector_epochs: int = HP["projector_epochs"],
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
