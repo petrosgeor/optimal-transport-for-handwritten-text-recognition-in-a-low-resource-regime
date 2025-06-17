@@ -176,3 +176,13 @@ def test_projector_epochs_hparam():
     cfg = OmegaConf.load('alignment/config.yaml')
     assert 'projector_epochs' in HP
     assert HP['projector_epochs'] == cfg['projector_epochs']
+
+
+def test_word_silhouette_score():
+    feats = torch.tensor([[0.0, 0.0], [0.0, 1.0], [3.0, 0.0], [3.0, 1.0]])
+    words = ["a", "a", "b", "b"]
+    from htr_base.utils.metrics import word_silhouette_score
+
+    score = word_silhouette_score(feats, words)
+    assert 0.6 < score <= 1.0
+
