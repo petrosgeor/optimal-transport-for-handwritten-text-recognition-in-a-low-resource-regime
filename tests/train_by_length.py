@@ -1,6 +1,8 @@
 from __future__ import annotations
 import os, sys, random
-from types import SimpleNamespace  
+from types import SimpleNamespace
+from pathlib import Path
+from omegaconf import OmegaConf
 # ------------------------------------------------------------------
 # Hyper‑parameters controlling training and evaluation. The values
 # below are largely defaults used when running this script directly.
@@ -21,35 +23,33 @@ from types import SimpleNamespace
 #   dataset_base_folder_name – dataset folder containing processed words.
 #   figure_output_dir/filename – where to write diagnostic figures.
 # ------------------------------------------------------------------
-HP = {
-    "gpu_id": "2",
-    "max_length": 4,
-    "min_length": 0,
-    "eval_k": 4,
-    "n_aligned": 500,
-    "k_external_words": 200,
-    "num_epochs": 600,
-    "batch_size": 128,
-    "learning_rate": 1e-3,
-    "main_loss_weight": 1.0,
-    "aux_loss_weight": 0.1,
-    "dataset_fixed_size": (64, 256),
-    "architecture_config": {
-        "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
-        "head_type": "both",
-        "rnn_type": "gru",
-        "rnn_layers": 3,
-        "rnn_hidden_size": 256,
-        "flattening": "maxpool",
-        "stn": False,
-        "feat_dim": None,
-    },
-    "dataset_base_folder_name": "GW",
-    "figure_output_dir": "tests/figures",
-    "figure_filename": "long.png",
+cfg = OmegaConf.load(Path(__file__).resolve().parents[1] / "alignment" / "config.yaml")
+os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
+
+MAX_LENGTH = 4
+MIN_LENGTH = 0
+EVAL_K = 4
+N_ALIGNED = cfg.n_aligned
+K_EXTERNAL_WORDS = 200
+NUM_EPOCHS = 600
+BATCH_SIZE = 128
+LEARNING_RATE = 1e-3
+MAIN_LOSS_WEIGHT = 1.0
+AUX_LOSS_WEIGHT = 0.1
+DATASET_FIXED_SIZE = (64, 256)
+ARCHITECTURE_CONFIG = {
+    "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
+    "head_type": "both",
+    "rnn_type": "gru",
+    "rnn_layers": 3,
+    "rnn_hidden_size": 256,
+    "flattening": "maxpool",
+    "stn": False,
+    "feat_dim": None,
 }
-os.environ["CUDA_VISIBLE_DEVICES"] = HP['gpu_id']
-from pathlib import Path
+DATASET_BASE_FOLDER_NAME = "GW"
+FIGURE_OUTPUT_DIR = "tests/figures"
+FIGURE_FILENAME = "long.png"
 from typing import Dict, Tuple, List
 import torch
 import torch.nn.functional as F
@@ -72,8 +72,8 @@ from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
 # ---------------------------------------------------------------------
 def save_char_histogram_png(
     strings: List[str],
-    output_dir: str = HP['figure_output_dir'],
-    filename: str = HP['figure_filename']
+    output_dir: str = FIGURE_OUTPUT_DIR,
+    filename: str = FIGURE_FILENAME
 ) -> None:
     """
     Build a histogram of all characters (a–z, 0–9, and space) appearing in the
@@ -312,28 +312,29 @@ def refine_visual_model(dataset: HTRDataset,
     print("[Refine] finished.")
 if __name__ == "__main__":
     proj_root = Path(__file__).resolve().parents[1]  # repository root
-    gw_folder = proj_root / "htr_base" / "data" / HP['dataset_base_folder_name'] / "processed_words"
+    gw_folder = proj_root / "htr_base" / "data" / DATASET_BASE_FOLDER_NAME / "processed_words"
     if not gw_folder.exists():
         raise RuntimeError("GW processed dataset not found – generate it first!")
     class DummyCfg:
-        def __init__(self, hp_config):
-            self.k_external_words = hp_config['k_external_words']
-            self.n_aligned = hp_config['n_aligned']
-    train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=HP['dataset_fixed_size'],
-                            transforms=aug_transforms, config=DummyCfg(HP), concat_prob=0.)
+        def __init__(self):
+            self.k_external_words = K_EXTERNAL_WORDS
+            self.n_aligned = N_ALIGNED
+
+    train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=DATASET_FIXED_SIZE,
+                            transforms=aug_transforms, config=DummyCfg(), concat_prob=0.)
     c2i, _ = _build_vocab_dicts(train_set)
-    arch_cfg_dict = HP['architecture_config']
+    arch_cfg_dict = ARCHITECTURE_CONFIG
     net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
     net.to("cuda")
     refine_visual_model(
         train_set,
         net,
-        num_epochs=HP['num_epochs'],
-        batch_size=HP['batch_size'],
-        lr=HP['learning_rate'],
-        main_weight=HP['main_loss_weight'],
-        aux_weight=HP['aux_loss_weight'],
-        max_length=HP['max_length'],
-        min_length=HP['min_length'],
-        eval_k=HP['eval_k']
+        num_epochs=NUM_EPOCHS,
+        batch_size=BATCH_SIZE,
+        lr=LEARNING_RATE,
+        main_weight=MAIN_LOSS_WEIGHT,
+        aux_weight=AUX_LOSS_WEIGHT,
+        max_length=MAX_LENGTH,
+        min_length=MIN_LENGTH,
+        eval_k=EVAL_K
     )

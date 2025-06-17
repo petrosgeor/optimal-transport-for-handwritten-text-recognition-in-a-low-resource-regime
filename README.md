@@ -289,7 +289,8 @@ with tee_output("results.txt"):
 ## alignment/config.yaml
 
 Additional hyperparameters for the alignment workflow are stored in
-`alignment/config.yaml`. A new option, `n_aligned`, controls how many
+`alignment/config.yaml`. These values are loaded at import time so all
+defaults come directly from the YAML file. A new option, `n_aligned`, controls how many
 dataset samples are initially marked as aligned to external words.
 These pre-aligned items give a warm start to backbone refinement. Another
 parameter, `refine_epochs`, sets how many epochs are used for backbone

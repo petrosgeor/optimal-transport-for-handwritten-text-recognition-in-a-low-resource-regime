@@ -59,42 +59,14 @@ def tee_output(path: str = "results.txt"):
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
 # --------------------------------------------------------------------------- #
-# These constants centralise the most common tunable values so they can be
-# tweaked from a single place. Functions in this file use them as defaults but
-# also accept explicit keyword arguments.
-HP = {
-    "refine_batch_size": 128,     # mini-batch size for backbone refinement
-    "refine_lr": 1e-4,            # learning rate for backbone refinement
-    "refine_main_weight": 1.0,    # weight for the main CTC loss branch
-    "refine_aux_weight": 0.1,     # weight for the auxiliary CTC loss branch
-    "refine_epochs": 10,          # epochs used for backbone refinement
-    "projector_epochs": 150,      # training epochs for the projector network
-    "projector_batch_size": 4000,  # mini-batch size for projector training
-    "projector_lr": 1e-4,         # learning rate for projector optimisation
-    "projector_workers": 1,       # dataloader workers when collecting features
-    "projector_weight_decay": 1e-4,  # weight decay for projector optimiser
-    "device": "cuda",             # default compute device
-    "gpu_id": 0,                  # CUDA device index
-    "alt_rounds": 4,              # number of backbone/projector cycles
-    "align_batch_size": 512,       # mini-batch size for OT alignment
-    "align_device": "cpu",        # device used during alignment
-    "align_reg": 0.1,              # entropic regularisation for Sinkhorn
-    "align_unbalanced": False,     # use unbalanced OT formulation
-    "align_reg_m": 0.1,            # mass regularisation strength
-    "align_k": 0,                  # pseudo-label k least-moved descriptors
-    "n_aligned": 300,             # number of pre-aligned samples
-    "ensemble_size": 1,           # number of projectors in the ensemble
-    "agree_threshold": 1,         # votes required for pseudo-labelling
-}
-
+# Functions read defaults from the YAML configuration loaded at import time.
 cfg_file = Path(__file__).with_name("config.yaml")
-if cfg_file.is_file():
-    HP.update(OmegaConf.load(cfg_file))
+cfg = OmegaConf.load(cfg_file)
 
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
-os.environ["CUDA_VISIBLE_DEVICES"] = str(HP["gpu_id"])
-if str(HP["device"]).startswith("cuda"):
-    HP["device"] = f"cuda:{HP['gpu_id']}"
+os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
+if str(cfg.device).startswith("cuda"):
+    cfg.device = f"cuda:{cfg.gpu_id}"
 
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
@@ -116,12 +88,12 @@ def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, s
 def refine_visual_backbone(
     dataset: HTRDataset,
     backbone: HTRNet,
-    num_epochs: int = HP["refine_epochs"],
+    num_epochs: int = cfg.refine_epochs,
     *,
-    batch_size: int = HP["refine_batch_size"],
-    lr: float = HP["refine_lr"],
-    main_weight: float = HP["refine_main_weight"],
-    aux_weight: float = HP["refine_aux_weight"],
+    batch_size: int = cfg.refine_batch_size,
+    lr: float = cfg.refine_lr,
+    main_weight: float = cfg.refine_main_weight,
+    aux_weight: float = cfg.refine_aux_weight,
 ) -> None:
     """Fine‑tune *backbone* only on words already aligned to external words."""
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
@@ -186,12 +158,12 @@ def train_projector(  # pylint: disable=too-many-arguments
     dataset: "HTRDataset",
     backbone: "HTRNet",
     projector: nn.Module | List[nn.Module],
-    num_epochs: int = HP["projector_epochs"],
-    batch_size: int = HP["projector_batch_size"],
-    lr: float = HP["projector_lr"],
-    num_workers: int = HP["projector_workers"],
-    weight_decay: float = HP["projector_weight_decay"],
-    device: torch.device | str = HP["device"],
+    num_epochs: int = cfg.projector_epochs,
+    batch_size: int = cfg.projector_batch_size,
+    lr: float = cfg.projector_lr,
+    num_workers: int = cfg.projector_workers,
+    weight_decay: float = cfg.projector_weight_decay,
+    device: torch.device | str = cfg.device,
 ) -> None:
     """
     Freeze `backbone`, collect all image descriptors, and then train the
@@ -303,9 +275,9 @@ def alternating_refinement(
     backbone: HTRNet,
     projectors: List[nn.Module],
     *,
-    rounds: int = HP["alt_rounds"],
-    backbone_epochs: int = HP["refine_epochs"],
-    projector_epochs: int = HP["projector_epochs"],
+    rounds: int = cfg.alt_rounds,
+    backbone_epochs: int = cfg.refine_epochs,
+    projector_epochs: int = cfg.projector_epochs,
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
@@ -320,13 +292,13 @@ def alternating_refinement(
         projector_kwargs = {}
     if align_kwargs is None:
         align_kwargs = {}
-    align_kwargs.setdefault("batch_size", HP["align_batch_size"])
-    align_kwargs.setdefault("device", HP["align_device"])
-    align_kwargs.setdefault("reg", HP["align_reg"])
-    align_kwargs.setdefault("unbalanced", HP["align_unbalanced"])
-    align_kwargs.setdefault("reg_m", HP["align_reg_m"])
-    align_kwargs.setdefault("k", HP["align_k"])
-    align_kwargs.setdefault("agree_threshold", HP["agree_threshold"])
+    align_kwargs.setdefault("batch_size", cfg.align_batch_size)
+    align_kwargs.setdefault("device", cfg.align_device)
+    align_kwargs.setdefault("reg", cfg.align_reg)
+    align_kwargs.setdefault("unbalanced", cfg.align_unbalanced)
+    align_kwargs.setdefault("reg_m", cfg.align_reg_m)
+    align_kwargs.setdefault("k", cfg.align_k)
+    align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
 
     while (dataset.aligned == -1).any():
         for r in range(rounds):
@@ -390,7 +362,7 @@ if __name__ == "__main__":
 
     class DummyCfg:
         k_external_words = 200   # top‑200 most frequent English words
-        n_aligned = HP["n_aligned"]   # how many images to mark as aligned (≈ training signal)
+        n_aligned = cfg.n_aligned   # how many images to mark as aligned (≈ training signal)
 
     dataset = HTRDataset(
         str(gw_folder),
@@ -413,7 +385,7 @@ if __name__ == "__main__":
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
     projectors = [
         Projector(arch.feat_dim, dataset.word_emb_dim)
-        for _ in range(HP["ensemble_size"])
+        for _ in range(cfg.ensemble_size)
     ]
 
     with tee_output("results.txt"):
