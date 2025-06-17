@@ -44,6 +44,8 @@ def test_align_logging(capsys):
     out = capsys.readouterr().out
     assert '[Align] round accuracy' in out
     assert '[Align] cumulative accuracy' in out
+    assert 'sample:' in out
+    assert 'mean moved distance' in out
 
 
 def test_letter_priors():
