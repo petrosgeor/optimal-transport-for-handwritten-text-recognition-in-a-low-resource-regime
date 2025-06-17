@@ -9,7 +9,7 @@ htr_base/data/IAM/
 # Ignore saved models directory
 htr_base/saved_models/
 instructions.txt
-results.txt
+# results.txt
 
 # tests/figures/
 tests/test_projloss.py
