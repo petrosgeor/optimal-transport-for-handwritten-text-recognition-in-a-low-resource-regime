@@ -353,3 +353,12 @@ def test_predicted_char_distribution():
     blank_prob = probs[:, :, 0].mean()
     assert torch.allclose(dist.sum(), 1 - blank_prob)
 
+
+def test_wasserstein_L2():
+    p = torch.tensor([0.2, 0.3, 0.5])
+    q = torch.tensor([0.1, 0.4, 0.5])
+    expected = torch.sqrt(torch.mean((p - q) ** 2))
+    from tests.train_by_length import wasserstein_L2
+
+    assert torch.isclose(wasserstein_L2(p, q), expected)
+

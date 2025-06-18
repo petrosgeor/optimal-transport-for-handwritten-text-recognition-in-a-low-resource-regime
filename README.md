@@ -315,11 +315,13 @@ refinement.
 Two additional options, `ensemble_size` and `agree_threshold`, configure
 how many projectors are trained and how many votes are needed before
 pseudo‑labelling a sample.
+`prior_weight` sets the strength of the Wasserstein prior used during
+`train_by_length.py` training.
 Setting `plot_tsne` to `true` enables t-SNE visualisations during projector training.
 
 ## train\_by\_length.py
 
-`tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset.
+`tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset. A Wasserstein prior term encourages predictions to follow the expected character distribution.
 
 ## Utilities / Metrics
 
@@ -327,6 +329,7 @@ Setting `plot_tsne` to `true` enables t-SNE visualisations during projector trai
 * **WER** – accumulates word error rate; supports tokeniser and space modes.
 * **predicted_char_distribution(logits)** – average probability of each
   character excluding the CTC blank.
+* **wasserstein_L2(p, q)** – L2 distance between two distributions.
 * **word_silhouette_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
 
 ## Requirements

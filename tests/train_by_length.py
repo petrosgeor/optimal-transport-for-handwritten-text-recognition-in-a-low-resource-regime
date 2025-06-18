@@ -36,6 +36,7 @@ BATCH_SIZE = 128
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
+PRIOR_WEIGHT = cfg.prior_weight
 DATASET_FIXED_SIZE = (64, 256)
 ARCHITECTURE_CONFIG = {
     "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
@@ -61,11 +62,12 @@ from collections import Counter
 root = Path(__file__).resolve().parents[1]  # project root for local imports
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.utils.htr_dataset import HTRDataset  # for the priors
 from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
 from htr_base.utils.transforms import aug_transforms
 from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
+from alignment.alignment_utilities import predicted_char_distribution
 # ---------------------------------------------------------------------
 # Save a histogram of characters appearing in the provided strings to a
 # PNG file.  Useful for quickly visualising the dataset distribution.
@@ -222,6 +224,11 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
         pct = 100 * per_len[l][1] / total
         print(f"[Eval] len={l:2d} ({pct:5.2f}%): CER={per_len[l][0].score():.4f}")
     return cer_total.score()
+
+
+def wasserstein_L2(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
+    """Euclidean (L2) distance between two probability vectors."""
+    return torch.sqrt(torch.mean((p - q) ** 2))
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.
@@ -235,7 +242,10 @@ def refine_visual_model(dataset: HTRDataset,
                         aux_weight: float = 0.1,
                         max_length: int = 4,
                         min_length: int = 0,
-                        eval_k: int | None = None) -> None:
+                        eval_k: int | None = None,
+                        *,
+                        prior: torch.Tensor | None = None,
+                        prior_weight: float = 0.1) -> None:
     """Fine-tune *backbone* on a subset of ground-truth words.
     Only words whose length (ignoring spaces) lies in the inclusive range
     ``[min_length, max_length]`` are used for training.  At most ``n_aligned``
@@ -280,6 +290,7 @@ def refine_visual_model(dataset: HTRDataset,
                               pin_memory=(device.type == "cuda"))
     for epoch in range(1, num_epochs + 1):
         epoch_loss = 0.0; effective_batches = 0
+        epoch_ctc = 0.0; epoch_prior = 0.0
         for imgs, trans, _ in train_loader:
             imgs = imgs.to(device)
             targets_s = [t if t.startswith(" ") else f" {t.strip()} " for t in trans]
@@ -299,12 +310,29 @@ def refine_visual_model(dataset: HTRDataset,
                 if aux_logits is not None
                 else torch.tensor(0.0, device=main_logits.device)
             )
-            loss = main_weight * loss_m + aux_weight * loss_a
-            opt.zero_grad(set_to_none=True); loss.backward(); opt.step()
-            epoch_loss += loss.item(); effective_batches += 1
+            if prior is not None:
+                D = predicted_char_distribution(main_logits)
+                loss_prior = wasserstein_L2(D, prior)
+            else:
+                loss_prior = torch.tensor(0.0, device=main_logits.device)
+            total_loss = (
+                main_weight * loss_m + aux_weight * loss_a + prior_weight * loss_prior
+            )
+            opt.zero_grad(set_to_none=True)
+            total_loss.backward()
+            opt.step()
+            epoch_loss += total_loss.item()
+            epoch_ctc += loss_m.item()
+            epoch_prior += loss_prior.item()
+            effective_batches += 1
         sched.step()
         avg_loss = epoch_loss / max(1, effective_batches)
-        print(f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e}")
+        avg_ctc = epoch_ctc / max(1, effective_batches)
+        avg_prior = epoch_prior / max(1, effective_batches)
+        print(
+            f"Epoch {epoch:03}/{num_epochs}  loss={avg_loss:.4f}  lr={sched.get_last_lr()[0]:.2e} "
+            f"CTC={avg_ctc:.4f} Prior={avg_prior:.4f}"
+        )
         if (epoch + 1) % 20 == 0 or epoch == num_epochs:
             k_eval = eval_k if eval_k is not None else max_length
             cer = _evaluate_cer(backbone, test_loader, i2c, device, k=k_eval)
@@ -322,6 +350,12 @@ if __name__ == "__main__":
 
     train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=DATASET_FIXED_SIZE,
                             transforms=aug_transforms, config=DummyCfg(), concat_prob=0.)
+    # build vector Q (same order as network classes, blank excluded)
+    prior_dict = HTRDataset.letter_priors()
+    chars = list(train_set.character_classes)
+    Q = torch.tensor([prior_dict[c] for c in chars], dtype=torch.float32)
+    Q = Q / Q.sum()
+    Q = Q.to(cfg.device)
     c2i, _ = _build_vocab_dicts(train_set)
     arch_cfg_dict = ARCHITECTURE_CONFIG
     net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
@@ -336,5 +370,7 @@ if __name__ == "__main__":
         aux_weight=AUX_LOSS_WEIGHT,
         max_length=MAX_LENGTH,
         min_length=MIN_LENGTH,
-        eval_k=EVAL_K
+        eval_k=EVAL_K,
+        prior=Q,
+        prior_weight=PRIOR_WEIGHT
     )
