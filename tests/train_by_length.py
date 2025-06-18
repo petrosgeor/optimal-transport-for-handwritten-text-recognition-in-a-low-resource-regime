@@ -26,8 +26,8 @@ from omegaconf import OmegaConf
 cfg = OmegaConf.load(Path(__file__).resolve().parents[1] / "alignment" / "config.yaml")
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 
-MAX_LENGTH = 4
-MIN_LENGTH = 0
+MAX_LENGTH = 30
+MIN_LENGTH = 4
 EVAL_K = 4
 N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
@@ -228,7 +228,7 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 
 def wasserstein_L2(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """Euclidean (L2) distance between two probability vectors."""
-    return torch.sqrt(torch.mean((p - q) ** 2))
+    return torch.sqrt(torch.mean((p[1:] - q) ** 2))
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.

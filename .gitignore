@@ -13,7 +13,7 @@ results.txt
 tests/figures/
 # tests/figures/
 tests/test_projloss.py
-
+tests/test.py
 # Ignore all __pycache__ directories
 __pycache__/
 **/__pycache__/
