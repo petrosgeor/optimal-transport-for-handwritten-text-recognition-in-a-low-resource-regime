@@ -65,6 +65,24 @@ If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, al
 Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` and `img2` are independent views of the same image.
 
 
+## PretrainingHTRDataset
+
+Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
+- **list_file**: path to a `.txt` listing relative image paths (one per line).
+- **fixed_size**: `(height, width)` for resizing.
+- **base_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
+- **transforms**: optional Albumentations augmentation pipeline.
+
+It filters out any entries whose “description” token (between the first and second underscore)
+1. is all uppercase, or
+2. contains non-alphanumeric characters.
+
+It exposes:
+- `img_paths`: full filesystem paths.
+- `transcriptions`: lowercase description tokens.
+
+`__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
+
 
 ## encode\_for\_ctc
 

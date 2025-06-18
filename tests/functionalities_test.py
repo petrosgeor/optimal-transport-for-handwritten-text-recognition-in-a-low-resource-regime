@@ -8,7 +8,7 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_utilities import (
     align_more_instances,
@@ -385,4 +385,31 @@ def test_encode_for_ctc_vocab_size():
     targets = torch.cat([targets, torch.tensor([0])])
     assert len(c2i) + 1 == 37
     assert targets.unique().numel() == 37
+
+
+def test_pretraining_dataset_filtering(tmp_path):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+
+    good = base / 'foo_good_0.png'
+    upper = base / 'foo_BAD_1.png'
+    bad = base / 'foo_no$good_2.png'
+    shutil.copy(src, good)
+    shutil.copy(src, upper)
+    shutil.copy(src, bad)
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_good_0.png\n')
+        f.write('foo_BAD_1.png\n')
+        f.write('foo_no$good_2.png\n')
+
+    ds = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base), transforms=aug_transforms
+    )
+    assert len(ds) == 1
+    img, trans = ds[0]
+    assert img.shape == (1, 32, 128)
+    assert trans.strip() == 'good'
 

@@ -250,3 +250,53 @@ class HTRDataset(Dataset):
         plt.savefig(save_path, dpi=dpi)
         plt.close()
         print(f"[external_word_histogram] Figure saved to: {save_path}")
+
+
+class PretrainingHTRDataset(Dataset):
+    """Lightweight dataset for image-only pretraining."""
+
+    def __init__(self, list_file: str, fixed_size: tuple,
+                 base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
+                 transforms: list = None):
+        self.fixed_size = fixed_size
+        self.base_path = base_path
+        self.transforms = transforms
+
+        with open(list_file, 'r') as f:
+            rel_paths = [line.strip() for line in f if line.strip()]
+
+        def _valid(p):
+            desc = os.path.basename(p).split('_')[1]
+            return (not desc.isupper()) and desc.isalnum()
+
+        filtered = [p for p in rel_paths if _valid(p)]
+        self.img_paths, self.transcriptions = self.process_paths(filtered)
+
+    def process_paths(self, filtered_list):
+        full_paths = [
+            os.path.normpath(os.path.join(self.base_path, p.lstrip('./')))
+            for p in filtered_list
+        ]
+        descriptions = []
+        for p in filtered_list:
+            desc = os.path.basename(p).split('_')[1]
+            descriptions.append(desc.lower())
+        return full_paths, descriptions
+
+    def __len__(self):
+        return len(self.img_paths)
+
+    def __getitem__(self, index):
+        img = load_image(self.img_paths[index])
+        fH, fW = self.fixed_size
+        nW = int(np.random.uniform(.75, 1.25) * img.shape[1])
+        nH = int((np.random.uniform(.9, 1.1) * img.shape[0] / img.shape[1]) * nW)
+        img = resize(image=img, output_shape=(nH, nW)).astype(np.float32)
+
+        img = preprocess(img, (fH, fW))
+        if getattr(self, 'transforms', None):
+            img = self.transforms(image=img)['image']
+
+        img_tensor = torch.Tensor(img).float().unsqueeze(0)
+        trans = f" {self.transcriptions[index]} "
+        return img_tensor, trans
