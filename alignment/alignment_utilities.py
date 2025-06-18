@@ -269,7 +269,7 @@ def align_more_instances(
     reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
-    metric: str = "gap",          # 'gap' or 'entropy'  (assignment certainty)
+    metric: str = "entropy",          # 'gap' or 'entropy'  (assignment certainty)
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
