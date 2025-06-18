@@ -67,6 +67,24 @@ Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` 
 
 If `concat_prob` is greater than `0`, the line image may be stitched with itself horizontally and resized back to `fixed_size`. The transcription then contains the ground-truth string twice, separated by **three** spaces.
 
+## PretrainingHTRDataset
+
+Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
+- **list_file**: path to a `.txt` listing relative image paths (one per line).
+- **fixed_size**: `(height, width)` for resizing.
+- **base_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
+- **transforms**: optional Albumentations augmentation pipeline.
+
+It filters out any entries whose “description” token (between the first and second underscore)
+1. is all uppercase, or
+2. contains non-alphanumeric characters.
+
+It exposes:
+- `img_paths`: full filesystem paths.
+- `transcriptions`: lowercase description tokens.
+
+`__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
+
 
 ## encode\_for\_ctc
 

@@ -1,5 +1,5 @@
 import torch
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Callable
 import math
 
 
@@ -119,7 +119,7 @@ def beam_search_ctc_decode(
     beam_width: int = 10,
     blank_id: int = 0,
     time_first: bool = True,
-    lm: callable | None = None,
+    lm: Callable | None = None,
     lm_weight: float = 0.0,
     length_norm: bool = True,
 ) -> List[str]:

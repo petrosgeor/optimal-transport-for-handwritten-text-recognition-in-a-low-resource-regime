@@ -228,7 +228,7 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 
 def wasserstein_L2(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """Euclidean (L2) distance between two probability vectors."""
-    return torch.sqrt(torch.mean((p[1:] - q) ** 2))
+    return torch.sqrt(torch.mean((p - q) ** 2))
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.
