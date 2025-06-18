@@ -45,3 +45,4 @@ align_k: 200                  # pseudo-label this many least-moved descriptors
 n_aligned: 300               # number of pre-aligned samples for warm start
 ensemble_size: 3             # how many projectors to train in parallel
 agree_threshold: 1           # votes required when pseudo-labelling
+prior_weight: 0.1            # weight of the Wasserstein prior loss
