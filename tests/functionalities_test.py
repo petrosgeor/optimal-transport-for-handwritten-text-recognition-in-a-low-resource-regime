@@ -17,7 +17,12 @@ from alignment.alignment_utilities import (
     predicted_char_distribution,
 )
 from alignment.alignment_trainer import tee_output
-from alignment.alignment_trainer import refine_visual_backbone, train_projector
+from alignment.alignment_trainer import (
+    refine_visual_backbone,
+    train_projector,
+    _build_vocab_dicts,
+)
+from alignment.ctc_utils import encode_for_ctc
 import shutil
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
@@ -361,4 +366,23 @@ def test_wasserstein_L2():
     from tests.train_by_length import wasserstein_L2
 
     assert torch.isclose(wasserstein_L2(p, q), expected)
+
+
+def test_encode_for_ctc_vocab_size():
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = "htr_base/data/GW/processed_words"
+    ds = HTRDataset(base, subset="test", fixed_size=(32, 128), transforms=None, config=cfg)
+    ds.data = ds.data[:3]
+    ds.transcriptions = ds.transcriptions[:3]
+    ds.aligned = ds.aligned[:3]
+    ds.is_in_dict = ds.is_in_dict[:3]
+
+    c2i, _ = _build_vocab_dicts(ds)
+    chars = "".join(sorted(ds.character_classes))
+    txt = f" {chars} "
+    targets, _ = encode_for_ctc([txt], c2i)
+    # Include the CTC blank to count all possible labels
+    targets = torch.cat([targets, torch.tensor([0])])
+    assert len(c2i) + 1 == 37
+    assert targets.unique().numel() == 37
 
