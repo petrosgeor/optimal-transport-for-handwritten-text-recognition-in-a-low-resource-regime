@@ -228,7 +228,7 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 
 def wasserstein_L2(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """Euclidean (L2) distance between two probability vectors."""
-    return torch.sqrt(torch.mean((p[1:] - q) ** 2))
+    return torch.sqrt(torch.mean((p - q) ** 2))
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.
@@ -348,8 +348,13 @@ if __name__ == "__main__":
             self.k_external_words = K_EXTERNAL_WORDS
             self.n_aligned = N_ALIGNED
 
-    train_set = HTRDataset(str(gw_folder), subset="train", fixed_size=DATASET_FIXED_SIZE,
-                            transforms=aug_transforms, config=DummyCfg(), concat_prob=0.)
+    train_set = HTRDataset(
+        str(gw_folder),
+        subset="train",
+        fixed_size=DATASET_FIXED_SIZE,
+        transforms=aug_transforms,
+        config=DummyCfg(),
+    )
     # build vector Q (same order as network classes, blank excluded)
     prior_dict = HTRDataset.letter_priors()
     chars = list(train_set.character_classes)
