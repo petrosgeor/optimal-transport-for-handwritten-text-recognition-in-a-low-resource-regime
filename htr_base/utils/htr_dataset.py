@@ -10,7 +10,6 @@ from .preprocessing import load_image, preprocess
 from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
-import random
 from typing import List
 class HTRDataset(Dataset):
     def __init__(self,
@@ -21,7 +20,6 @@ class HTRDataset(Dataset):
         character_classes: list = None,          # If None, computed automatically; else list of characters
         config=None,                            # Configuration object with optional parameters
         two_views: bool = False,                # Whether to return two views of each image
-        concat_prob: float = 0.0                # Probability of concatenating a sample with itself
         ):
         self.basefolder = basefolder
         self.subset = subset
@@ -30,7 +28,6 @@ class HTRDataset(Dataset):
         self.character_classes = character_classes
         self.config = config
         self.two_views = two_views
-        self.concat_prob = concat_prob
         self.k_external_words = 0
         self.n_aligned = 0
         self.word_emb_dim = 512
@@ -117,36 +114,13 @@ class HTRDataset(Dataset):
             if self.transforms is not None:
                 im = self.transforms(image=im)['image']
             return torch.Tensor(im).float().unsqueeze(0)
-        rand = random.random()
-        if rand < self.concat_prob:
-            transcr2 = transcr1
-            img2 = img
-            if self.two_views:
-                v1_a = build_view(img.copy())
-                v2_a = build_view(img2.copy())
-                v1_b = build_view(img.copy())
-                v2_b = build_view(img2.copy())
-                img_a = torch.cat([v1_a, v2_a], dim=-1)
-                img_b = torch.cat([v1_b, v2_b], dim=-1)
-                img_a = F.interpolate(img_a.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
-                img_b = F.interpolate(img_b.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
-                transcr = f" {transcr1.strip()}   {transcr1.strip()} "
-                return (img_a, img_b), transcr, self.aligned[index]
-            else:
-                img_a = build_view(img)
-                img_b = build_view(img2)
-                img_cat = torch.cat([img_a, img_b], dim=-1)
-                img_cat = F.interpolate(img_cat.unsqueeze(0), size=(fheight, fwidth), mode='bilinear', align_corners=False).squeeze(0)
-                transcr = f" {transcr1.strip()}   {transcr1.strip()} "
-                return img_cat, transcr, self.aligned[index]
+        if self.two_views:
+            img1 = build_view(img.copy())
+            img2 = build_view(img.copy())
+            return (img1, img2), transcr1, self.aligned[index]
         else:
-            if self.two_views:
-                img1 = build_view(img.copy())
-                img2 = build_view(img.copy())
-                return (img1, img2), transcr1, self.aligned[index]
-            else:
-                img_tensor = build_view(img)
-                return img_tensor, transcr1, self.aligned[index]
+            img_tensor = build_view(img)
+            return img_tensor, transcr1, self.aligned[index]
     def __len__(self):
         return len(self.data)
     def _filter_external_words(self, words: List[str]) -> List[str]:
