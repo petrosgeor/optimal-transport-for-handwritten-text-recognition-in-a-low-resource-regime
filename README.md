@@ -210,6 +210,20 @@ def harvest_backbone_features(dataset, backbone, *, batch_size=512,
 
 Dataset augmentations are disabled while features are harvested.
 
+## predicted_char_distribution
+
+Also in `alignment/alignment_utilities.py`. Given the CTC logits returned by
+`HTRNet`, this helper computes the average probability assigned to each
+character while ignoring the blank label.
+
+```python
+def predicted_char_distribution(logits):
+    """Return average non-blank character probabilities."""
+```
+
+* `logits`: tensor `(T, B, C)` from the backbone where index 0 is the blank.
+* Returns a 1‑D tensor of shape `(C-1,)` with probabilities for each character.
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
@@ -311,6 +325,8 @@ Setting `plot_tsne` to `true` enables t-SNE visualisations during projector trai
 
 * **CER** – accumulates character error rate over multiple predictions.
 * **WER** – accumulates word error rate; supports tokeniser and space modes.
+* **predicted_char_distribution(logits)** – average probability of each
+  character excluding the CTC blank.
 * **word_silhouette_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
 
 ## Requirements
