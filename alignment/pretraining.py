@@ -72,14 +72,14 @@ def tee_output(path: str = "pretraining_results.txt"):
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
     "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 5000,
+    "n_random": 10000,
     "num_epochs": 200,
     "batch_size": 128,
-    "learning_rate": 1e-5,
+    "learning_rate": 1e-3,
     "base_path": None,
     "fixed_size": (64, 256),
     "device": DEVICE,
-    "use_augmentations": True,
+    "use_augmentations": False,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
     "save_path": "htr_base/saved_models/pretrained_backbone.pt"
@@ -92,10 +92,10 @@ ARCHITECTURE_CONFIG = {
     "head_type": "both",
     "rnn_type": "gru",
     "rnn_layers": 3,
-    "rnn_hidden_size": 128,
+    "rnn_hidden_size": 256,
     "flattening": "maxpool",
     "stn": False,
-    "feat_dim": 512,
+    "feat_dim": None,
 }
 
 def _build_vocab(transcriptions):

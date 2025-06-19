@@ -26,8 +26,8 @@ from omegaconf import OmegaConf
 cfg = OmegaConf.load(Path(__file__).resolve().parents[1] / "alignment" / "config.yaml")
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 
-MAX_LENGTH = 30
-MIN_LENGTH = 4
+MAX_LENGTH = 4
+MIN_LENGTH = 0
 EVAL_K = 4
 N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
@@ -52,8 +52,8 @@ DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
 DECODE_CONFIG = {
-    "method": "greedy",  # 'greedy' or 'beam'
-    "beam_width": 10,
+    "method": "beam",  # 'greedy' or 'beam'
+    "beam_width": 3,
 }
 from typing import Dict, Tuple, List
 import torch

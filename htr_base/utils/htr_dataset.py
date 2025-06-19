@@ -324,6 +324,7 @@ class PretrainingHTRDataset(Dataset):
 
         img_tensor = torch.Tensor(img).float().unsqueeze(0)
         trans = f" {self.transcriptions[index]} "
+        # trans = self.transcriptions[index]
         return img_tensor, trans
 
     def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
