@@ -512,3 +512,39 @@ def test_pretraining_script(tmp_path, capsys):
     assert (save_dir / 'pretrained_backbone.pt').exists()
     assert 'GT:' in out and 'PR:' in out
 
+
+def test_pretraining_intermediate_decoding(tmp_path, capsys):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    for i in range(2):
+        shutil.copy(src, base / f'foo_word_{i}.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        for i in range(2):
+            f.write(f'foo_word_{i}.png\n')
+
+    save_dir = Path('htr_base/saved_models')
+    if save_dir.exists():
+        shutil.rmtree(save_dir)
+
+    from alignment import pretraining
+
+    config = {
+        "list_file": str(list_file),
+        "n_random": 2,
+        "num_epochs": 6,
+        "batch_size": 1,
+        "learning_rate": 1e-3,
+        "base_path": str(base),
+        "fixed_size": (32, 128),
+        "device": "cpu",
+        "save_path": str(save_dir / 'pretrained_backbone.pt'),
+    }
+
+    pretraining.main(config)
+    out = capsys.readouterr().out
+
+    assert out.count('GT:') >= 2
+

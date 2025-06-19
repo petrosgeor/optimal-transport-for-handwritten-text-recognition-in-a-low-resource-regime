@@ -135,6 +135,19 @@ def main(config: dict = None) -> Path:
     
     print(f"[Pretraining] Starting training...")
     
+    def _decode_random_samples():
+        """Print predictions for up to ten random dataset samples."""
+        net.eval()
+        with torch.no_grad():
+            indices = random.sample(range(len(dataset)), min(10, len(dataset)))
+            for idx in indices:
+                img, gt = dataset[idx]
+                logits = net(img.unsqueeze(0).to(device), return_feats=False)[0]
+                pred = greedy_ctc_decode(logits, i2c)[0]
+                print(f"GT: '{gt.strip()}'")
+                print(f"PR: '{pred}'")
+        net.train()
+
     # Training loop
     for epoch in range(num_epochs):
         epoch_loss = 0.0
@@ -168,16 +181,9 @@ def main(config: dict = None) -> Path:
         if (epoch + 1) % 20 == 0 or epoch == num_epochs - 1:
             print(f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}")
 
-    # Show random decodings before saving
-    net.eval()
-    with torch.no_grad():
-        indices = random.sample(range(len(dataset)), min(10, len(dataset)))
-        for idx in indices:
-            img, gt = dataset[idx]
-            logits = net(img.unsqueeze(0).to(device), return_feats=False)[0]
-            pred = greedy_ctc_decode(logits, i2c)[0]
-            print(f"GT: '{gt.strip()}'")
-            print(f"PR: '{pred}'")
+        # Decode random samples every 5 epochs and at the end
+        if (epoch + 1) % 5 == 0 or epoch == num_epochs - 1:
+            _decode_random_samples()
 
     # Save the trained model
     save_dir = Path(save_path).parent
