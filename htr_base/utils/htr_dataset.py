@@ -254,7 +254,11 @@ class HTRDataset(Dataset):
 
 
 class PretrainingHTRDataset(Dataset):
-    """Lightweight dataset for image-only pretraining."""
+    """Lightweight dataset for image-only pretraining.
+
+    If ``n_random`` is provided, ``random_seed`` ensures the same
+    subset of images is selected each time.
+    """
 
     def __init__(
         self,
@@ -263,6 +267,7 @@ class PretrainingHTRDataset(Dataset):
         base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
         transforms: list = None,
         n_random: int = None,
+        random_seed: int = 0,
     ):
         self.fixed_size = fixed_size
         self.base_path = base_path
@@ -277,7 +282,8 @@ class PretrainingHTRDataset(Dataset):
 
         filtered = [p for p in rel_paths if _valid(p)]
         if n_random is not None and n_random > 0:
-            filtered = random.sample(filtered, min(n_random, len(filtered)))
+            rng = random.Random(random_seed)
+            filtered = rng.sample(filtered, min(n_random, len(filtered)))
         self.img_paths, self.transcriptions = self.process_paths(filtered)
 
     def process_paths(self, filtered_list):

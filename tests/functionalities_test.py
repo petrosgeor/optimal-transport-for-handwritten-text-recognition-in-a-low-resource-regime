@@ -1,6 +1,5 @@
 from pathlib import Path
 import sys
-import random
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
@@ -427,11 +426,14 @@ def test_pretraining_dataset_n_random(tmp_path):
         for i in range(3):
             f.write(f'foo_word_{i}.png\n')
 
-    random.seed(0)
-    ds = PretrainingHTRDataset(
+    ds1 = PretrainingHTRDataset(
         str(list_file), fixed_size=(32, 128), base_path=str(base), n_random=1
     )
-    assert len(ds) == 1
+    ds2 = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base), n_random=1
+    )
+    assert len(ds1) == 1
+    assert ds1.img_paths == ds2.img_paths
 
 
 def test_pretraining_script(tmp_path, capsys):
