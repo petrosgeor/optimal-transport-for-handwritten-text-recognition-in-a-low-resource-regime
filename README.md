@@ -73,6 +73,10 @@ Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
 - **base_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
 - **transforms**: optional Albumentations augmentation pipeline.
 - **n_random**: if given, keep only this many random entries after filtering.
+- **random_seed**: deterministic subset selection when using ``n_random``.
+
+When ``n_random`` is set, using the same ``random_seed`` yields the
+same subset across dataset initialisations.
 
 It filters out any entries whose “description” token (between the first and second underscore)
 1. is all uppercase, or
