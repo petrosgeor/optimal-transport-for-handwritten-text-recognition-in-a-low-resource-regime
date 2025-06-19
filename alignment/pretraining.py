@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys
+import os, sys, random
 from pathlib import Path
 from types import SimpleNamespace
 from omegaconf import OmegaConf
@@ -15,7 +15,7 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
-from alignment.ctc_utils import encode_for_ctc
+from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
 from alignment.losses import _ctc_loss_fn
 
 # ------------------------------------------------------------------
@@ -114,6 +114,7 @@ def main(config: dict = None) -> Path:
     c2i = _build_vocab(dataset.transcriptions)
     nclasses = len(c2i) + 1
     print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
+    i2c = {i: c for c, i in c2i.items()}
     
     arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
     net = HTRNet(arch, nclasses=nclasses).to(device).train()
@@ -156,11 +157,22 @@ def main(config: dict = None) -> Path:
             num_batches += 1
         
         avg_loss = epoch_loss / max(1, num_batches)
-        
+
         # Print progress every 20 epochs or on last epoch
         if (epoch + 1) % 20 == 0 or epoch == num_epochs - 1:
             print(f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}")
-    
+
+    # Show random decodings before saving
+    net.eval()
+    with torch.no_grad():
+        indices = random.sample(range(len(dataset)), min(10, len(dataset)))
+        for idx in indices:
+            img, gt = dataset[idx]
+            logits = net(img.unsqueeze(0).to(device), return_feats=False)[0]
+            pred = greedy_ctc_decode(logits, i2c)[0]
+            print(f"GT: '{gt.strip()}'")
+            print(f"PR: '{pred}'")
+
     # Save the trained model
     save_dir = Path(save_path).parent
     save_dir.mkdir(parents=True, exist_ok=True)

@@ -434,7 +434,7 @@ def test_pretraining_dataset_n_random(tmp_path):
     assert len(ds) == 1
 
 
-def test_pretraining_script(tmp_path):
+def test_pretraining_script(tmp_path, capsys):
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
     base = tmp_path / 'imgs'
     base.mkdir()
@@ -452,16 +452,21 @@ def test_pretraining_script(tmp_path):
 
     from alignment import pretraining
 
-    pretraining.main(
-        str(list_file),
-        n_random=1,
-        num_epochs=1,
-        batch_size=1,
-        lr=1e-3,
-        base_path=str(base),
-        fixed_size=(32, 128),
-        device='cpu',
-    )
+    config = {
+        "list_file": str(list_file),
+        "n_random": 1,
+        "num_epochs": 1,
+        "batch_size": 1,
+        "learning_rate": 1e-3,
+        "base_path": str(base),
+        "fixed_size": (32, 128),
+        "device": "cpu",
+        "save_path": str(save_dir / 'pretrained_backbone.pt'),
+    }
+
+    pretraining.main(config)
+    out = capsys.readouterr().out
 
     assert (save_dir / 'pretrained_backbone.pt').exists()
+    assert 'GT:' in out and 'PR:' in out
 
