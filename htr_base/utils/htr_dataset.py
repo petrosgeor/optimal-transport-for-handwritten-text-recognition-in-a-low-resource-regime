@@ -257,7 +257,9 @@ class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining.
 
     If ``n_random`` is provided, ``random_seed`` ensures the same
-    subset of images is selected each time.
+    subset of images is selected each time.  When ``preload_images``
+    is ``True`` the raw images are cached in memory for faster
+    access.
     """
 
     def __init__(
@@ -268,10 +270,12 @@ class PretrainingHTRDataset(Dataset):
         transforms: list = None,
         n_random: int = None,
         random_seed: int = 0,
+        preload_images: bool = False,
     ):
         self.fixed_size = fixed_size
         self.base_path = base_path
         self.transforms = transforms
+        self.preload_images = preload_images
 
         with open(list_file, 'r') as f:
             rel_paths = [line.strip() for line in f if line.strip()]
@@ -285,6 +289,8 @@ class PretrainingHTRDataset(Dataset):
             rng = random.Random(random_seed)
             filtered = rng.sample(filtered, min(n_random, len(filtered)))
         self.img_paths, self.transcriptions = self.process_paths(filtered)
+        if self.preload_images:
+            self.images = [load_image(p) for p in self.img_paths]
 
     def process_paths(self, filtered_list):
         full_paths = [
@@ -301,7 +307,10 @@ class PretrainingHTRDataset(Dataset):
         return len(self.img_paths)
 
     def __getitem__(self, index):
-        img = load_image(self.img_paths[index])
+        if hasattr(self, 'images'):
+            img = self.images[index]
+        else:
+            img = load_image(self.img_paths[index])
         fH, fW = self.fixed_size
         nW = int(np.random.uniform(.75, 1.25) * img.shape[1])
         nH = int((np.random.uniform(.9, 1.1) * img.shape[0] / img.shape[1]) * nW)
