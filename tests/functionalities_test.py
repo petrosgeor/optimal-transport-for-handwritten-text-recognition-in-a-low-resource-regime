@@ -510,7 +510,7 @@ def test_pretraining_script(tmp_path, capsys):
     out = capsys.readouterr().out
 
     assert (save_dir / 'pretrained_backbone.pt').exists()
-    assert 'GT:' in out and 'PR:' in out
+    assert 'GT:' in out and 'beam5:' in out
 
 
 def test_pretraining_intermediate_decoding(tmp_path, capsys):

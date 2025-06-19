@@ -27,7 +27,11 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
-from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
+from alignment.ctc_utils import (
+    encode_for_ctc,
+    greedy_ctc_decode,
+    beam_search_ctc_decode,
+)
 from alignment.losses import _ctc_loss_fn
 
 
@@ -143,9 +147,11 @@ def main(config: dict = None) -> Path:
             for idx in indices:
                 img, gt = dataset[idx]
                 logits = net(img.unsqueeze(0).to(device), return_feats=False)[0]
-                pred = greedy_ctc_decode(logits, i2c)[0]
-                print(f"GT: '{gt.strip()}'")
-                print(f"PR: '{pred}'")
+                greedy = greedy_ctc_decode(logits, i2c)[0]
+                beam = beam_search_ctc_decode(logits, i2c, beam_width=5)[0]
+                print(
+                    f"GT: '{gt.strip()}' | greedy: '{greedy}' | beam5: '{beam}'"
+                )
         net.train()
 
     # Training loop
