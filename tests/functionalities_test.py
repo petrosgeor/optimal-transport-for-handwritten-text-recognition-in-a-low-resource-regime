@@ -368,6 +368,41 @@ def test_wasserstein_L2():
     assert torch.isclose(wasserstein_L2(p, q), expected)
 
 
+def test_decode_config(monkeypatch):
+    from tests import train_by_length as tbl
+    from torch.utils.data import DataLoader
+    import torch.nn as nn
+
+    calls = []
+
+    def fake_beam(*args, **kwargs):
+        calls.append("beam")
+        return ["" for _ in range(args[0].shape[1])]
+
+    def fake_greedy(*args, **kwargs):
+        calls.append("greedy")
+        return ["" for _ in range(args[0].shape[1])]
+
+    monkeypatch.setattr(tbl, "beam_search_ctc_decode", fake_beam)
+    monkeypatch.setattr(tbl, "greedy_ctc_decode", fake_greedy)
+
+    class DummyModel(nn.Module):
+        def forward(self, imgs, return_feats=False):
+            return torch.zeros(2, imgs.size(0), 3)
+
+    sample = (torch.zeros(1, 64, 256), " a ", 0)
+    sample2 = (torch.zeros(1, 64, 256), " ab ", 0)
+    loader = DataLoader([sample, sample2], batch_size=1)
+    tbl.DECODE_CONFIG["method"] = "beam"
+    tbl._evaluate_cer(DummyModel(), loader, {1: "a", 2: "b"}, torch.device("cpu"), k=1)
+    assert "beam" in calls
+
+    calls.clear()
+    tbl.DECODE_CONFIG["method"] = "greedy"
+    tbl._evaluate_cer(DummyModel(), loader, {1: "a", 2: "b"}, torch.device("cpu"), k=1)
+    assert "greedy" in calls
+
+
 def test_encode_for_ctc_vocab_size():
     cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
     base = "htr_base/data/GW/processed_words"
