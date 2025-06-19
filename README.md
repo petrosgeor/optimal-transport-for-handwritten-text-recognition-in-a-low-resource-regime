@@ -88,6 +88,7 @@ It filters out any entries whose “description” token (between the first and 
 It exposes:
 - `img_paths`: full filesystem paths.
 - `transcriptions`: lowercase description tokens.
+- `save_image(index, out_dir, filename=None)` – identical helper to `HTRDataset.save_image`; saves the pre-processed image *index* as a PNG in *out_dir*.
 
 `__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
 

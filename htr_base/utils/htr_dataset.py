@@ -325,3 +325,22 @@ class PretrainingHTRDataset(Dataset):
         img_tensor = torch.Tensor(img).float().unsqueeze(0)
         trans = f" {self.transcriptions[index]} "
         return img_tensor, trans
+
+    def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
+        """Save the preprocessed image at *index* to *out_dir* and return its path."""
+
+        img_path = self.img_paths[index]
+        img = load_image(img_path)
+        img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
+
+        os.makedirs(out_dir, exist_ok=True)
+
+        if filename is None:
+            filename = os.path.basename(img_path)
+        if not filename.lower().endswith(".png"):
+            filename = f"{os.path.splitext(filename)[0]}.png"
+
+        save_path = os.path.join(out_dir, filename)
+        plt.imsave(save_path, img, cmap="gray")
+
+        return save_path
