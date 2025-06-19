@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import random
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
@@ -412,4 +413,55 @@ def test_pretraining_dataset_filtering(tmp_path):
     img, trans = ds[0]
     assert img.shape == (1, 32, 128)
     assert trans.strip() == 'good'
+
+
+def test_pretraining_dataset_n_random(tmp_path):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    for i in range(3):
+        shutil.copy(src, base / f'foo_word_{i}.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        for i in range(3):
+            f.write(f'foo_word_{i}.png\n')
+
+    random.seed(0)
+    ds = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base), n_random=1
+    )
+    assert len(ds) == 1
+
+
+def test_pretraining_script(tmp_path):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    for i in range(2):
+        shutil.copy(src, base / f'foo_word_{i}.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        for i in range(2):
+            f.write(f'foo_word_{i}.png\n')
+
+    save_dir = Path('htr_base/saved_models')
+    if save_dir.exists():
+        shutil.rmtree(save_dir)
+
+    from alignment import pretraining
+
+    pretraining.main(
+        str(list_file),
+        n_random=1,
+        num_epochs=1,
+        batch_size=1,
+        lr=1e-3,
+        base_path=str(base),
+        fixed_size=(32, 128),
+        device='cpu',
+    )
+
+    assert (save_dir / 'pretrained_backbone.pt').exists()
 

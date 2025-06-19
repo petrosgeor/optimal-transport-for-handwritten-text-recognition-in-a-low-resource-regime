@@ -72,6 +72,7 @@ Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
 - **fixed_size**: `(height, width)` for resizing.
 - **base_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
 - **transforms**: optional Albumentations augmentation pipeline.
+- **n_random**: if given, keep only this many random entries after filtering.
 
 It filters out any entries whose “description” token (between the first and second underscore)
 1. is all uppercase, or
@@ -83,6 +84,9 @@ It exposes:
 
 `__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
 
+## pretraining.py
+
+`alignment/pretraining.py` trains a small backbone from scratch on an image list. Provide the list file and optionally `--n-random` to sample a subset. The resulting model is saved to `htr_base/saved_models/pretrained_backbone.pt`.
 
 ## encode\_for\_ctc
 
