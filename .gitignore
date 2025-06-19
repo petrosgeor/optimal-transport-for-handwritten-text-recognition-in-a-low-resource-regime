@@ -10,6 +10,7 @@ htr_base/data/IAM/
 htr_base/saved_models/
 instructions.txt
 results.txt
+pretraining_results.txt
 tests/figures/
 # tests/figures/
 tests/test_projloss.py

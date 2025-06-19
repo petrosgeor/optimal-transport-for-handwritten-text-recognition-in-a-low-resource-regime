@@ -3,6 +3,7 @@ import os, sys, random
 from pathlib import Path
 from types import SimpleNamespace
 from omegaconf import OmegaConf
+from contextlib import contextmanager
 
 
 # ------------------------------------------------------------------
@@ -39,6 +40,34 @@ from alignment.losses import _ctc_loss_fn
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
+
+
+class _Tee:
+    """Write to multiple streams simultaneously."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+
+
+@contextmanager
+def tee_output(path: str = "pretraining_results.txt"):
+    """Duplicate stdout to *path* while the context is active."""
+
+    original = sys.stdout
+    with open(path, "w") as f:
+        sys.stdout = _Tee(original, f)
+        try:
+            yield
+        finally:
+            sys.stdout = original
 
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
@@ -237,5 +266,6 @@ if __name__ == '__main__':
         if args.save_path is not None:
             config["save_path"] = args.save_path
     
-    # Run pretraining with the configuration
-    main(config)
+    # Run pretraining with the configuration while logging output
+    with tee_output("pretraining_results.txt"):
+        main(config)
