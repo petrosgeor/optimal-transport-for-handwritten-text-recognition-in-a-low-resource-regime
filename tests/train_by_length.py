@@ -32,7 +32,7 @@ EVAL_K = 4
 N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
 NUM_EPOCHS = 600
-BATCH_SIZE = 128
+BATCH_SIZE = 64
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
@@ -228,7 +228,7 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 
 def wasserstein_L2(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """Euclidean (L2) distance between two probability vectors."""
-    return torch.sqrt(torch.mean((p - q) ** 2))
+    return torch.sqrt(torch.mean((p[1:] - q) ** 2))
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.

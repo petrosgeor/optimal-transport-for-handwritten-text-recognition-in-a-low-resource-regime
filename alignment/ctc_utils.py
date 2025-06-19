@@ -113,6 +113,10 @@ def _logaddexp(a: float, b: float) -> float:
         return a + math.log1p(math.exp(b - a))
     return b + math.log1p(math.exp(a - b))
 
+# --------------------------------------------------------------------------- #
+#                           Beam-search CTC decoding                          #
+# --------------------------------------------------------------------------- #
+
 def beam_search_ctc_decode(
     logits: torch.Tensor,
     i2c: Dict[int, str],
@@ -120,25 +124,62 @@ def beam_search_ctc_decode(
     beam_width: int = 10,
     blank_id: int = 0,
     time_first: bool = True,
-    lm: Callable | None = None,
+    lm: Callable[[str], float] | None = None,
     lm_weight: float = 0.0,
     length_norm: bool = True,
 ) -> List[str]:
     """
-    Beam‑search decoding for CTC outputs **with proper blank/non‑blank tracking**.
-    The interface matches `greedy_ctc_decode` (plus beam/L‑M parameters).
-    """
+    Beam-search decoding for CTC outputs **with proper blank/non-blank tracking**.
 
-    if not time_first:                       # (B,T,C) → (T,B,C)
+    Parameters
+    ----------
+    logits : torch.Tensor
+        Network output – either ``(T, B, C)`` if *time_first* or ``(B, T, C)``.
+    i2c : dict[int, str]
+        Index-to-character map **excluding** the blank id.
+    beam_width : int, optional
+        Number of prefixes kept after every time-step.
+    blank_id : int, optional
+        Integer assigned to the CTC blank (defaults to ``0``).
+    time_first : bool, optional
+        ``True`` if *logits* are ``(T, B, C)``, else ``False`` for ``(B, T, C)``.
+    lm : Callable[[str], float], optional
+        External language-model scoring function (returns **log-probability**).
+    lm_weight : float, optional
+        Weight multiplied with the LM score before adding it.
+    length_norm : bool, optional
+        If ``True`` divide the final log-probability by the prefix length.
+
+    Returns
+    -------
+    list[str]
+        Best-scoring transcription for every element in the mini-batch.
+    """
+    # ---------- tensor layout ------------------------------------------------
+    if not time_first:                      # (B, T, C) → (T, B, C)
         logits = logits.transpose(0, 1)
     T, B, C = logits.shape
-    logp = logits.log_softmax(dim=2).cpu()   # work on CPU → fewer GPU syncs
-    results: List[str] = []
+    logp = logits.log_softmax(dim=2).cpu()  # stay on CPU; avoids GPU sync
 
+    # ---------- helper -------------------------------------------------------
+    neg_inf = -float("inf")
+    def _logaddexp(a: float, b: float) -> float:            # two-argument log-sum-exp
+        if a == neg_inf:
+            return b
+        if b == neg_inf:
+            return a
+        if a > b:
+            return a + math.log1p(math.exp(b - a))
+        return b + math.log1p(math.exp(a - b))
+
+    results: List[str] = []
+    # ======================================================================== #
+    #                             decode per sample                            #
+    # ======================================================================== #
     for b in range(B):
-        # Beam state: prefix → (P_blank, P_nonblank, last_idx)
+        # beam:  (prefix, last_symbol) → (P_blank, P_nonblank)
         beams: Dict[Tuple[str, int | None], Tuple[float, float]] = {
-            ("", None): (0.0, -float("inf"))      # log(1)=0
+            ("", None): (0.0, neg_inf)                # log(1) = 0
         }
 
         for t in range(T):
@@ -147,62 +188,63 @@ def beam_search_ctc_decode(
                 for c in range(C):
                     p = logp[t, b, c].item()
 
-                    if c == blank_id:  # emit blank
-                        key = (pref, None)             # reset *last*
-                        pb_old, pnb_old = step.get(key, (-float("inf"), -float("inf")))
+                    # ---- case 1: emit BLANK --------------------------------
+                    if c == blank_id:
+                        key = (pref, None)            # reset *last*
+                        pb_old, pnb_old = step.get(key, (neg_inf, neg_inf))
                         step[key] = (_logaddexp(pb_old, p_b + p),
                                      _logaddexp(pnb_old, p_nb + p))
                         continue
 
+                    # ---- filter absent / padding classes -------------------
                     ch = i2c.get(c)
-                    if ch is None:                      # unknown / padding
+                    if ch is None:
                         continue
 
-                    # ---------- extend with a non‑blank label ----------
-                    new_pref = pref
-                    emit = True
-                    if c == last:                       # duplicate char
-                        if last is None:                # last time‑step was blank ⇒ OK to add
-                            new_pref += ch
-                        else:
-                            emit = False                # repeated without blank
-                    else:
-                        new_pref += ch
-
+                    # ---- case 2: emit NON-BLANK ----------------------------
+                    same_char = (c == last)           # repeating the same symbol?
+                    # prefix to record **after** collapsing repeats
+                    new_pref = pref if same_char and last is not None else pref + ch
                     key = (new_pref, c)
-                    pb_old, pnb_old = step.get(key, (-float("inf"), -float("inf")))
 
-                    if emit:
-                        new_p_nb = p_b + p             # came from blank
+                    # (a) transition that *emits* c
+                    if same_char:
+                        # can only come from BLANK (rule 3.2, Graves 2006)
+                        emit_p = p_b
                     else:
-                        new_p_nb = -float("inf")       # illegal transition
+                        # from BLANK or from DIFFERENT NON-BLANK  ← FIX #1
+                        emit_p = _logaddexp(p_b, p_nb)
+                    new_p_nb = emit_p + p
 
-                    # also possible to stay non‑blank and repeat the same char
-                    cont_p_nb = p_nb + p if c == last else -float("inf")
+                    # (b) transition that *continues* same char without blank
+                    cont_p_nb = (p_nb + p) if same_char else neg_inf
 
-                    step[key] = (pb_old,
-                                 _logaddexp(pnb_old, _logaddexp(new_p_nb, cont_p_nb)))
+                    pb_old, pnb_old = step.get(key, (neg_inf, neg_inf))
+                    step[key] = (
+                        pb_old,           # P_blank unchanged in this branch
+                        _logaddexp(pnb_old,
+                                   _logaddexp(new_p_nb, cont_p_nb))
+                    )
 
-            # ---------- pruning ----------
+            # ---------- prune beam -----------------------------------------
             scored = [ (pref, last, pb, pnb,
-                        (pb if pb > pnb else pnb))           # log‑prob of prefix
+                        pb if pb > pnb else pnb)       # log-prob of prefix
                       for (pref, last), (pb, pnb) in step.items() ]
-
-            # keep best *beam_width* prefixes (optionally length‑norm in view of next step)
             scored.sort(key=lambda x: x[4], reverse=True)
-            beams = { (pref,last): (pb,pnb) for pref, last, pb, pnb, _ in scored[:beam_width] }
+            beams = { (pref, last): (pb, pnb)
+                      for pref, last, pb, pnb, _ in scored[:beam_width] }
 
-        # ---------- final selection ----------
-        best_pref, best_score = "", -float("inf")
+        # ---------- final selection -----------------------------------------
+        best_pref, best_score = "", neg_inf
         for (pref, _), (pb, pnb) in beams.items():
-            score = _logaddexp(pb, pnb)                # total log‑prob
+            score = _logaddexp(pb, pnb)
             if lm is not None:
                 score += lm_weight * lm(pref)
             if length_norm and len(pref) > 0:
                 score /= len(pref)
             if score > best_score:
                 best_pref, best_score = pref, score
-
-        results.append(best_pref.strip())
+        results.append(best_pref)
 
     return results
+

@@ -46,7 +46,7 @@ PRETRAINING_CONFIG = {
     "n_random": 5000,
     "num_epochs": 200,
     "batch_size": 128,
-    "learning_rate": 1e-4,
+    "learning_rate": 1e-5,
     "base_path": None,
     "fixed_size": (64, 256),
     "device": DEVICE,
@@ -59,11 +59,11 @@ PRETRAINING_CONFIG = {
 # Architecture configuration for the pretraining backbone
 # Matches exactly the config used in alignment_trainer.py
 ARCHITECTURE_CONFIG = {
-    "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
+    "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
     "head_type": "both",
     "rnn_type": "gru",
     "rnn_layers": 3,
-    "rnn_hidden_size": 256,
+    "rnn_hidden_size": 128,
     "flattening": "maxpool",
     "stn": False,
     "feat_dim": 512,
@@ -116,6 +116,7 @@ def main(config: dict = None) -> Path:
         base_path=base_path,
         transforms=transforms,
         n_random=n_random,
+        preload_images=True
     )
     
     print(f"[Pretraining] Dataset size: {len(dataset)}")
@@ -188,7 +189,7 @@ def main(config: dict = None) -> Path:
             print(f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}")
 
         # Decode random samples every 5 epochs and at the end
-        if (epoch + 1) % 5 == 0 or epoch == num_epochs - 1:
+        if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
             _decode_random_samples()
 
     # Save the trained model
