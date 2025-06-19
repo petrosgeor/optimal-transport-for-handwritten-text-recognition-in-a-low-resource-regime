@@ -51,6 +51,10 @@ ARCHITECTURE_CONFIG = {
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
+DECODE_CONFIG = {
+    "method": "greedy",  # 'greedy' or 'beam'
+    "beam_width": 10,
+}
 from typing import Dict, Tuple, List
 import torch
 import torch.nn.functional as F
@@ -66,7 +70,11 @@ from htr_base.utils.htr_dataset import HTRDataset  # for the priors
 from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
 from htr_base.utils.transforms import aug_transforms
-from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
+from alignment.ctc_utils import (
+    encode_for_ctc,
+    greedy_ctc_decode,
+    beam_search_ctc_decode,
+)
 from alignment.alignment_utilities import predicted_char_distribution
 # ---------------------------------------------------------------------
 # Save a histogram of characters appearing in the provided strings to a
@@ -179,7 +187,14 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
             logits = model(imgs, return_feats=False)
             if isinstance(logits, (tuple, list)):
                 logits = logits[0]
-            preds = greedy_ctc_decode(logits, i2c)
+            if DECODE_CONFIG.get("method", "greedy") == "beam":
+                preds = beam_search_ctc_decode(
+                    logits,
+                    i2c,
+                    beam_width=DECODE_CONFIG.get("beam_width", 10),
+                )
+            else:
+                preds = greedy_ctc_decode(logits, i2c)
             for p, t in zip(preds, transcrs):
                 gt_stripped = t.strip()
                 pred_stripped = p.strip()
@@ -228,7 +243,7 @@ def _evaluate_cer(model: HTRNet, loader: DataLoader, i2c: Dict[int, str],
 
 def wasserstein_L2(p: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """Euclidean (L2) distance between two probability vectors."""
-    return torch.sqrt(torch.mean((p[1:] - q) ** 2))
+    return torch.sqrt(torch.mean((p - q) ** 2))
 # ---------------------------------------------------------------------
 # Fine-tune a visual model using only ground-truth words whose lengths fall
 # within a specified range.  Evaluation is performed periodically using CER.
