@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import runpy
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
@@ -96,6 +97,17 @@ def test_tee_output(tmp_path, capsys):
     with tee_output(out_file):
         print("bye")
     assert out_file.read_text() == "bye\n"
+
+
+def test_pretraining_tee_output(tmp_path, capsys):
+    out_file = tmp_path / "log.txt"
+    from alignment.pretraining import tee_output as pt_tee_output
+
+    with pt_tee_output(out_file):
+        print("hello")
+    captured = capsys.readouterr().out
+    assert captured.strip() == "hello"
+    assert out_file.read_text() == "hello\n"
 
 
 
@@ -473,8 +485,7 @@ def test_pretraining_dataset_n_random(tmp_path):
 
 def test_pretraining_dataset_preload_images(tmp_path):
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
-    base = tmp_path / 'imgs'
-    base.mkdir()
+    base = tmp_path
     shutil.copy(src, base / 'foo_word_0.png')
 
     list_file = tmp_path / 'list.txt'
@@ -491,8 +502,7 @@ def test_pretraining_dataset_preload_images(tmp_path):
 
 def test_pretraining_dataset_save_image(tmp_path):
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
-    base = tmp_path / 'imgs'
-    base.mkdir()
+    base = tmp_path
     shutil.copy(src, base / 'foo_word_0.png')
 
     list_file = tmp_path / 'list.txt'
@@ -582,4 +592,37 @@ def test_pretraining_intermediate_decoding(tmp_path, capsys):
     out = capsys.readouterr().out
 
     assert out.count('GT:') >= 2
+
+
+def test_pretraining_script_logs(tmp_path, monkeypatch):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path
+    shutil.copy(src, base / 'foo_word_0.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    save_dir = tmp_path / 'model'
+
+    args = [
+        'alignment.pretraining',
+        '--list-file', str(list_file),
+        '--n-random', '1',
+        '--epochs', '1',
+        '--batch-size', '1',
+        '--lr', '1e-3',
+        '--device', 'cpu',
+        '--save-path', str(save_dir / 'pretrained_backbone.pt'),
+    ]
+
+    log_file = Path('pretraining_results.txt')
+    if log_file.exists():
+        log_file.unlink()
+
+    monkeypatch.setattr(sys, 'argv', args)
+    runpy.run_module('alignment.pretraining', run_name='__main__')
+
+    assert log_file.exists()
+    assert 'GT:' in log_file.read_text()
 
