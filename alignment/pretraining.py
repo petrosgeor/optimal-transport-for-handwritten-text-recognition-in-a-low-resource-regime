@@ -3,20 +3,7 @@ import os, sys, random
 from pathlib import Path
 from types import SimpleNamespace
 from omegaconf import OmegaConf
-import torch
-import torch.optim as optim
-from torch.utils.data import DataLoader
 
-# Add project root to path for imports
-root = Path(__file__).resolve().parents[1]
-if str(root) not in sys.path:
-    sys.path.insert(0, str(root))
-
-from htr_base.utils.htr_dataset import PretrainingHTRDataset
-from htr_base.models import HTRNet
-from htr_base.utils.transforms import aug_transforms
-from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
-from alignment.losses import _ctc_loss_fn
 
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
@@ -30,10 +17,29 @@ if cfg_file.exists():
 else:
     DEVICE = "cpu"
 
+    
+
+# Add project root to path for imports
+root = Path(__file__).resolve().parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
+
+from htr_base.utils.htr_dataset import PretrainingHTRDataset
+from htr_base.models import HTRNet
+from htr_base.utils.transforms import aug_transforms
+from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
+from alignment.losses import _ctc_loss_fn
+
+
+
+import torch
+import torch.optim as optim
+from torch.utils.data import DataLoader
+
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
     "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 50000,
+    "n_random": 5000,
     "num_epochs": 200,
     "batch_size": 128,
     "learning_rate": 1e-4,
