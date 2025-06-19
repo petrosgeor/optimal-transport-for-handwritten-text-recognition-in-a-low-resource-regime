@@ -255,7 +255,8 @@ class HTRDataset(Dataset):
 class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining."""
 
-    def __init__(self, list_file: str, fixed_size: tuple,
+    def __init__(self, list_file: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt',
+                 fixed_size: tuple = (64, 256),
                  base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
                  transforms: list = None):
         self.fixed_size = fixed_size

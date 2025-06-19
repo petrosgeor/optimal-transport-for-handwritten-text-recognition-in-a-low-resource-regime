@@ -114,7 +114,7 @@ def _logaddexp(a: float, b: float) -> float:
     return b + math.log1p(math.exp(a - b))
 
 def beam_search_ctc_decode(
-    logits: "torch.Tensor",
+    logits: torch.Tensor,
     i2c: Dict[int, str],
     *,
     beam_width: int = 10,
@@ -128,7 +128,6 @@ def beam_search_ctc_decode(
     Beam‑search decoding for CTC outputs **with proper blank/non‑blank tracking**.
     The interface matches `greedy_ctc_decode` (plus beam/L‑M parameters).
     """
-    import torch  # late import keeps signature clean
 
     if not time_first:                       # (B,T,C) → (T,B,C)
         logits = logits.transpose(0, 1)
