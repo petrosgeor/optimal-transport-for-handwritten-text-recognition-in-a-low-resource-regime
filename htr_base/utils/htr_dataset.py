@@ -10,6 +10,7 @@ from .preprocessing import load_image, preprocess
 from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
+import random
 from typing import List
 class HTRDataset(Dataset):
     def __init__(self,
@@ -255,10 +256,14 @@ class HTRDataset(Dataset):
 class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining."""
 
-    def __init__(self, list_file: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt',
-                 fixed_size: tuple = (64, 256),
-                 base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
-                 transforms: list = None):
+    def __init__(
+        self,
+        list_file: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt',
+        fixed_size: tuple = (64, 256),
+        base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
+        transforms: list = None,
+        n_random: int | None = None,
+    ):
         self.fixed_size = fixed_size
         self.base_path = base_path
         self.transforms = transforms
@@ -271,6 +276,8 @@ class PretrainingHTRDataset(Dataset):
             return (not desc.isupper()) and desc.isalnum()
 
         filtered = [p for p in rel_paths if _valid(p)]
+        if n_random is not None and n_random > 0:
+            filtered = random.sample(filtered, min(n_random, len(filtered)))
         self.img_paths, self.transcriptions = self.process_paths(filtered)
 
     def process_paths(self, filtered_list):
