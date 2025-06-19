@@ -74,9 +74,12 @@ Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
 - **transforms**: optional Albumentations augmentation pipeline.
 - **n_random**: if given, keep only this many random entries after filtering.
 - **random_seed**: deterministic subset selection when using ``n_random``.
+- **preload_images**: load all images into memory (default ``False``).
 
 When ``n_random`` is set, using the same ``random_seed`` yields the
 same subset across dataset initialisations.
+When ``preload_images`` is ``True`` each path is loaded once at
+initialisation so subsequent indexing avoids disk access.
 
 It filters out any entries whose “description” token (between the first and second underscore)
 1. is all uppercase, or

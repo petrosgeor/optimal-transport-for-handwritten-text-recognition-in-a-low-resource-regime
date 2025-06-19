@@ -436,6 +436,24 @@ def test_pretraining_dataset_n_random(tmp_path):
     assert ds1.img_paths == ds2.img_paths
 
 
+def test_pretraining_dataset_preload_images(tmp_path):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    shutil.copy(src, base / 'foo_word_0.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    ds = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base), preload_images=True
+    )
+    assert len(ds.images) == len(ds)
+    img, _ = ds[0]
+    assert img.shape == (1, 32, 128)
+
+
 def test_pretraining_script(tmp_path, capsys):
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
     base = tmp_path / 'imgs'
