@@ -262,7 +262,7 @@ class PretrainingHTRDataset(Dataset):
         fixed_size: tuple = (64, 256),
         base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
         transforms: list = None,
-        n_random: int | None = None,
+        n_random: int = None,
     ):
         self.fixed_size = fixed_size
         self.base_path = base_path
