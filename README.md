@@ -94,7 +94,7 @@ It exposes:
 
 ## pretraining.py
 
-`alignment/pretraining.py` trains a small backbone from scratch on an image list. Provide the list file and optionally `--n-random` to sample a subset. The resulting model is saved to `htr_base/saved_models/pretrained_backbone.pt`. After training, the script prints up to ten random decoded examples showing ground truth (`GT:`) and predictions (`PR:`).
+`alignment/pretraining.py` trains a small backbone from scratch on an image list. Provide the list file and optionally `--n-random` to sample a subset. The resulting model is saved to `htr_base/saved_models/pretrained_backbone.pt`. During training ten random samples are decoded every five epochs (and once at the end), showing ground truth (`GT:`) and predictions (`PR:`).
 
 ## encode\_for\_ctc
 
