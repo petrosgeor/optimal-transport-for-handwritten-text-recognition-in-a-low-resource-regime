@@ -738,3 +738,41 @@ def test_pretraining_evaluates_cer(tmp_path, capsys):
     out = capsys.readouterr().out
     assert '[Eval] CER:' in out
 
+
+def test_pretraining_saves_and_loads_dicts(tmp_path, capsys):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    shutil.copy(src, base / 'foo_word_0.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    save_dir = tmp_path / 'model'
+
+    from alignment import pretraining
+
+    config = {
+        'list_file': str(list_file),
+        'n_random': 1,
+        'num_epochs': 1,
+        'batch_size': 1,
+        'learning_rate': 1e-3,
+        'base_path': str(base),
+        'fixed_size': (32, 128),
+        'device': 'cpu',
+        'save_path': str(save_dir / 'pretrained_backbone.pt'),
+    }
+
+    pretraining.main(config)
+    capsys.readouterr()
+
+    assert (save_dir / 'c2i.pkl').exists()
+    assert (save_dir / 'i2c.pkl').exists()
+
+    pretraining.main(config)
+    out = capsys.readouterr().out
+    assert 'Loading checkpoint' in out
+    assert 'Loading vocabulary' in out
+
