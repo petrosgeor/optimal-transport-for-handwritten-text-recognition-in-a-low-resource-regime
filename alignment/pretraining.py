@@ -74,14 +74,14 @@ def tee_output(path: str = "pretraining_results.txt"):
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
     "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 10000,
-    "num_epochs": 200,
+    "n_random": 100,
+    "num_epochs": 10000,
     "batch_size": 128,
     "learning_rate": 1e-3,
     "base_path": None,
     "fixed_size": (64, 256),
     "device": DEVICE,
-    "use_augmentations": False,
+    "use_augmentations": True,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
     "save_path": "htr_base/saved_models/pretrained_backbone.pt"
@@ -180,9 +180,9 @@ def main(config: dict = None) -> Path:
     
     # Create data loader and optimizer
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
     opt = optim.Adam(net.parameters(), lr=lr)
-    sched = lr_scheduler.StepLR(opt, step_size=1000, gamma=0.5)
+    sched = lr_scheduler.StepLR(opt, step_size=500, gamma=0.5)
     
     print(f"[Pretraining] Starting training...")
     
@@ -249,22 +249,20 @@ def main(config: dict = None) -> Path:
         sched.step()
 
         # Print progress every 20 epochs or on last epoch
-        if (epoch + 1) % 20 == 0 or epoch == num_epochs - 1:
+        if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
             lr_val = sched.get_last_lr()[0]
             print(
                 f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f} - lr: {lr_val:.2e}"
             )
 
-        # Evaluate on the test set and decode examples every 10 epochs
-        if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
             _evaluate_cer(test_loader)
             _decode_random_samples(test_set)
 
-    # Save the trained model
-    save_dir = Path(save_path).parent
-    save_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(net.state_dict(), save_path)
-    print(f"[Pretraining] Model saved to: {save_path}")
+            # Save the trained model
+            save_dir = Path(save_path).parent
+            save_dir.mkdir(parents=True, exist_ok=True)
+            torch.save(net.state_dict(), save_path)
+            print(f"[Pretraining] Model saved to: {save_path}")
     
     return Path(save_path)
 

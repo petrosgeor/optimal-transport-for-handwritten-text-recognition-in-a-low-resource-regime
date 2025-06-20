@@ -7,7 +7,7 @@ htr_base/data/*
 htr_base/data/IAM/
 
 # Ignore saved models directory
-htr_base/saved_models/
+# htr_base/saved_models/
 instructions.txt
 results.txt
 pretraining_results.txt
