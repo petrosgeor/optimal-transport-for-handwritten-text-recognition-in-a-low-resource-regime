@@ -94,7 +94,7 @@ It exposes:
 
 ## pretraining.py
 
-`alignment/pretraining.py` trains a small backbone from scratch on an image list. Provide the list file and optionally `--n-random` to sample a subset. The resulting model is saved to `htr_base/saved_models/pretrained_backbone.pt`. A step learning‑rate schedule halves the optimiser LR every 1000 epochs starting at `1e-3`. During training ten random samples are decoded every five epochs (and once at the end), showing the ground truth (`GT:`) along with greedy and beam‑search predictions (`beam5:`). When executed directly, all console output is also written to `pretraining_results.txt`.
+`alignment/pretraining.py` trains a small backbone from scratch on an image list. Provide the list file and optionally `--n-random` to sample a subset. The resulting model is saved to `htr_base/saved_models/pretrained_backbone.pt`. A step learning‑rate schedule halves the optimiser LR every 1000 epochs starting at `1e-3`. During training ten random samples are decoded every five epochs (and once at the end), showing the ground truth (`GT:`) along with greedy and beam‑search predictions (`beam5:`). When executed directly, all console output is also written to `pretraining_results.txt`. Pass `--no-results-file` to skip writing the console log to `pretraining_results.txt`. Every ten epochs the script evaluates CER on a 10k‑sample test subset without augmentations and prints predictions for ten random test items.
 
 ## encode\_for\_ctc
 
