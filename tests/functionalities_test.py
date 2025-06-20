@@ -549,6 +549,7 @@ def test_pretraining_script(tmp_path, capsys):
         "fixed_size": (32, 128),
         "device": "cpu",
         "save_path": str(save_dir / 'pretrained_backbone.pt'),
+        "save_backbone": True,
     }
 
     pretraining.main(config)
@@ -586,6 +587,7 @@ def test_pretraining_intermediate_decoding(tmp_path, capsys):
         "fixed_size": (32, 128),
         "device": "cpu",
         "save_path": str(save_dir / 'pretrained_backbone.pt'),
+        "save_backbone": True,
     }
 
     pretraining.main(config)
@@ -614,6 +616,7 @@ def test_pretraining_script_logs(tmp_path, monkeypatch):
         '--lr', '1e-3',
         '--device', 'cpu',
         '--save-path', str(save_dir / 'pretrained_backbone.pt'),
+        '--save-backbone',
     ]
 
     log_file = Path('pretraining_results.txt')
@@ -648,6 +651,7 @@ def test_pretraining_no_results_file(tmp_path, monkeypatch):
         '--device', 'cpu',
         '--save-path', str(save_dir / 'pretrained_backbone.pt'),
         '--no-results-file',
+        '--save-backbone',
     ]
 
     log_file = Path('pretraining_results.txt')
@@ -699,6 +703,7 @@ def test_pretraining_uses_scheduler(tmp_path, monkeypatch):
         'fixed_size': (32, 128),
         'device': 'cpu',
         'save_path': str(tmp_path / 'pretrained.pt'),
+        'save_backbone': True,
     }
 
     pretraining.main(config)
@@ -732,6 +737,7 @@ def test_pretraining_evaluates_cer(tmp_path, capsys):
         'fixed_size': (32, 128),
         'device': 'cpu',
         'save_path': str(tmp_path / 'pretrained_backbone.pt'),
+        'save_backbone': True,
     }
 
     pretraining.main(config)
@@ -763,6 +769,7 @@ def test_pretraining_saves_and_loads_dicts(tmp_path, capsys):
         'fixed_size': (32, 128),
         'device': 'cpu',
         'save_path': str(save_dir / 'pretrained_backbone.pt'),
+        'save_backbone': True,
     }
 
     pretraining.main(config)
