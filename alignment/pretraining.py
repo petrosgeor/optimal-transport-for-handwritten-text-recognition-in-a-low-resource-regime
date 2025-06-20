@@ -182,7 +182,7 @@ def main(config: dict = None) -> Path:
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
     opt = optim.Adam(net.parameters(), lr=lr)
-    sched = lr_scheduler.StepLR(opt, step_size=500, gamma=0.5)
+    sched = lr_scheduler.StepLR(opt, step_size=1000, gamma=0.5)
     
     print(f"[Pretraining] Starting training...")
     
