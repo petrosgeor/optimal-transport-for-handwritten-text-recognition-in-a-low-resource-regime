@@ -84,7 +84,8 @@ PRETRAINING_CONFIG = {
     "use_augmentations": True,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
-    "save_path": "htr_base/saved_models/pretrained_backbone.pt"
+    "save_path": "htr_base/saved_models/pretrained_backbone.pt",
+    "save_backbone": False,
 }
 
 # Architecture configuration for the pretraining backbone
@@ -126,6 +127,7 @@ def main(config: dict = None) -> Path:
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
     save_path = config.get("save_path", "htr_base/saved_models/pretrained_backbone.pt")
+    save_backbone = config.get("save_backbone", False)
     
     print(f"[Pretraining] Starting with config:")
     print(f"  list_file: {list_file}")
@@ -135,6 +137,7 @@ def main(config: dict = None) -> Path:
     print(f"  learning_rate: {lr}")
     print(f"  device: {device}")
     print(f"  augmentations: {use_augmentations}")
+    print(f"  save_backbone: {save_backbone}")
     
     if base_path is None:
         base_path = str(Path(list_file).parent)
@@ -178,11 +181,12 @@ def main(config: dict = None) -> Path:
     else:
         c2i = _build_vocab(train_set.transcriptions)
         i2c = {i: c for c, i in c2i.items()}
-        save_dir.mkdir(parents=True, exist_ok=True)
-        with open(c2i_path, "wb") as f:
-            pickle.dump(c2i, f)
-        with open(i2c_path, "wb") as f:
-            pickle.dump(i2c, f)
+        if save_backbone:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            with open(c2i_path, "wb") as f:
+                pickle.dump(c2i, f)
+            with open(i2c_path, "wb") as f:
+                pickle.dump(i2c, f)
     nclasses = len(c2i) + 1
     print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
     
@@ -278,15 +282,16 @@ def main(config: dict = None) -> Path:
             _evaluate_cer(test_loader)
             _decode_random_samples(test_set)
 
-            # Save the trained model and vocabulary
-            save_dir = Path(save_path).parent
-            save_dir.mkdir(parents=True, exist_ok=True)
-            torch.save(net.state_dict(), save_path)
-            with open(c2i_path, "wb") as f:
-                pickle.dump(c2i, f)
-            with open(i2c_path, "wb") as f:
-                pickle.dump(i2c, f)
-            print(f"[Pretraining] Model saved to: {save_path}")
+            if save_backbone:
+                # Save the trained model and vocabulary
+                save_dir = Path(save_path).parent
+                save_dir.mkdir(parents=True, exist_ok=True)
+                torch.save(net.state_dict(), save_path)
+                with open(c2i_path, "wb") as f:
+                    pickle.dump(c2i, f)
+                with open(i2c_path, "wb") as f:
+                    pickle.dump(i2c, f)
+                print(f"[Pretraining] Model saved to: {save_path}")
     
     return Path(save_path)
 
@@ -307,6 +312,8 @@ if __name__ == '__main__':
         parser.add_argument('--device', type=str, help='device for training (cpu/cuda)')
         parser.add_argument('--no-augmentations', action='store_true', help='disable data augmentations')
         parser.add_argument('--save-path', type=str, help='path to save the trained model')
+        parser.add_argument('--save-backbone', action='store_true',
+                            help='save model weights and vocabulary')
         parser.add_argument('--no-results-file', action='store_true',
                             help='do NOT duplicate stdout to pretraining_results.txt')
 
@@ -329,6 +336,8 @@ if __name__ == '__main__':
             config["use_augmentations"] = False
         if args.save_path is not None:
             config["save_path"] = args.save_path
+        if args.save_backbone:
+            config["save_backbone"] = True
 
     # Run pretraining with the configuration while logging output
     if args and getattr(args, 'no_results_file', False):
