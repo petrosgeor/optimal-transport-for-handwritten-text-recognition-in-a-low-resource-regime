@@ -39,6 +39,7 @@ from alignment.losses import _ctc_loss_fn
 
 import torch
 import torch.optim as optim
+import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
 
 
@@ -166,6 +167,7 @@ def main(config: dict = None) -> Path:
     # Create data loader and optimizer
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=3)
     opt = optim.Adam(net.parameters(), lr=lr)
+    sched = lr_scheduler.StepLR(opt, step_size=1000, gamma=0.5)
     
     print(f"[Pretraining] Starting training...")
     
@@ -213,9 +215,14 @@ def main(config: dict = None) -> Path:
         
         avg_loss = epoch_loss / max(1, num_batches)
 
+        sched.step()
+
         # Print progress every 20 epochs or on last epoch
         if (epoch + 1) % 20 == 0 or epoch == num_epochs - 1:
-            print(f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}")
+            lr_val = sched.get_last_lr()[0]
+            print(
+                f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f} - lr: {lr_val:.2e}"
+            )
 
         # Decode random samples every 5 epochs and at the end
         if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
