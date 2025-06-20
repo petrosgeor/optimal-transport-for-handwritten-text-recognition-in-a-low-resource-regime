@@ -626,3 +626,51 @@ def test_pretraining_script_logs(tmp_path, monkeypatch):
     assert log_file.exists()
     assert 'GT:' in log_file.read_text()
 
+
+def test_pretraining_uses_scheduler(tmp_path, monkeypatch):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path
+    shutil.copy(src, base / 'foo_word_0.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    call = {}
+
+    class DummyScheduler:
+        def __init__(self, opt, step_size, gamma):
+            call['step_size'] = step_size
+            call['gamma'] = gamma
+            self.opt = opt
+            self.steps = 0
+
+        def step(self):
+            self.steps += 1
+            call['steps'] = self.steps
+
+        def get_last_lr(self):
+            return [group['lr'] for group in self.opt.param_groups]
+
+    from alignment import pretraining
+
+    monkeypatch.setattr(pretraining.lr_scheduler, 'StepLR', DummyScheduler)
+
+    config = {
+        'list_file': str(list_file),
+        'n_random': 1,
+        'num_epochs': 1,
+        'batch_size': 1,
+        'learning_rate': 1e-3,
+        'base_path': str(base),
+        'fixed_size': (32, 128),
+        'device': 'cpu',
+        'save_path': str(tmp_path / 'pretrained.pt'),
+    }
+
+    pretraining.main(config)
+
+    assert call.get('step_size') == 1000
+    assert call.get('gamma') == 0.5
+    assert call.get('steps', 0) >= 1
+
