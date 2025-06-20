@@ -28,6 +28,7 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
+from htr_base.utils.metrics import CER
 from alignment.ctc_utils import (
     encode_for_ctc,
     greedy_ctc_decode,
@@ -138,21 +139,34 @@ def main(config: dict = None) -> Path:
     if base_path is None:
         base_path = str(Path(list_file).parent)
     
-    # Create dataset with or without augmentations
+    # Create training dataset with optional augmentations
     transforms = aug_transforms if use_augmentations else None
-    dataset = PretrainingHTRDataset(
+    train_set = PretrainingHTRDataset(
         list_file,
         fixed_size=fixed_size,
         base_path=base_path,
         transforms=transforms,
         n_random=n_random,
-        preload_images=True
+        preload_images=True,
+        random_seed=0,
     )
-    
-    print(f"[Pretraining] Dataset size: {len(dataset)}")
+
+    # Separate test set without augmentations
+    test_set = PretrainingHTRDataset(
+        list_file,
+        fixed_size=fixed_size,
+        base_path=base_path,
+        transforms=None,
+        n_random=10000,
+        preload_images=True,
+        random_seed=1,
+    )
+
+    print(f"[Pretraining] Dataset size: {len(train_set)}")
+    print(f"[Pretraining] Test set size: {len(test_set)}")
     
     # Build vocabulary and architecture
-    c2i = _build_vocab(dataset.transcriptions)
+    c2i = _build_vocab(train_set.transcriptions)
     nclasses = len(c2i) + 1
     print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
     i2c = {i: c for c, i in c2i.items()}
@@ -165,19 +179,20 @@ def main(config: dict = None) -> Path:
     print(f"[Pretraining] Network parameters: {n_params:,}")
     
     # Create data loader and optimizer
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=3)
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=0)
     opt = optim.Adam(net.parameters(), lr=lr)
     sched = lr_scheduler.StepLR(opt, step_size=1000, gamma=0.5)
     
     print(f"[Pretraining] Starting training...")
     
-    def _decode_random_samples():
-        """Print predictions for up to ten random dataset samples."""
+    def _decode_random_samples(ds):
+        """Print predictions for up to ten random samples from *ds*."""
         net.eval()
         with torch.no_grad():
-            indices = random.sample(range(len(dataset)), min(10, len(dataset)))
+            indices = random.sample(range(len(ds)), min(10, len(ds)))
             for idx in indices:
-                img, gt = dataset[idx]
+                img, gt = ds[idx]
                 logits = net(img.unsqueeze(0).to(device), return_feats=False)[0]
                 greedy = greedy_ctc_decode(logits, i2c)[0]
                 beam = beam_search_ctc_decode(logits, i2c, beam_width=5)[0]
@@ -186,12 +201,28 @@ def main(config: dict = None) -> Path:
                 )
         net.train()
 
+    def _evaluate_cer(loader):
+        """Return CER on *loader* and print the value."""
+        net.eval()
+        metric = CER()
+        with torch.no_grad():
+            for imgs, trans in loader:
+                imgs = imgs.to(device)
+                logits = net(imgs, return_feats=False)[0]
+                preds = greedy_ctc_decode(logits, i2c)
+                for p, t in zip(preds, trans):
+                    metric.update(p.strip(), t.strip())
+        net.train()
+        score = metric.score()
+        print(f"[Eval] CER: {score:.4f}")
+        return score
+
     # Training loop
     for epoch in range(num_epochs):
         epoch_loss = 0.0
         num_batches = 0
         
-        for imgs, txts in loader:
+        for imgs, txts in train_loader:
             imgs = imgs.to(device)
             out = net(imgs, return_feats=False)
             main_logits, aux_logits = out[:2]
@@ -224,9 +255,10 @@ def main(config: dict = None) -> Path:
                 f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f} - lr: {lr_val:.2e}"
             )
 
-        # Decode random samples every 5 epochs and at the end
+        # Evaluate on the test set and decode examples every 10 epochs
         if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
-            _decode_random_samples()
+            _evaluate_cer(test_loader)
+            _decode_random_samples(test_set)
 
     # Save the trained model
     save_dir = Path(save_path).parent
@@ -239,7 +271,8 @@ def main(config: dict = None) -> Path:
 if __name__ == '__main__':
     # Update config with command line arguments if provided
     config = PRETRAINING_CONFIG.copy()
-    
+    args = None
+
     if len(sys.argv) > 1:
         # Simple command line interface for common parameters
         import argparse
@@ -252,9 +285,11 @@ if __name__ == '__main__':
         parser.add_argument('--device', type=str, help='device for training (cpu/cuda)')
         parser.add_argument('--no-augmentations', action='store_true', help='disable data augmentations')
         parser.add_argument('--save-path', type=str, help='path to save the trained model')
-        
+        parser.add_argument('--no-results-file', action='store_true',
+                            help='do NOT duplicate stdout to pretraining_results.txt')
+
         args = parser.parse_args()
-        
+
         # Update config with provided arguments
         if args.list_file is not None:
             config["list_file"] = args.list_file
@@ -272,7 +307,10 @@ if __name__ == '__main__':
             config["use_augmentations"] = False
         if args.save_path is not None:
             config["save_path"] = args.save_path
-    
+
     # Run pretraining with the configuration while logging output
-    with tee_output("pretraining_results.txt"):
+    if args and getattr(args, 'no_results_file', False):
         main(config)
+    else:
+        with tee_output("pretraining_results.txt"):
+            main(config)
