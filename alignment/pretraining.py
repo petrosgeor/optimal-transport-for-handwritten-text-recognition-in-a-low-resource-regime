@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, sys, random
+import os, sys, random, pickle
 from pathlib import Path
 from types import SimpleNamespace
 from omegaconf import OmegaConf
@@ -164,15 +164,35 @@ def main(config: dict = None) -> Path:
 
     print(f"[Pretraining] Dataset size: {len(train_set)}")
     print(f"[Pretraining] Test set size: {len(test_set)}")
-    
-    # Build vocabulary and architecture
-    c2i = _build_vocab(train_set.transcriptions)
+
+    # Load or build vocabulary dictionaries
+    save_dir = Path(save_path).parent
+    c2i_path = save_dir / "c2i.pkl"
+    i2c_path = save_dir / "i2c.pkl"
+    if c2i_path.exists() and i2c_path.exists():
+        print(f"[Pretraining] Loading vocabulary from {save_dir}")
+        with open(c2i_path, "rb") as f:
+            c2i = pickle.load(f)
+        with open(i2c_path, "rb") as f:
+            i2c = pickle.load(f)
+    else:
+        c2i = _build_vocab(train_set.transcriptions)
+        i2c = {i: c for c, i in c2i.items()}
+        save_dir.mkdir(parents=True, exist_ok=True)
+        with open(c2i_path, "wb") as f:
+            pickle.dump(c2i, f)
+        with open(i2c_path, "wb") as f:
+            pickle.dump(i2c, f)
     nclasses = len(c2i) + 1
     print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
-    i2c = {i: c for c, i in c2i.items()}
     
     arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
     net = HTRNet(arch, nclasses=nclasses).to(device).train()
+
+    if Path(save_path).exists():
+        print(f"[Pretraining] Loading checkpoint from {save_path}")
+        state = torch.load(save_path, map_location=device)
+        net.load_state_dict(state)
     
     # Print number of parameters
     n_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
@@ -258,10 +278,14 @@ def main(config: dict = None) -> Path:
             _evaluate_cer(test_loader)
             _decode_random_samples(test_set)
 
-            # Save the trained model
+            # Save the trained model and vocabulary
             save_dir = Path(save_path).parent
             save_dir.mkdir(parents=True, exist_ok=True)
             torch.save(net.state_dict(), save_path)
+            with open(c2i_path, "wb") as f:
+                pickle.dump(c2i, f)
+            with open(i2c_path, "wb") as f:
+                pickle.dump(i2c, f)
             print(f"[Pretraining] Model saved to: {save_path}")
     
     return Path(save_path)
