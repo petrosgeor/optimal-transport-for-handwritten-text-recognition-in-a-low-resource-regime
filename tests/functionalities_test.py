@@ -806,3 +806,19 @@ def test_pretraining_saves_and_loads_dicts(tmp_path, capsys):
     assert 'Loading checkpoint' in out
     assert 'Loading vocabulary' in out
 
+
+def test_simple_train_script(tmp_path, capsys):
+    from tests import simple_train
+
+    config = {
+        "basefolder": "htr_base/data/GW/processed_words",
+        "n_examples": 2,
+        "num_epochs": 1,
+        "batch_size": 1,
+        "learning_rate": 1e-3,
+        "device": "cpu",
+        "eval_interval": 1,
+    }
+    simple_train.main(config)
+    out = capsys.readouterr().out
+    assert "CER:" in out

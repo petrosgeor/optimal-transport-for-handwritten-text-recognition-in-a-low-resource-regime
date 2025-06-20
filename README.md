@@ -351,6 +351,14 @@ Setting `plot_tsne` to `true` enables t-SNE visualisations during projector trai
 
 `tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset. A Wasserstein prior term encourages predictions to follow the expected character distribution. The decoding strategy used during evaluation is selected via `DECODE_CONFIG['method']` (`'greedy'` or `'beam'`, see the top of the file).
 
+## simple\_train.py
+
+`tests/simple_train.py` trains a small `HTRNet` on an `HTRDataset` without
+augmentations. The `main` function accepts a configuration dictionary so you can
+limit training to ``n_examples`` random items and set the number of epochs. Every
+``eval_interval`` epochs the script prints CER on the training subset and shows
+predictions for ten random samples.
+
 ## Utilities / Metrics
 
 * **CER** – accumulates character error rate over multiple predictions.
