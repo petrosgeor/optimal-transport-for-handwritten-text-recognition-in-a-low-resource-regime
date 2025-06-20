@@ -345,3 +345,17 @@ class PretrainingHTRDataset(Dataset):
         plt.imsave(save_path, img, cmap="gray")
 
         return save_path
+
+    def loaded_image_shapes(self) -> List[tuple]:
+        """Return the shapes of all preloaded images.
+
+        Raises
+        ------
+        RuntimeError
+            If ``preload_images`` was ``False`` when the dataset was built.
+        """
+
+        if not hasattr(self, "images"):
+            raise RuntimeError("the images are not loaded yet")
+
+        return [img.shape for img in self.images]

@@ -4,6 +4,7 @@ import runpy
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
+import pytest
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -519,6 +520,28 @@ def test_pretraining_dataset_save_image(tmp_path):
 
     path2 = ds.save_image(0, str(out_dir), filename='second.png')
     assert Path(path2).exists() and Path(path2).name == 'second.png'
+
+
+def test_loaded_image_shapes(tmp_path):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path
+    shutil.copy(src, base / 'foo_word_0.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    ds = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base), preload_images=True
+    )
+    shapes = ds.loaded_image_shapes()
+    assert shapes == [ds.images[0].shape]
+
+    ds2 = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base)
+    )
+    with pytest.raises(RuntimeError):
+        ds2.loaded_image_shapes()
 
 
 def test_pretraining_script(tmp_path, capsys):
