@@ -1,6 +1,5 @@
 from pathlib import Path
 import sys
-import runpy
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
@@ -648,10 +647,11 @@ def test_pretraining_script_logs(tmp_path):
         'device': 'cpu',
         'save_path': str(save_dir / 'pretrained_backbone.pt'),
         'save_backbone': True,
+        'results_file': True,
     }
 
-    with pretraining.tee_output(log_file):
-        pretraining.main(config)
+    pretraining.main(config)
+
 
     assert log_file.exists()
     assert 'GT:' in log_file.read_text()
@@ -685,6 +685,8 @@ def test_pretraining_no_results_file(tmp_path):
         'device': 'cpu',
         'save_path': str(save_dir / 'pretrained_backbone.pt'),
         'save_backbone': True,
+        'results_file': False,
+
     }
 
     pretraining.main(config)

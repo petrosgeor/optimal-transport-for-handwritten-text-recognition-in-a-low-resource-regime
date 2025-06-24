@@ -108,21 +108,23 @@ It exposes:
 ## pretraining.py
 
 `alignment/pretraining.py` trains a small backbone on an image list. All
-hyper‑parameters are stored in the `PRETRAINING_CONFIG` dictionary at the top of
-the file. Edit this dictionary to set values such as `list_file`, `base_path`,
-`gpu_ids`, `batch_size` and `num_epochs`. When the module is executed with
-`python alignment/pretraining.py` it simply calls `main(PRETRAINING_CONFIG)` and
-starts training with those values.
+options are stored in the `PRETRAINING_CONFIG` dictionary.  Modify this
+dictionary or pass your own configuration to `pretraining.main` to control
+the list file, number of GPUs or whether output should be written to
+`pretraining_results.txt`.  When `results_file` is `True` the script also
+evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
+stdout to that file.
+
 
 The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten
 random samples are decoded using greedy and beam search (`beam5:`). To log all
 output into a file wrap the call in `tee_output('pretraining_results.txt')`:
 
 ```python
-from alignment.pretraining import PRETRAINING_CONFIG, tee_output, main
+from alignment import pretraining
 
-with tee_output('pretraining_results.txt'):
-    main(PRETRAINING_CONFIG)
+cfg = {"gpu_ids": [0], "base_path": "/data/images"}
+pretraining.main(cfg)
 ```
 
 ## encode\_for\_ctc
