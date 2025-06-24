@@ -239,9 +239,10 @@ def main(config: dict = None) -> Path:
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
             loss = main_weight * loss_main + aux_weight * loss_aux
             # Optimization step
-            opt.zero_grad(set_to_none=True)
+            
             loss.backward()
             opt.step()
+            opt.zero_grad(set_to_none=True)
             epoch_loss += loss.item()
             num_batches += 1
         avg_loss = epoch_loss / max(1, num_batches)
