@@ -652,6 +652,7 @@ def test_pretraining_script_logs(tmp_path):
 
     pretraining.main(config)
 
+
     assert log_file.exists()
     assert 'GT:' in log_file.read_text()
 
@@ -685,6 +686,7 @@ def test_pretraining_no_results_file(tmp_path):
         'save_path': str(save_dir / 'pretrained_backbone.pt'),
         'save_backbone': True,
         'results_file': False,
+
     }
 
     pretraining.main(config)

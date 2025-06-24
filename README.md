@@ -115,7 +115,10 @@ the list file, number of GPUs or whether output should be written to
 evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
 stdout to that file.
 
-Example:
+
+The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten
+random samples are decoded using greedy and beam search (`beam5:`). To log all
+output into a file wrap the call in `tee_output('pretraining_results.txt')`:
 
 ```python
 from alignment import pretraining

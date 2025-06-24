@@ -1,3 +1,4 @@
+# Copyright
 from __future__ import annotations
 import os, sys, random, pickle
 from pathlib import Path
@@ -6,6 +7,7 @@ from contextlib import contextmanager, nullcontext
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
 # ------------------------------------------------------------------
+
 # Add project root to path for imports
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -64,6 +66,7 @@ PRETRAINING_CONFIG = {
     "results_file": False,
 }
 DEVICE = PRETRAINING_CONFIG["device"]
+
 # Architecture configuration for the pretraining backbone
 # Matches exactly the config used in alignment_trainer.py
 ARCHITECTURE_CONFIG = {
@@ -265,3 +268,4 @@ def main(config: dict | None = None) -> Path:
         return Path(save_path)
 if __name__ == '__main__':
     main()
+
