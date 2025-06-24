@@ -1,20 +1,45 @@
+# Copyright
 from __future__ import annotations
 import os, sys, random, pickle
 from pathlib import Path
 from types import SimpleNamespace
-from omegaconf import OmegaConf
 from contextlib import contextmanager
+from omegaconf import OmegaConf
+
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
-# Load base config and set defaults
 # ------------------------------------------------------------------
 cfg_file = Path(__file__).resolve().parents[1] / "alignment" / "config.yaml"
 if cfg_file.exists():
     cfg = OmegaConf.load(cfg_file)
-    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
-    DEVICE = cfg.device
+    DEFAULT_DEVICE = cfg.device
+    DEFAULT_GPU_IDS = [cfg.gpu_id]
 else:
-    DEVICE = "cpu"
+    DEFAULT_DEVICE = "cpu"
+    DEFAULT_GPU_IDS = [0]
+
+PRETRAINING_CONFIG = {
+    "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imglist.txt",
+    "n_random": 100,
+    "num_epochs": 10000,
+    "batch_size": 128,
+    "learning_rate": 1e-3,
+    "base_path": None,
+    "fixed_size": (64, 256),
+    "device": DEFAULT_DEVICE,
+    "gpu_ids": DEFAULT_GPU_IDS,
+    "use_augmentations": True,
+    "main_loss_weight": 1.0,
+    "aux_loss_weight": 0.1,
+    "save_path": "htr_base/saved_models/pretrained_backbone.pt",
+    "save_backbone": False,
+}
+
+gpu_ids = PRETRAINING_CONFIG.get("gpu_ids", DEFAULT_GPU_IDS)
+if isinstance(gpu_ids, (list, tuple)):
+    os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in gpu_ids)
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_ids)
 # Add project root to path for imports
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -54,23 +79,6 @@ def tee_output(path: str = "pretraining_results.txt"):
             yield
         finally:
             sys.stdout = original
-# Default pretraining configuration
-PRETRAINING_CONFIG = {
-    "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 100,
-    "num_epochs": 10000,
-    "batch_size": 128,
-    "learning_rate": 1e-3,
-    "base_path": None,
-    "fixed_size": (64, 256),
-    "device": DEVICE,
-    "gpu_ids": [cfg.gpu_id] if cfg_file.exists() else [0],
-    "use_augmentations": True,
-    "main_loss_weight": 1.0,
-    "aux_loss_weight": 0.1,
-    "save_path": "htr_base/saved_models/pretrained_backbone.pt",
-    "save_backbone": False,
-}
 # Architecture configuration for the pretraining backbone
 # Matches exactly the config used in alignment_trainer.py
 ARCHITECTURE_CONFIG = {
@@ -266,54 +274,7 @@ def main(config: dict = None) -> Path:
                     pickle.dump(i2c, f)
                 print(f"[Pretraining] Model saved to: {save_path}")
     return Path(save_path)
-if __name__ == '__main__':
-    # Update config with command line arguments if provided
-    config = PRETRAINING_CONFIG.copy()
-    args = None
-    if len(sys.argv) > 1:
-        # Simple command line interface for common parameters
-        import argparse
-        parser = argparse.ArgumentParser(description='Pretrain HTR backbone using dictionary configuration')
-        parser.add_argument('--list-file', type=str, help='text file with image paths')
-        parser.add_argument('--n-random', type=int, help='sample this many images at random')
-        parser.add_argument('--epochs', type=int, help='number of training epochs')
-        parser.add_argument('--batch-size', type=int, help='batch size for training')
-        parser.add_argument('--lr', type=float, help='learning rate')
-        parser.add_argument('--device', type=str, help='device for training (cpu/cuda)')
-        parser.add_argument('--gpu-ids', type=str, help='comma-separated GPU indices')
-        parser.add_argument('--no-augmentations', action='store_true', help='disable data augmentations')
-        parser.add_argument('--save-path', type=str, help='path to save the trained model')
-        parser.add_argument('--save-backbone', action='store_true',
-                            help='save model weights and vocabulary')
-        parser.add_argument('--results-file', action='store_true',
-                            help='also duplicate stdout to pretraining_results.txt')
-        parser.add_argument('--no-results-file', action='store_true',
-                            help='do NOT duplicate stdout to pretraining_results.txt')
-        args = parser.parse_args()
-        # Update config with provided arguments
-        if args.list_file is not None:
-            config["list_file"] = args.list_file
-        if args.n_random is not None:
-            config["n_random"] = args.n_random
-        if args.epochs is not None:
-            config["num_epochs"] = args.epochs
-        if args.batch_size is not None:
-            config["batch_size"] = args.batch_size
-        if args.lr is not None:
-            config["learning_rate"] = args.lr
-        if args.device is not None:
-            config["device"] = args.device
-        if args.gpu_ids is not None:
-            config["gpu_ids"] = [int(x) for x in args.gpu_ids.split(',') if x]
-        if args.no_augmentations:
-            config["use_augmentations"] = False
-        if args.save_path is not None:
-            config["save_path"] = args.save_path
-        if args.save_backbone:
-            config["save_backbone"] = True
-    # Run pretraining; only log to file if --results-file is given
-    if args and args.results_file:
-        with tee_output("pretraining_results.txt"):
-            main(config)
-    else:
-        main(config)
+
+
+if __name__ == "__main__":
+    main(PRETRAINING_CONFIG)
