@@ -91,7 +91,7 @@ PRETRAINING_CONFIG = {
 # Architecture configuration for the pretraining backbone
 # Matches exactly the config used in alignment_trainer.py
 ARCHITECTURE_CONFIG = {
-    "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
+    "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
     "head_type": "both",
     "rnn_type": "gru",
     "rnn_layers": 3,
@@ -214,15 +214,22 @@ def main(config: dict = None) -> Path:
         """Print predictions for up to ten random samples from *ds*."""
         net.eval()
         with torch.no_grad():
+            # 1) pick up to 10 random indices
             indices = random.sample(range(len(ds)), min(10, len(ds)))
-            for idx in indices:
-                img, gt = ds[idx]
-                logits = net(img.unsqueeze(0).to(device), return_feats=False)[0]
-                greedy = greedy_ctc_decode(logits, i2c)[0]
-                beam = beam_search_ctc_decode(logits, i2c, beam_width=5)[0]
-                print(
-                    f"GT: '{gt.strip()}' | greedy: '{greedy}' | beam5: '{beam}'"
-                )
+            # 2) load all (image, gt) pairs and stack into a batch
+            imgs, gts = zip(*(ds[i] for i in indices))
+            batch = torch.stack(imgs, dim=0).to(device)   # shape: (B, C, H, W)
+
+            # 3) forward-pass the whole batch at once
+            logits = net(batch, return_feats=False)[0]   # shape: (T, B, C)
+
+            # 4) decode the entire batch with greedy and beam search
+            greedy_preds = greedy_ctc_decode(logits, i2c)               # List[str], len=B
+            beam_preds   = beam_search_ctc_decode(logits, i2c, beam_width=5)
+
+            # 5) print GT vs. predictions
+            for gt, gr, bm in zip(gts, greedy_preds, beam_preds):
+                print(f"GT: '{gt.strip()}' | greedy: '{gr}' | beam5: '{bm}'")
         net.train()
 
     def _evaluate_cer(loader):
@@ -273,7 +280,7 @@ def main(config: dict = None) -> Path:
         sched.step()
 
         # Print progress every 20 epochs or on last epoch
-        if (epoch + 1) % 10 == 0 or epoch == num_epochs - 1:
+        if (epoch + 1) % 100 == 0 or epoch == num_epochs - 1:
             lr_val = sched.get_last_lr()[0]
             print(
                 f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f} - lr: {lr_val:.2e}"

@@ -3,11 +3,18 @@ import random
 from types import SimpleNamespace
 from pathlib import Path
 from typing import Dict, List
+import sys
 
 import torch
 from torch.utils.data import DataLoader, Subset
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
+
+
+# Add project root to path for imports
+root = Path(__file__).resolve().parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
 
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
@@ -18,21 +25,21 @@ from htr_base.utils.metrics import CER
 
 DEFAULT_CONFIG = {
     "basefolder": "htr_base/data/GW/processed_words",
-    "fixed_size": (32, 128),
-    "n_examples": None,
-    "num_epochs": 20,
-    "batch_size": 8,
+    "fixed_size": (64, 256),
+    "n_examples": 200,
+    "num_epochs": 1000,
+    "batch_size": 128,
     "learning_rate": 1e-3,
-    "device": "cpu",
+    "device": "cuda",
     "eval_interval": 10,
 }
 
 ARCH = {
-    "cnn_cfg": [[1, 16], "M", [1, 32]],
+    "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
     "head_type": "both",
     "rnn_type": "gru",
-    "rnn_layers": 1,
-    "rnn_hidden_size": 32,
+    "rnn_layers": 3,
+    "rnn_hidden_size": 256,
     "flattening": "maxpool",
     "stn": False,
     "feat_dim": None,
@@ -95,6 +102,7 @@ def main(cfg: dict | None = None) -> None:
         fixed_size=cfg["fixed_size"],
         transforms=None,
         config=ds_cfg,
+        character_classes = list(" 0123456789abcdefghijklmnopqrstuvwxyz")
     )
 
     indices = list(range(len(dataset)))
