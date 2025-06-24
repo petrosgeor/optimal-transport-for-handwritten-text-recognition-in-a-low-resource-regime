@@ -107,14 +107,21 @@ It exposes:
 
 ## pretraining.py
 
-`alignment/pretraining.py` trains a small backbone on an image list. Provide the list file and optionally `--n-random` to sample a subset. Use `--save-backbone` to store the resulting model in `htr_base/saved_models/pretrained_backbone.pt`. If this file exists when training starts it is automatically loaded so training resumes from the previous checkpoint. A step learning‑rate schedule halves the optimiser LR every 1000 epochs starting at `1e-3`. During training ten random samples are decoded every five epochs (and once at the end), showing the ground truth (`GT:`) along with greedy and beam‑search predictions (`beam5:`). When executed directly, console output is **not** written to any file by default.
-Pass `--results-file` to also duplicate all stdout into `pretraining_results.txt`. Every ten epochs the script evaluates CER on a 10k‑sample test subset without augmentations and prints predictions for ten random test items.
-Use `--gpu-ids` with a comma-separated list (e.g. `0,1`) to train on multiple GPUs. The model is built on the first device and wrapped with `nn.DataParallel`.
+`alignment/pretraining.py` trains a small backbone on an image list. All
+options are stored in the `PRETRAINING_CONFIG` dictionary.  Modify this
+dictionary or pass your own configuration to `pretraining.main` to control
+the list file, number of GPUs or whether output should be written to
+`pretraining_results.txt`.  When `results_file` is `True` the script also
+evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
+stdout to that file.
 
 Example:
 
-```bash
-python alignment/pretraining.py --list-file imgs.txt --gpu-ids 0,1
+```python
+from alignment import pretraining
+
+cfg = {"gpu_ids": [0], "base_path": "/data/images"}
+pretraining.main(cfg)
 ```
 
 ## encode\_for\_ctc

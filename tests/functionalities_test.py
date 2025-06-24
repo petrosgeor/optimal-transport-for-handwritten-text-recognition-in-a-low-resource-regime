@@ -1,6 +1,5 @@
 from pathlib import Path
 import sys
-import runpy
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
@@ -620,7 +619,7 @@ def test_pretraining_intermediate_decoding(tmp_path, capsys):
     assert out.count('GT:') >= 2
 
 
-def test_pretraining_script_logs(tmp_path, monkeypatch):
+def test_pretraining_script_logs(tmp_path):
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
     base = tmp_path
     shutil.copy(src, base / 'foo_word_0.png')
@@ -631,31 +630,33 @@ def test_pretraining_script_logs(tmp_path, monkeypatch):
 
     save_dir = tmp_path / 'model'
 
-    args = [
-        'alignment.pretraining',
-        '--list-file', str(list_file),
-        '--n-random', '1',
-        '--epochs', '1',
-        '--batch-size', '1',
-        '--lr', '1e-3',
-        '--device', 'cpu',
-        '--save-path', str(save_dir / 'pretrained_backbone.pt'),
-        '--save-backbone',
-        '--results-file',
-    ]
-
     log_file = Path('pretraining_results.txt')
     if log_file.exists():
         log_file.unlink()
 
-    monkeypatch.setattr(sys, 'argv', args)
-    runpy.run_module('alignment.pretraining', run_name='__main__')
+    from alignment import pretraining
+
+    config = {
+        'list_file': str(list_file),
+        'n_random': 1,
+        'num_epochs': 1,
+        'batch_size': 1,
+        'learning_rate': 1e-3,
+        'base_path': str(base),
+        'fixed_size': (32, 128),
+        'device': 'cpu',
+        'save_path': str(save_dir / 'pretrained_backbone.pt'),
+        'save_backbone': True,
+        'results_file': True,
+    }
+
+    pretraining.main(config)
 
     assert log_file.exists()
     assert 'GT:' in log_file.read_text()
 
 
-def test_pretraining_no_results_file(tmp_path, monkeypatch):
+def test_pretraining_no_results_file(tmp_path):
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
     base = tmp_path
     shutil.copy(src, base / 'foo_word_0.png')
@@ -666,24 +667,27 @@ def test_pretraining_no_results_file(tmp_path, monkeypatch):
 
     save_dir = tmp_path / 'model2'
 
-    args = [
-        'alignment.pretraining',
-        '--list-file', str(list_file),
-        '--n-random', '1',
-        '--epochs', '1',
-        '--batch-size', '1',
-        '--lr', '1e-3',
-        '--device', 'cpu',
-        '--save-path', str(save_dir / 'pretrained_backbone.pt'),
-        '--save-backbone',
-    ]
-
     log_file = Path('pretraining_results.txt')
     if log_file.exists():
         log_file.unlink()
 
-    monkeypatch.setattr(sys, 'argv', args)
-    runpy.run_module('alignment.pretraining', run_name='__main__')
+    from alignment import pretraining
+
+    config = {
+        'list_file': str(list_file),
+        'n_random': 1,
+        'num_epochs': 1,
+        'batch_size': 1,
+        'learning_rate': 1e-3,
+        'base_path': str(base),
+        'fixed_size': (32, 128),
+        'device': 'cpu',
+        'save_path': str(save_dir / 'pretrained_backbone.pt'),
+        'save_backbone': True,
+        'results_file': False,
+    }
+
+    pretraining.main(config)
 
     assert not log_file.exists()
 
