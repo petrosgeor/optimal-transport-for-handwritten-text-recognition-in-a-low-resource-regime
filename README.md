@@ -107,14 +107,22 @@ It exposes:
 
 ## pretraining.py
 
-`alignment/pretraining.py` trains a small backbone on an image list. Provide the list file and optionally `--n-random` to sample a subset. Use `--save-backbone` to store the resulting model in `htr_base/saved_models/pretrained_backbone.pt`. If this file exists when training starts it is automatically loaded so training resumes from the previous checkpoint. A step learning‑rate schedule halves the optimiser LR every 1000 epochs starting at `1e-3`. During training ten random samples are decoded every five epochs (and once at the end), showing the ground truth (`GT:`) along with greedy and beam‑search predictions (`beam5:`). When executed directly, console output is **not** written to any file by default.
-Pass `--results-file` to also duplicate all stdout into `pretraining_results.txt`. Every ten epochs the script evaluates CER on a 10k‑sample test subset without augmentations and prints predictions for ten random test items.
-Use `--gpu-ids` with a comma-separated list (e.g. `0,1`) to train on multiple GPUs. The model is built on the first device and wrapped with `nn.DataParallel`.
+`alignment/pretraining.py` trains a small backbone on an image list. All
+hyper‑parameters are stored in the `PRETRAINING_CONFIG` dictionary at the top of
+the file. Edit this dictionary to set values such as `list_file`, `base_path`,
+`gpu_ids`, `batch_size` and `num_epochs`. When the module is executed with
+`python alignment/pretraining.py` it simply calls `main(PRETRAINING_CONFIG)` and
+starts training with those values.
 
-Example:
+The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten
+random samples are decoded using greedy and beam search (`beam5:`). To log all
+output into a file wrap the call in `tee_output('pretraining_results.txt')`:
 
-```bash
-python alignment/pretraining.py --list-file imgs.txt --gpu-ids 0,1
+```python
+from alignment.pretraining import PRETRAINING_CONFIG, tee_output, main
+
+with tee_output('pretraining_results.txt'):
+    main(PRETRAINING_CONFIG)
 ```
 
 ## encode\_for\_ctc
