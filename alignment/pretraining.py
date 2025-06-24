@@ -30,6 +30,7 @@ from alignment.ctc_utils import (
 )
 from alignment.losses import _ctc_loss_fn
 import torch
+import torch.nn as nn
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
@@ -63,6 +64,7 @@ PRETRAINING_CONFIG = {
     "base_path": None,
     "fixed_size": (64, 256),
     "device": DEVICE,
+    "gpu_ids": [cfg.gpu_id] if cfg_file.exists() else [0],
     "use_augmentations": True,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
@@ -101,6 +103,15 @@ def main(config: dict = None) -> Path:
     base_path = config.get("base_path", None)
     fixed_size = config["fixed_size"]
     device = config["device"]
+    gpu_ids = config.get("gpu_ids", [0])
+    if isinstance(gpu_ids, str):
+        gpu_ids = [int(g) for g in gpu_ids.split(',') if g]
+    elif isinstance(gpu_ids, int):
+        gpu_ids = [gpu_ids]
+    if len(gpu_ids) > 1:
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in gpu_ids)
+        if device != "cpu":
+            device = "cuda:0"
     use_augmentations = config.get("use_augmentations", True)
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
@@ -115,6 +126,7 @@ def main(config: dict = None) -> Path:
     print(f"  device: {device}")
     print(f"  augmentations: {use_augmentations}")
     print(f"  save_backbone: {save_backbone}")
+    print(f"  gpu_ids: {gpu_ids}")
     if base_path is None:
         base_path = str(Path(list_file).parent)
     # Create training dataset with optional augmentations
@@ -163,6 +175,8 @@ def main(config: dict = None) -> Path:
     print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
     arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
     net = HTRNet(arch, nclasses=nclasses).to(device).train()
+    if len(gpu_ids) > 1:
+        net = nn.DataParallel(net, device_ids=list(range(len(gpu_ids))))
     if Path(save_path).exists():
         print(f"[Pretraining] Loading checkpoint from {save_path}")
         state = torch.load(save_path, map_location=device)
@@ -265,6 +279,7 @@ if __name__ == '__main__':
         parser.add_argument('--batch-size', type=int, help='batch size for training')
         parser.add_argument('--lr', type=float, help='learning rate')
         parser.add_argument('--device', type=str, help='device for training (cpu/cuda)')
+        parser.add_argument('--gpu-ids', type=str, help='comma-separated GPU indices')
         parser.add_argument('--no-augmentations', action='store_true', help='disable data augmentations')
         parser.add_argument('--save-path', type=str, help='path to save the trained model')
         parser.add_argument('--save-backbone', action='store_true',
@@ -287,6 +302,8 @@ if __name__ == '__main__':
             config["learning_rate"] = args.lr
         if args.device is not None:
             config["device"] = args.device
+        if args.gpu_ids is not None:
+            config["gpu_ids"] = [int(x) for x in args.gpu_ids.split(',') if x]
         if args.no_augmentations:
             config["use_augmentations"] = False
         if args.save_path is not None:

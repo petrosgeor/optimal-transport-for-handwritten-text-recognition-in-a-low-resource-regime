@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import torch
 import torch.nn as nn
 import pytest
+import os
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -640,6 +641,7 @@ def test_pretraining_script_logs(tmp_path, monkeypatch):
         '--device', 'cpu',
         '--save-path', str(save_dir / 'pretrained_backbone.pt'),
         '--save-backbone',
+        '--results-file',
     ]
 
     log_file = Path('pretraining_results.txt')
@@ -673,7 +675,6 @@ def test_pretraining_no_results_file(tmp_path, monkeypatch):
         '--lr', '1e-3',
         '--device', 'cpu',
         '--save-path', str(save_dir / 'pretrained_backbone.pt'),
-        '--no-results-file',
         '--save-backbone',
     ]
 
@@ -822,3 +823,42 @@ def test_simple_train_script(tmp_path, capsys):
     simple_train.main(config)
     out = capsys.readouterr().out
     assert "CER:" in out
+
+
+def test_pretraining_dataparallel(monkeypatch, tmp_path):
+    from alignment import pretraining
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path
+    shutil.copy(src, base / 'foo_word_0.png')
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    calls = {}
+
+    def fake_dp(module, device_ids=None):
+        calls['ids'] = device_ids
+        return module
+
+    monkeypatch.setattr(pretraining.nn, 'DataParallel', fake_dp)
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+
+    cfg = {
+        'list_file': str(list_file),
+        'n_random': 1,
+        'num_epochs': 1,
+        'batch_size': 1,
+        'learning_rate': 1e-3,
+        'base_path': str(base),
+        'fixed_size': (32, 128),
+        'device': 'cpu',
+        'gpu_ids': [0, 1],
+    }
+
+    pretraining.main(cfg)
+    assert calls.get('ids') == [0, 1]
+
+    calls.clear()
+    cfg['gpu_ids'] = [0]
+    pretraining.main(cfg)
+    assert calls == {}
