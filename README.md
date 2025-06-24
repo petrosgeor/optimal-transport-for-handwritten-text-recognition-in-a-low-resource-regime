@@ -1,3 +1,5 @@
+File: README.md
+
 ````markdown
 # Handwritten Text Recognition (HTR) tools
 
@@ -42,15 +44,24 @@ model = HTRNet(arch, nclasses=80 + 1)
 Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and corresponding transcriptions. It automatically builds the character vocabulary if not provided. Main arguments include:
 
 * `basefolder`: root folder containing `train/`, `val/` and `test/` subdirectories with a `gt.txt` file inside each.
+
 * `subset`: which portion of the dataset to load (`train`, `val`, `test` or `all`).
   Using `all` merges the three splits and applies the same augmentation policy as the training split.
+
 * **Data path**: the default configuration expects processed line images under `./data/IAM/processed_lines`.  A small sample dataset for the unit tests lives in `htr_base/data/GW/processed_words`.
+
 * `fixed_size`: target `(height, width)` used to resize images.
+
 * `transforms`: optional Albumentations augmentation pipeline applied to the images.
+
 * `character_classes`: list of characters. If `None`, the dataset infers it from the data.
+
 * `word_emb_dim`: dimensionality of the MDS word embeddings (default `512`).
+
 * `two_views`: if `True`, `__getitem__` returns two randomly augmented views of the same line image.
+
 * The external vocabulary is automatically filtered so that all words only contain characters present in the dataset.
+
 * If none of the dataset's transcriptions overlap with the selected `k_external_words`,
   the dataset will contain **zero** pre-aligned samples so `n_aligned` has no effect and
   refinement cannot start.
@@ -64,37 +75,40 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, alignment_id)`.
 Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` and `img2` are independent views of the same image.
 
-
 ## PretrainingHTRDataset
 
 Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
-- **list_file**: path to a `.txt` listing relative image paths (one per line).
-- **fixed_size**: `(height, width)` for resizing.
-- **base_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
-- **transforms**: optional Albumentations augmentation pipeline.
-- **n_random**: if given, keep only this many random entries after filtering.
-- **random_seed**: deterministic subset selection when using ``n_random``.
-- **preload_images**: load all images into memory (default ``False``).
 
-When ``n_random`` is set, using the same ``random_seed`` yields the
+* **list\_file**: path to a `.txt` listing relative image paths (one per line).
+* **fixed\_size**: `(height, width)` for resizing.
+* **base\_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
+* **transforms**: optional Albumentations augmentation pipeline.
+* **n\_random**: if given, keep only this many random entries after filtering.
+* **random\_seed**: deterministic subset selection when using `n_random`.
+* **preload\_images**: load all images into memory (default `False`).
+
+When `n_random` is set, using the same `random_seed` yields the
 same subset across dataset initialisations.
-When ``preload_images`` is ``True`` each path is loaded once at
+When `preload_images` is `True` each path is loaded once at
 initialisation so subsequent indexing avoids disk access.
 
 It filters out any entries whose “description” token (between the first and second underscore)
+
 1. is all uppercase, or
 2. contains non-alphanumeric characters.
 
 It exposes:
-- `img_paths`: full filesystem paths.
-- `transcriptions`: lowercase description tokens.
-- `save_image(index, out_dir, filename=None)` – identical helper to `HTRDataset.save_image`; saves the pre-processed image *index* as a PNG in *out_dir*.
+
+* `img_paths`: full filesystem paths.
+* `transcriptions`: lowercase description tokens.
+* `save_image(index, out_dir, filename=None)` – identical helper to `HTRDataset.save_image`; saves the pre-processed image *index* as a PNG in *out\_dir*.
 
 `__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
 
 ## pretraining.py
 
-`alignment/pretraining.py` trains a small backbone on an image list. Provide the list file and optionally `--n-random` to sample a subset. Use `--save-backbone` to store the resulting model in `htr_base/saved_models/pretrained_backbone.pt`. If this file exists when training starts it is automatically loaded so training resumes from the previous checkpoint. The script also stores the vocabulary dictionaries `c2i.pkl` and `i2c.pkl` alongside the weights when `--save-backbone` is used and reloads them on subsequent runs. A step learning‑rate schedule halves the optimiser LR every 1000 epochs starting at `1e-3`. During training ten random samples are decoded every five epochs (and once at the end), showing the ground truth (`GT:`) along with greedy and beam‑search predictions (`beam5:`). When executed directly, all console output is also written to `pretraining_results.txt`. Pass `--no-results-file` to skip writing the console log to `pretraining_results.txt`. Every ten epochs the script evaluates CER on a 10k‑sample test subset without augmentations and prints predictions for ten random test items.
+`alignment/pretraining.py` trains a small backbone on an image list. Provide the list file and optionally `--n-random` to sample a subset. Use `--save-backbone` to store the resulting model in `htr_base/saved_models/pretrained_backbone.pt`. If this file exists when training starts it is automatically loaded so training resumes from the previous checkpoint. A step learning‑rate schedule halves the optimiser LR every 1000 epochs starting at `1e-3`. During training ten random samples are decoded every five epochs (and once at the end), showing the ground truth (`GT:`) along with greedy and beam‑search predictions (`beam5:`). When executed directly, console output is **not** written to any file by default.
+Pass `--results-file` to also duplicate all stdout into `pretraining_results.txt`. Every ten epochs the script evaluates CER on a 10k‑sample test subset without augmentations and prints predictions for ten random test items.
 
 ## encode\_for\_ctc
 
@@ -162,7 +176,7 @@ The underlying OT projection step handles rows with zero mass safely, avoiding
 
 Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
 
-## select_uncertain_instances
+## select\_uncertain\_instances
 
 Located in `alignment/alignment_utilities.py`. Given either a distance matrix or a transport plan, this helper returns the indices of the most uncertain dataset instances.
 
@@ -176,7 +190,7 @@ def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metr
 * `dist_matrix`: pairwise distances used when `metric="gap"`.
 * `metric`: either `'gap'` (smallest nearest-neighbour gap) or `'entropy'`.
 
-## plot_dataset_augmentations
+## plot\_dataset\_augmentations
 
 Also in `alignment/alignment_utilities.py`. Saves a figure with three dataset
 images and their augmented versions side by side.
@@ -189,7 +203,7 @@ def plot_dataset_augmentations(dataset, save_path):
 * `dataset`: `HTRDataset` instance with augmentation transforms.
 * `save_path`: where to write the resulting PNG file.
 
-## plot_projector_tsne
+## plot\_projector\_tsne
 
 Also in `alignment/alignment_utilities.py`. Creates a 2‑D t‑SNE plot of
 projector outputs alongside the external word embeddings.
@@ -203,24 +217,23 @@ def plot_projector_tsne(projections, dataset, save_path):
 * `dataset`: `HTRDataset` providing `external_word_embeddings`.
 * `save_path`: destination PNG path.
 
-
-## print_dataset_stats
+## print\_dataset\_stats
 
 Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
 this helper prints useful information such as:
 
-- total number of samples and how many are already aligned,
-- size of the external vocabulary,
-- number and percentage of dataset items found in that vocabulary,
-- whether all transcriptions and external words are lowercase,
-- average transcription length.
+* total number of samples and how many are already aligned,
+* size of the external vocabulary,
+* number and percentage of dataset items found in that vocabulary,
+* whether all transcriptions and external words are lowercase,
+* average transcription length.
 
 ```python
 def print_dataset_stats(dataset):
     """Print basic statistics about *dataset*."""
 ```
 
-## harvest_backbone_features
+## harvest\_backbone\_features
 
 Also in `alignment/alignment_utilities.py`. This routine harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
 
@@ -238,7 +251,7 @@ def harvest_backbone_features(dataset, backbone, *, batch_size=512,
 
 Dataset augmentations are disabled while features are harvested.
 
-## predicted_char_distribution
+## predicted\_char\_distribution
 
 Also in `alignment/alignment_utilities.py`. Given the CTC logits returned by
 `HTRNet`, this helper computes the average probability assigned to each
@@ -317,7 +330,7 @@ def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
 * `projector_kwargs`: keyword arguments for `train_projector`.
 * `align_kwargs`: parameters for `align_more_instances`.
 
-## tee_output
+## tee\_output
 
 Also in `alignment/alignment_trainer.py`. This context manager duplicates
 `stdout` to a file while it is active, recreating the file on each run.
@@ -355,18 +368,22 @@ Setting `plot_tsne` to `true` enables t-SNE visualisations during projector trai
 
 `tests/simple_train.py` trains a small `HTRNet` on an `HTRDataset` without
 augmentations. The `main` function accepts a configuration dictionary so you can
-limit training to ``n_examples`` random items and set the number of epochs. Every
-``eval_interval`` epochs the script prints CER on the training subset and shows
+limit training to `n_examples` random items and set the number of epochs. Every
+`eval_interval` epochs the script prints CER on the training subset and shows
 predictions for ten random samples.
 
 ## Utilities / Metrics
 
 * **CER** – accumulates character error rate over multiple predictions.
 * **WER** – accumulates word error rate; supports tokeniser and space modes.
-* **predicted_char_distribution(logits)** – average probability of each
-  character excluding the CTC blank.
-* **wasserstein_L2(p, q)** – L2 distance between two distributions.
-* **word_silhouette_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
+* **predicted\_char\_distribution(logits)** – average probability of
+
+
+each
+character excluding the CTC blank.
+
+* **wasserstein\_L2(p, q)** – L2 distance between two distributions.
+* **word\_silhouette\_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
 
 ## Requirements
 
@@ -380,4 +397,5 @@ pip install -r requirements.txt
 
 This project is released under the MIT license.
 
-
+```
+```
