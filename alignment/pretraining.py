@@ -50,7 +50,7 @@ def tee_output(path: str = "pretraining_results.txt"):
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
     "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 100,
+    "n_random": 2000,
     "num_epochs": 10000,
     "batch_size": 128,
     "learning_rate": 1e-3,
@@ -58,7 +58,7 @@ PRETRAINING_CONFIG = {
     "fixed_size": (64, 256),
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "gpu_ids": [0],
-    "use_augmentations": True,
+    "use_augmentations": False,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
     "save_path": "htr_base/saved_models/pretrained_backbone.pt",
@@ -108,8 +108,6 @@ def main(config: dict | None = None) -> Path:
         gpu_ids = [gpu_ids]
     if len(gpu_ids) > 1:
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in gpu_ids)
-        if device != "cpu":
-            device = "cuda:0"
     use_augmentations = config.get("use_augmentations", True)
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
@@ -177,10 +175,10 @@ def main(config: dict | None = None) -> Path:
         net = HTRNet(arch, nclasses=nclasses).to(device).train()
         if len(gpu_ids) > 1:
             net = nn.DataParallel(net, device_ids=list(range(len(gpu_ids))))
-        if Path(save_path).exists():
-            print(f"[Pretraining] Loading checkpoint from {save_path}")
-            state = torch.load(save_path, map_location=device)
-            net.load_state_dict(state)
+        # if Path(save_path).exists():
+        #     print(f"[Pretraining] Loading checkpoint from {save_path}")
+        #     state = torch.load(save_path, map_location=device)
+        #     net.load_state_dict(state)
         # Print number of parameters
         n_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
         print(f"[Pretraining] Network parameters: {n_params:,}")
