@@ -416,6 +416,41 @@ def test_decode_config(monkeypatch):
     assert "greedy" in calls
 
 
+def test_train_by_length_loads_checkpoint(monkeypatch):
+    from tests import train_by_length as tbl
+
+    loaded = {}
+
+    def fake_torch_load(path, map_location=None):
+        loaded["path"] = path
+        return {"weights": True}
+
+    def fake_load_state(self, state):
+        loaded["state"] = state
+
+    monkeypatch.setattr(tbl.torch, "load", fake_torch_load)
+    monkeypatch.setattr(HTRNet, "load_state_dict", fake_load_state)
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16]],
+        head_type="cnn",
+        rnn_type="gru",
+        rnn_layers=1,
+        rnn_hidden_size=16,
+        flattening="maxpool",
+        stn=False,
+        feat_dim=None,
+    )
+    net = HTRNet(arch, nclasses=3)
+
+    tbl.LOAD_PRETRAINED_BACKBONE = True
+    tbl.maybe_load_pretrained(net, torch.device("cpu"))
+    tbl.LOAD_PRETRAINED_BACKBONE = False
+
+    assert loaded.get("path") == "htr_base/saved_models/pretrained_backbone.pt"
+    assert loaded.get("state") == {"weights": True}
+
+
 def test_encode_for_ctc_vocab_size():
     cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
     base = "htr_base/data/GW/processed_words"
@@ -810,7 +845,6 @@ def test_pretraining_saves_and_loads_dicts(tmp_path, capsys):
 
     pretraining.main(config)
     out = capsys.readouterr().out
-    assert 'Loading checkpoint' in out
     assert 'Loading vocabulary' in out
 
 

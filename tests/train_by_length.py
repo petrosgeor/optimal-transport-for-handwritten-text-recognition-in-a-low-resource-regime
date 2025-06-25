@@ -51,6 +51,7 @@ ARCHITECTURE_CONFIG = {
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
+LOAD_PRETRAINED_BACKBONE = False
 DECODE_CONFIG = {
     "method": "beam",  # 'greedy' or 'beam'
     "beam_width": 3,
@@ -76,6 +77,16 @@ from alignment.ctc_utils import (
     beam_search_ctc_decode,
 )
 from alignment.alignment_utilities import predicted_char_distribution
+
+# ---------------------------------------------------------------------
+# Optional loading of a pretrained backbone before fine-tuning.
+# ---------------------------------------------------------------------
+def maybe_load_pretrained(net, device,
+                          path="htr_base/saved_models/pretrained_backbone.pt") -> None:
+    """Load *net* weights from ``path`` when ``LOAD_PRETRAINED_BACKBONE`` is ``True``."""
+    if LOAD_PRETRAINED_BACKBONE:
+        state = torch.load(path, map_location=device)
+        net.load_state_dict(state)
 # ---------------------------------------------------------------------
 # Save a histogram of characters appearing in the provided strings to a
 # PNG file.  Useful for quickly visualising the dataset distribution.
@@ -380,6 +391,10 @@ if __name__ == "__main__":
     arch_cfg_dict = ARCHITECTURE_CONFIG
     net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
     net.to("cuda")
+    maybe_load_pretrained(
+        net,
+        torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    )
     refine_visual_model(
         train_set,
         net,
