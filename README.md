@@ -373,22 +373,7 @@ refinement.
 Two additional options, `ensemble_size` and `agree_threshold`, configure
 how many projectors are trained and how many votes are needed before
 pseudo‑labelling a sample.
-`prior_weight` sets the strength of the Wasserstein prior used during
-`train_by_length.py` training.
 Setting `plot_tsne` to `true` enables t-SNE visualisations during projector training.
-
-## train\_by\_length.py
-
-`tests/train_by_length.py` contains helper routines for fine tuning models on subsets of ground-truth words selected by length. The `_evaluate_cer` function reports character error rate for words shorter and longer than a chosen threshold. It now also prints the total number of characters contained in the true transcriptions of each subset. A Wasserstein prior term encourages predictions to follow the expected character distribution. The decoding strategy used during evaluation is selected via `DECODE_CONFIG['method']` (`'greedy'` or `'beam'`, see the top of the file). The script can optionally load a pretrained backbone by setting `LOAD_PRETRAINED_BACKBONE = True` (disabled by default).
-The vocabulary dictionaries are loaded from `htr_base/saved_models` rather than being inferred from the dataset. The helper `_build_vocab_dicts(dataset=None)` loads these pickled mappings. `refine_visual_model` can optionally mix a `PretrainingHTRDataset` with the ground-truth subset during fine-tuning via the `syn_batch_ratio` parameter which controls how many synthetic words are used per batch.
-
-## simple\_train.py
-
-`tests/simple_train.py` trains a small `HTRNet` on an `HTRDataset` without
-augmentations. The `main` function accepts a configuration dictionary so you can
-limit training to `n_examples` random items and set the number of epochs. Every
-`eval_interval` epochs the script prints CER on the training subset and shows
-predictions for ten random samples.
 
 ## Utilities / Metrics
 
