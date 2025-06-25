@@ -362,18 +362,34 @@ with tee_output("results.txt"):
 ## alignment/config.yaml
 
 Additional hyperparameters for the alignment workflow are stored in
-`alignment/config.yaml`. These values are loaded at import time so all
-defaults come directly from the YAML file. A new option, `n_aligned`, controls how many
-dataset samples are initially marked as aligned to external words.
-These pre-aligned items give a warm start to backbone refinement. Another
-parameter, `refine_epochs`, sets how many epochs are used for backbone
-refinement by default. The same file defines `projector_epochs` which
-controls projector training both on its own and during alternating
-refinement.
-Two additional options, `ensemble_size` and `agree_threshold`, configure
-how many projectors are trained and how many votes are needed before
-pseudo‑labelling a sample.
-Setting `plot_tsne` to `true` enables t-SNE visualisations during projector training.
+`alignment/config.yaml`. These defaults are loaded at import time.
+Key options:
+
+* `refine_batch_size` – mini-batch size for backbone fine-tuning.
+* `refine_lr` – learning rate used during backbone refinement.
+* `refine_main_weight` – weight for the main CTC loss branch.
+* `refine_aux_weight` – weight for the auxiliary CTC loss.
+* `refine_epochs` – epochs spent refining the backbone.
+* `projector_epochs` – number of epochs for projector training.
+* `projector_batch_size` – mini-batch size when harvesting descriptors.
+* `projector_lr` – learning rate for projector optimisation.
+* `projector_workers` – dataloader workers used during descriptor caching.
+* `projector_weight_decay` – weight decay for the projector optimiser.
+* `plot_tsne` – save t-SNE plots during projector training.
+* `device` – compute device (`cpu` or `cuda`).
+* `gpu_id` – CUDA device index.
+* `alt_rounds` – backbone/projector cycles per alternating pass.
+* `align_batch_size` – mini-batch size for alignment descriptor caching.
+* `align_device` – device used for the alignment step.
+* `align_reg` – entropic regularisation for Sinkhorn.
+* `align_unbalanced` – use unbalanced Optimal Transport.
+* `align_reg_m` – mass regularisation term for unbalanced OT.
+* `align_k` – pseudo-label this many least-moved descriptors.
+* `n_aligned` – number of pre-aligned samples for warm start.
+* `ensemble_size` – how many projectors to train in parallel.
+* `agree_threshold` – votes required before pseudo-labelling.
+* `prior_weight` – strength of the Wasserstein prior loss.
+
 
 ## Utilities / Metrics
 
