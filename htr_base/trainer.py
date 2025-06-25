@@ -16,6 +16,7 @@ from .utils.transforms import aug_transforms
 import torch.nn.functional as F
 
 from .utils.metrics import CER, WER
+from alignment.losses import _ctc_loss_fn
 
 class HTRTrainer(nn.Module):
     def __init__(self, config):
@@ -118,7 +119,7 @@ class HTRTrainer(nn.Module):
         self.net = net
 
     def prepare_losses(self):
-        self.ctc_loss = lambda y, t, ly, lt: nn.CTCLoss(reduction='sum', zero_infinity=True)(F.log_softmax(y, dim=2), t, ly, lt) /self.config.train.batch_size
+        self.ctc_loss = _ctc_loss_fn
 
     def prepare_optimizers(self):
         config = self.config
