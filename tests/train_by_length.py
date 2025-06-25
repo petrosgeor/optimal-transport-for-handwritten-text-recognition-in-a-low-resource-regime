@@ -34,6 +34,7 @@ N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
 NUM_EPOCHS = 600
 BATCH_SIZE = 64
+SYN_BATCH_RATIO = 0.5
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
@@ -68,7 +69,7 @@ from collections import Counter
 root = Path(__file__).resolve().parents[1]  # project root for local imports
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-from htr_base.utils.htr_dataset import HTRDataset  # for the priors
+from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset  # for the priors
 from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
 from htr_base.utils.transforms import aug_transforms
@@ -271,7 +272,9 @@ def refine_visual_model(dataset: HTRDataset,
                         eval_k: int | None = None,
                         *,
                         prior: torch.Tensor | None = None,
-                        prior_weight: float = 0.1) -> None:
+                        prior_weight: float = 0.1,
+                        pretrain_ds: PretrainingHTRDataset | None = None,
+                        syn_batch_ratio: float | None = None) -> None:
     """Fine-tune *backbone* on a subset of ground-truth words.
     Only words whose length (ignoring spaces) lies in the inclusive range
     ``[min_length, max_length]`` are used for training.  At most ``n_aligned``
@@ -311,14 +314,44 @@ def refine_visual_model(dataset: HTRDataset,
         f"[Refine] training on {len(subset_idx)} samples "
         f"containing {len(unique_words)} unique words"
     )
-    train_loader = DataLoader(subset_ds, batch_size=batch_size, shuffle=True,
-                              num_workers=0,
-                              pin_memory=(device.type == "cuda"))
+    if pretrain_ds is not None and syn_batch_ratio is not None:
+        syn_bs = int(batch_size * syn_batch_ratio)
+        gt_bs = max(1, batch_size - syn_bs)
+        train_loader = DataLoader(
+            subset_ds,
+            batch_size=gt_bs,
+            shuffle=True,
+            num_workers=0,
+            pin_memory=(device.type == "cuda"),
+        )
+        pretrain_loader = DataLoader(
+            pretrain_ds,
+            batch_size=max(1, syn_bs),
+            shuffle=True,
+            num_workers=0,
+            pin_memory=(device.type == "cuda"),
+        )
+        from itertools import cycle
+        pre_iter = cycle(pretrain_loader)
+    else:
+        train_loader = DataLoader(
+            subset_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=0,
+            pin_memory=(device.type == "cuda"),
+        )
+        pre_iter = None
     for epoch in range(1, num_epochs + 1):
         epoch_loss = 0.0; effective_batches = 0
         epoch_ctc = 0.0; epoch_prior = 0.0
         for imgs, trans, _ in train_loader:
             imgs = imgs.to(device)
+            if pre_iter is not None:
+                imgs_pt, trans_pt = next(pre_iter)
+                imgs_pt = imgs_pt.to(device)
+                imgs = torch.cat([imgs, imgs_pt], dim=0)
+                trans = list(trans) + list(trans_pt)
             targets_s = [t if t.startswith(" ") else f" {t.strip()} " for t in trans]
             outputs = backbone(imgs, return_feats=False)
             if isinstance(outputs, (tuple, list)):
@@ -381,6 +414,15 @@ if __name__ == "__main__":
         transforms=aug_transforms,
         config=DummyCfg(),
     )
+    corp_root = Path("/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px")
+    list_file = corp_root / "imlist.txt"
+    pretrain_set = PretrainingHTRDataset(
+        str(list_file),
+        fixed_size=DATASET_FIXED_SIZE,
+        base_path=str(corp_root),
+        transforms=None,
+        n_random=50000,
+    )
     # build vector Q (same order as network classes, blank excluded)
     prior_dict = HTRDataset.letter_priors()
     chars = list(train_set.character_classes)
@@ -407,5 +449,7 @@ if __name__ == "__main__":
         min_length=MIN_LENGTH,
         eval_k=EVAL_K,
         prior=Q,
-        prior_weight=PRIOR_WEIGHT
+        prior_weight=PRIOR_WEIGHT,
+        pretrain_ds=pretrain_set,
+        syn_batch_ratio=SYN_BATCH_RATIO,
     )

@@ -914,3 +914,54 @@ def test_vocab_dict_loading():
         expected_i2c = pickle.load(f)
     c2i, i2c = tbl._build_vocab_dicts(None)
     assert c2i == expected_c2i and i2c == expected_i2c
+
+
+def test_refine_with_pretraining(tmp_path, capsys):
+    from tests import train_by_length
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    for i in range(2):
+        shutil.copy(src, base / f'foo_word_{i}.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        for i in range(2):
+            f.write(f'foo_word_{i}.png\n')
+
+    pre_ds = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base)
+    )
+
+    ds = _tiny_dataset()
+    ds.config.n_aligned = 1
+    ds.data = ds.data[:1]
+    ds.data = [(ds.data[0][0], 'word')]
+    ds.transcriptions = ['word']
+    ds.aligned = ds.aligned[:1]
+    ds.is_in_dict = ds.is_in_dict[:1]
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=16,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=None,
+    )
+    c2i, _ = train_by_length._build_vocab_dicts(None)
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+    train_by_length.refine_visual_model(
+        ds,
+        net,
+        num_epochs=1,
+        batch_size=1,
+        lr=1e-3,
+        max_length=10,
+        pretrain_ds=pre_ds,
+        syn_batch_ratio=0.5,
+    )
+    out = capsys.readouterr().out
+    assert 'Epoch 001/1' in out
