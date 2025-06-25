@@ -399,6 +399,7 @@ Key options:
 * **wasserstein\_L2(p, q)** – L2 distance between two distributions.
 * **word\_silhouette\_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
 * **_ctc_loss_fn(logits, targets, inp_lens, tgt_lens)** – wrapper around PyTorch's CTC loss with log-softmax and zero-infinity handling.
+* **load_vocab()** – load character-to-index and index-to-character dictionaries from `htr_base/saved_models/c2i.pkl` and `i2c.pkl`.
 
 ## Requirements
 
