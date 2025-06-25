@@ -50,7 +50,7 @@ def tee_output(path: str = "pretraining_results.txt"):
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
     "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 2000,
+    "n_random": 30000,
     "num_epochs": 10000,
     "batch_size": 128,
     "learning_rate": 1e-3,
@@ -62,7 +62,7 @@ PRETRAINING_CONFIG = {
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
     "save_path": "htr_base/saved_models/pretrained_backbone.pt",
-    "save_backbone": False,
+    "save_backbone": True,
     "results_file": False,
 }
 DEVICE = PRETRAINING_CONFIG["device"]
@@ -186,7 +186,7 @@ def main(config: dict | None = None) -> Path:
         train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
         test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
         opt = optim.Adam(net.parameters(), lr=lr)
-        sched = lr_scheduler.StepLR(opt, step_size=1000, gamma=0.5)
+        sched = lr_scheduler.StepLR(opt, step_size=1500, gamma=0.5)
         print(f"[Pretraining] Starting training...")
         def _decode_random_samples(ds):
             """Print predictions for up to ten random samples from *ds*."""
@@ -246,7 +246,7 @@ def main(config: dict | None = None) -> Path:
             avg_loss = epoch_loss / max(1, num_batches)
             sched.step()
             # Print progress every 20 epochs or on last epoch
-            if (epoch + 1) % 100 == 0 or epoch == num_epochs - 1:
+            if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
                 lr_val = sched.get_last_lr()[0]
                 print(
                     f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f} - lr: {lr_val:.2e}"

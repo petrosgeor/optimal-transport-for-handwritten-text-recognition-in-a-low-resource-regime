@@ -41,7 +41,7 @@ AUX_LOSS_WEIGHT = 0.1
 PRIOR_WEIGHT = cfg.prior_weight
 DATASET_FIXED_SIZE = (64, 256)
 ARCHITECTURE_CONFIG = {
-    "cnn_cfg": [[2, 64], "M", [3, 128], [2, 256]],
+    "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
     "head_type": "both",
     "rnn_type": "gru",
     "rnn_layers": 3,
@@ -53,7 +53,7 @@ ARCHITECTURE_CONFIG = {
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
-LOAD_PRETRAINED_BACKBONE = False
+LOAD_PRETRAINED_BACKBONE = True
 DECODE_CONFIG = {
     "method": "beam",  # 'greedy' or 'beam'
     "beam_width": 3,
@@ -88,6 +88,7 @@ def maybe_load_pretrained(net, device,
     """Load *net* weights from ``path`` when ``LOAD_PRETRAINED_BACKBONE`` is ``True``."""
     if LOAD_PRETRAINED_BACKBONE:
         state = torch.load(path, map_location=device)
+        print('Backbone is loaded')
         net.load_state_dict(state)
 # ---------------------------------------------------------------------
 # Save a histogram of characters appearing in the provided strings to a
@@ -371,7 +372,7 @@ def refine_visual_model(dataset: HTRDataset,
             )
             if prior is not None:
                 D = predicted_char_distribution(main_logits)
-                loss_prior = wasserstein_L2(D, prior)
+                loss_prior = wasserstein_L2(D[1:], prior)
             else:
                 loss_prior = torch.tensor(0.0, device=main_logits.device)
             total_loss = (
