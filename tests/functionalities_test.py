@@ -3,6 +3,7 @@ import sys
 from types import SimpleNamespace
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import pytest
 import os
 import pickle
@@ -26,6 +27,7 @@ from alignment.alignment_trainer import (
     _build_vocab_dicts,
 )
 from alignment.ctc_utils import encode_for_ctc
+from alignment.losses import _ctc_loss_fn
 import shutil
 from htr_base.utils.transforms import aug_transforms
 from omegaconf import OmegaConf
@@ -774,7 +776,7 @@ def test_pretraining_uses_scheduler(tmp_path, monkeypatch):
 
     pretraining.main(config)
 
-    assert call.get('step_size') == 1000
+    assert call.get('step_size') == 1500
     assert call.get('gamma') == 0.5
     assert call.get('steps', 0) >= 1
 
@@ -965,3 +967,22 @@ def test_refine_with_pretraining(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert 'Epoch 001/1' in out
+
+
+def test_ctc_loss_fn():
+    torch.manual_seed(0)
+    logits = torch.randn(8, 2, 5, requires_grad=True)
+    targets = torch.randint(1, 5, (4,), dtype=torch.int32)
+    inp_lens = torch.tensor([8, 8], dtype=torch.int32)
+    tgt_lens = torch.tensor([2, 2], dtype=torch.int32)
+
+    ref = F.ctc_loss(
+        F.log_softmax(logits, dim=2),
+        targets,
+        inp_lens,
+        tgt_lens,
+        reduction="mean",
+        zero_infinity=True,
+    )
+    val = _ctc_loss_fn(logits, targets, inp_lens, tgt_lens)
+    assert torch.allclose(val, ref)

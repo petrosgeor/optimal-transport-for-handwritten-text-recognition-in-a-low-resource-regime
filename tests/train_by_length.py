@@ -79,6 +79,7 @@ from alignment.ctc_utils import (
     beam_search_ctc_decode,
 )
 from alignment.alignment_utilities import predicted_char_distribution
+from alignment.losses import _ctc_loss_fn
 
 # ---------------------------------------------------------------------
 # Optional loading of a pretrained backbone before fine-tuning.
@@ -158,17 +159,6 @@ def _build_vocab_dicts(_: HTRDataset | None = None) -> Tuple[Dict[str, int], Dic
     with open(base / "i2c.pkl", "rb") as f:
         i2c = pickle.load(f)
     return c2i, i2c
-# ---------------------------------------------------------------------
-# Wrapper around PyTorch's CTC loss that normalises by sequence length
-# and handles infinite losses gracefully.
-# ---------------------------------------------------------------------
-def _ctc_loss_fn(logits: torch.Tensor,
-                 targets: torch.IntTensor,
-                 inp_lens: torch.IntTensor,
-                 tgt_lens: torch.IntTensor) -> torch.Tensor:
-    """Length-normalised CTC loss on raw logits."""
-    return F.ctc_loss(F.log_softmax(logits, 2), targets, inp_lens, tgt_lens,
-                      reduction="mean", zero_infinity=True)
 # ---------------------------------------------------------------------
 # Evaluate character error rate on the given loader.  A few prediction
 # examples are printed, as well as CER by word length and overall.
