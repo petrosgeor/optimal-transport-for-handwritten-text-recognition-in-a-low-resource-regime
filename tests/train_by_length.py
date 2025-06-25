@@ -2,6 +2,7 @@ from __future__ import annotations
 import os, sys, random
 from types import SimpleNamespace
 from pathlib import Path
+import pickle
 from omegaconf import OmegaConf
 # ------------------------------------------------------------------
 # Hyper‑parameters controlling training and evaluation. The values
@@ -147,14 +148,13 @@ def save_char_histogram_png(
 # Construct dictionaries that map characters to integer IDs and back. The
 # blank symbol required by CTC occupies index 0.
 # ---------------------------------------------------------------------
-def _build_vocab_dicts(ds: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Return char→id / id→char dicts with index 0 reserved for the blank."""
-    chars: List[str] = list(ds.character_classes)
-    if " " not in chars:
-        chars.append(" ")
-    chars = sorted(set(chars))
-    c2i = {c: i + 1 for i, c in enumerate(chars)}
-    i2c = {i + 1: c for i, c in enumerate(chars)}
+def _build_vocab_dicts(_: HTRDataset | None = None) -> Tuple[Dict[str, int], Dict[int, str]]:
+    """Return char→id / id→char dicts loaded from saved pickles."""
+    base = Path(__file__).resolve().parents[1] / "htr_base" / "saved_models"
+    with open(base / "c2i.pkl", "rb") as f:
+        c2i = pickle.load(f)
+    with open(base / "i2c.pkl", "rb") as f:
+        i2c = pickle.load(f)
     return c2i, i2c
 # ---------------------------------------------------------------------
 # Wrapper around PyTorch's CTC loss that normalises by sequence length

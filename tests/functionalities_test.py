@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import pytest
 import os
+import pickle
 
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -902,3 +903,14 @@ def test_pretraining_dataparallel(monkeypatch, tmp_path):
     cfg['gpu_ids'] = [0]
     pretraining.main(cfg)
     assert calls == {}
+
+
+def test_vocab_dict_loading():
+    from tests import train_by_length as tbl
+    base = Path('htr_base/saved_models')
+    with open(base / 'c2i.pkl', 'rb') as f:
+        expected_c2i = pickle.load(f)
+    with open(base / 'i2c.pkl', 'rb') as f:
+        expected_i2c = pickle.load(f)
+    c2i, i2c = tbl._build_vocab_dicts(None)
+    assert c2i == expected_c2i and i2c == expected_i2c
