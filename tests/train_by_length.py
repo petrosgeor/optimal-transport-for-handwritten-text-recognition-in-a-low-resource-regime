@@ -33,12 +33,12 @@ EVAL_K = 4
 N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
 NUM_EPOCHS = 600
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 SYN_BATCH_RATIO = 0.5
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
-PRIOR_WEIGHT = cfg.prior_weight
+PRIOR_WEIGHT = 0
 DATASET_FIXED_SIZE = (64, 256)
 ARCHITECTURE_CONFIG = {
     "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
@@ -53,7 +53,7 @@ ARCHITECTURE_CONFIG = {
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
-LOAD_PRETRAINED_BACKBONE = True
+LOAD_PRETRAINED_BACKBONE = False
 DECODE_CONFIG = {
     "method": "beam",  # 'greedy' or 'beam'
     "beam_width": 3,
@@ -322,14 +322,14 @@ def refine_visual_model(dataset: HTRDataset,
             subset_ds,
             batch_size=gt_bs,
             shuffle=True,
-            num_workers=0,
+            num_workers=2,
             pin_memory=(device.type == "cuda"),
         )
         pretrain_loader = DataLoader(
             pretrain_ds,
             batch_size=max(1, syn_bs),
             shuffle=True,
-            num_workers=0,
+            num_workers=2,
             pin_memory=(device.type == "cuda"),
         )
         from itertools import cycle
@@ -421,8 +421,9 @@ if __name__ == "__main__":
         str(list_file),
         fixed_size=DATASET_FIXED_SIZE,
         base_path=str(corp_root),
-        transforms=None,
-        n_random=50000,
+        transforms=aug_transforms,
+        n_random=1000,
+        preload_images=True
     )
     # build vector Q (same order as network classes, blank excluded)
     prior_dict = HTRDataset.letter_priors()
