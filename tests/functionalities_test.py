@@ -13,7 +13,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
-from htr_base.models import HTRNet, Projector
+from htr_base.models import HTRNet, Projector, AttentivePool
 from alignment.alignment_utilities import (
     align_more_instances,
     print_dataset_stats,
@@ -1107,3 +1107,44 @@ def test_dataset_image_values(tmp_path):
     img, _ = pretrain_ds[0]
     assert img.min() >= 0.0, f"PretrainingHTRDataset min value is {img.min()}"
     assert img.max() <= 1.0, f"PretrainingHTRDataset max value is {img.max()}"
+
+
+def test_attentive_pool_shape():
+    pool = AttentivePool(4, 6)
+    x = torch.randn(2, 4, 8, 8)
+    out = pool(x)
+    assert out.shape == (2, 6)
+
+
+def test_htrnet_attentive_pool(tmp_path):
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 8]],
+        head_type="cnn",
+        rnn_type="gru",
+        rnn_layers=1,
+        rnn_hidden_size=8,
+        flattening="maxpool",
+        stn=False,
+        feat_dim=10,
+        feat_pool="attn",
+    )
+    net = HTRNet(arch, nclasses=3)
+    imgs = torch.randn(2, 1, 32, 64)
+    logits, feats = net(imgs, return_feats=True)
+    assert feats.shape == (2, 10)
+
+
+def test_htrnet_feat_pool_invalid():
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 8]],
+        head_type="cnn",
+        rnn_type="gru",
+        rnn_layers=1,
+        rnn_hidden_size=8,
+        flattening="maxpool",
+        stn=False,
+        feat_dim=10,
+        feat_pool="bad",
+    )
+    with pytest.raises(ValueError):
+        HTRNet(arch, nclasses=3)

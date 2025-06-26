@@ -17,6 +17,9 @@ Key features:
 - **Configurable CNN** using residual blocks and pooling as defined by `cnn_cfg`.
 - **CTC heads**: `cnn`, `rnn`, `both` or `transf` (transformer-based). See `CTCtopC`, `CTCtopR`, `CTCtopB` and `CTCtopT` in the same file.
 - Optional **feature projection** producing a global feature vector per image (`feat_dim`).
+- **feat_pool**: how to collapse the CNN feature map when `feat_dim` is set.
+  * "avg" (default) – global average + two linear layers (old behaviour)
+  * "attn" – **learned attention pooling** (new)
 - The `forward` method returns CTC logits and optionally image descriptors.
   For the transformer head, provide `transf_d_model`, `transf_nhead`,
   `transf_layers` and `transf_dim_ff` in the architecture config.
@@ -35,6 +38,7 @@ arch = SimpleNamespace(
     flattening='maxpool',
     stn=False,
     feat_dim=None,
+    feat_pool="attn",
 )
 model = HTRNet(arch, nclasses=80 + 1)
 ````

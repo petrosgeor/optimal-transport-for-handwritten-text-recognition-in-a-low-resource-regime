@@ -77,6 +77,22 @@ class CNN(nn.Module):
             y = y.view(y.size(0), -1, 1, y.size(3))
         return y
 
+class AttentivePool(nn.Module):
+    """Collapses a feature map via learnable attention weights."""
+
+    def __init__(self, ch: int, dim_out: int) -> None:
+        super().__init__()
+        self.attn = nn.Conv2d(ch, 1, 1)
+        self.proj = nn.Linear(ch, dim_out)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b, c, h, w = x.shape
+        a = self.attn(x).flatten(2)
+        a = F.softmax(a, dim=2)
+        x_flat = x.flatten(2).transpose(1, 2)
+        pooled = torch.bmm(a, x_flat).squeeze(1)
+        return self.proj(pooled)
+
 ###############################################################################
 #                    ─────  CTC recognition heads  ─────               #
 ###############################################################################
@@ -162,6 +178,7 @@ class HTRNet(nn.Module):
     """
     def __init__(self, arch_cfg, nclasses):
         super().__init__()
+        self.feat_pool = getattr(arch_cfg, 'feat_pool', 'avg')
         if getattr(arch_cfg, 'stn', False):
             raise NotImplementedError('STN not implemented in this repo.')
 
@@ -204,13 +221,20 @@ class HTRNet(nn.Module):
         # optional per-image feature vector
         self.feat_dim = getattr(arch_cfg, 'feat_dim', None)
         if self.feat_dim:
-            self.feat_head = nn.Sequential(
-                nn.AdaptiveAvgPool2d((1,1)),
-                nn.Flatten(1),
-                nn.Linear(cnn_out_ch, self.feat_dim),
-                nn.ReLU(inplace=True),
-                nn.Linear(self.feat_dim, self.feat_dim)
-            )
+            if self.feat_pool == 'attn':
+                self.feat_head = AttentivePool(cnn_out_ch, self.feat_dim)
+            elif self.feat_pool == 'avg':
+                self.feat_head = nn.Sequential(
+                    nn.AdaptiveAvgPool2d((1,1)),
+                    nn.Flatten(1),
+                    nn.Linear(cnn_out_ch, self.feat_dim),
+                    nn.ReLU(inplace=True),
+                    nn.Linear(self.feat_dim, self.feat_dim)
+                )
+            else:
+                raise ValueError(
+                    f"Unknown feat_pool '{self.feat_pool}'. Supported: 'avg', 'attn'"
+                )
 
     def forward(self, x, *, return_feats: bool = True):
         y = self.features(x)
