@@ -75,6 +75,13 @@ def _build_vocab_dicts(_: HTRDataset | None = None) -> Tuple[Dict[str, int], Dic
     return load_vocab()
 
 
+def maybe_load_pretrained(backbone: HTRNet, device: torch.device) -> None:
+    """Load weights into ``backbone`` if configured to do so."""
+    if cfg.load_pretrained_backbone:
+        state = torch.load(cfg.pretrained_path, map_location=device)
+        backbone.load_state_dict(state, strict=False)
+
+
 # --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #
 # --------------------------------------------------------------------------- #
@@ -89,21 +96,15 @@ def optimise_backbone(
     aux_weight: float = cfg.refine_aux_weight,
     proj_weight: float = cfg.proj_weight,
 ) -> None:
-    """Optimise *backbone* on aligned words using CTC and ProjectionLoss."""
+    """Optimise ``backbone`` using ProjectionLoss on all samples and CTC on aligned ones."""
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
     device = next(backbone.parameters()).device
     backbone.train().to(device)
     # Build CTC mapping once.
     c2i, _ = _build_vocab_dicts(dataset)
 
-    aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
-    if len(aligned_indices) == 0:
-        print("[Refine] no pre-aligned samples found – aborting.")
-        return
-    subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
-
     dataloader = DataLoader(
-        subset,
+        dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=2,            # keep CI simple
@@ -123,7 +124,6 @@ def optimise_backbone(
         effective_batches = 0
         for imgs, _, aligned in dataloader:  # we ignore the transcription string
             imgs = imgs.to(device)
-            ext_words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
             # ── forward ─────────────────────────────────────────────────
             out = backbone(imgs, return_feats=True)
             if not isinstance(out, (tuple, list)):
@@ -135,19 +135,23 @@ def optimise_backbone(
                 aux_logits = None
             else:
                 raise RuntimeError("Unexpected number of outputs from network")
+            feats = torch.nan_to_num(feats)
 
             T, K, _ = main_logits.shape
-            # ── encode labels ───────────────────────────────────────────
-            targets, tgt_lens = encode_for_ctc(ext_words, c2i, device="cpu")
+            aligned_mask = aligned != -1
+            if aligned_mask.any():
+                words = [f" {dataset.external_words[i]} " for i in aligned[aligned_mask].tolist()]
+                targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
+                inp_lens = torch.full((aligned_mask.sum().item(),), T, dtype=torch.int32, device=device)
+                loss_main = _ctc_loss_fn(main_logits[:, aligned_mask], targets, inp_lens, tgt_lens)
+                if aux_logits is not None:
+                    loss_aux = _ctc_loss_fn(aux_logits[:, aligned_mask], targets, inp_lens, tgt_lens)
+                else:
+                    loss_aux = torch.tensor(0.0, device=main_logits.device)
+            else:
+                loss_main = torch.tensor(0.0, device=main_logits.device)
+                loss_aux = torch.tensor(0.0, device=main_logits.device)
 
-            inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-            # ── losses ─────────────────────────────────────────────────
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_aux = (
-                _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
-                if aux_logits is not None
-                else torch.tensor(0.0, device=main_logits.device)
-            )
             loss_proj = criterion_proj(feats, word_embs, aligned.to(device), word_probs)
             loss = (
                 main_weight * loss_main
@@ -166,11 +170,15 @@ def optimise_backbone(
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     backbone.eval()
-    with torch.no_grad():
-        feats, _ = harvest_backbone_features(subset, backbone, device=device)
-    words = [dataset.external_words[dataset.aligned[i].item()] for i in aligned_indices.tolist()]
-    score = word_silhouette_score(feats, words)
-    print(f"[Refine] silhouette score: {score:.4f}")
+    aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
+    if aligned_indices.numel() > 0:
+        subset_feats = torch.utils.data.Subset(dataset, aligned_indices.tolist())
+        with torch.no_grad():
+            feats, _ = harvest_backbone_features(subset_feats, backbone, device=device)
+        feats = torch.nan_to_num(feats)
+        words = [dataset.external_words[dataset.aligned[i].item()] for i in aligned_indices.tolist()]
+        score = word_silhouette_score(feats, words)
+        print(f"[Refine] silhouette score: {score:.4f}")
     print("[Refine] finished.")
 
 # File: alignment/alignment_trainer.py
@@ -189,6 +197,7 @@ def alternating_refinement(
     """Repeatedly optimise ``backbone`` and align more instances."""
 
     print_dataset_stats(dataset)
+    maybe_load_pretrained(backbone, torch.device(cfg.device))
 
     if refine_kwargs is None:
         refine_kwargs = {}
@@ -251,6 +260,7 @@ if __name__ == "__main__":
         flattening="maxpool",
         stn=False,
         feat_dim=512,
+        feat_pool=cfg.feat_pool,
     )
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
 

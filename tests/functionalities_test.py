@@ -1118,3 +1118,68 @@ def test_optimise_backbone_attn(tmp_path):
     net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
     torch.manual_seed(0)
     optimise_backbone(ds, net, num_epochs=1, batch_size=1, lr=1e-3, proj_weight=0)
+
+
+def test_optimise_backbone_no_aligned(capsys):
+    ds = _tiny_dataset()
+    ds.aligned = torch.full_like(ds.aligned, -1)
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 8]],
+        head_type="cnn",
+        rnn_type="gru",
+        rnn_layers=1,
+        rnn_hidden_size=8,
+        flattening="maxpool",
+        stn=False,
+        feat_dim=8,
+    )
+    net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+    optimise_backbone(ds, net, num_epochs=1, batch_size=1, lr=1e-3, proj_weight=0)
+    out = capsys.readouterr().out.lower()
+    assert "no pre-aligned" not in out
+
+
+def test_maybe_load_pretrained(monkeypatch):
+    from alignment import alignment_trainer as at
+    loaded = {}
+
+    def fake_load(path, map_location=None):
+        loaded["path"] = path
+        return {"state": True}
+
+    def fake_state_dict(self, state, strict=False):
+        loaded["state"] = state
+
+    monkeypatch.setattr(at.torch, "load", fake_load)
+    monkeypatch.setattr(HTRNet, "load_state_dict", fake_state_dict)
+
+    old_flag = at.cfg.load_pretrained_backbone
+    old_path = at.cfg.pretrained_path
+    at.cfg.load_pretrained_backbone = True
+    at.cfg.pretrained_path = "foo/bar.pt"
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 8]],
+        head_type="cnn",
+        rnn_type="gru",
+        rnn_layers=1,
+        rnn_hidden_size=8,
+        flattening="maxpool",
+        stn=False,
+        feat_dim=None,
+    )
+    net = HTRNet(arch, nclasses=3)
+    at.maybe_load_pretrained(net, torch.device("cpu"))
+
+    at.cfg.load_pretrained_backbone = old_flag
+    at.cfg.pretrained_path = old_path
+
+    assert loaded.get("path") == "foo/bar.pt"
+    assert loaded.get("state") == {"state": True}
+
+
+def test_config_new_keys():
+    cfg = OmegaConf.load("alignment/config.yaml")
+    assert cfg.load_pretrained_backbone is False
+    assert cfg.pretrained_path == "htr_base/saved_models/pretrained_backbone.pt"
+    assert cfg.feat_pool == "attn"

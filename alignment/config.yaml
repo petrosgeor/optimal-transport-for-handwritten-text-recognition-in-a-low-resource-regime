@@ -47,3 +47,14 @@ n_aligned: 300               # number of pre-aligned samples for warm start
 ensemble_size: 3             # how many projectors to train in parallel
 agree_threshold: 1           # votes required when pseudo-labelling
 prior_weight: 6            # weight of the Wasserstein prior loss
+
+# ----------------------------------------------------------------------
+# Optional pretrained backbone
+# ----------------------------------------------------------------------
+load_pretrained_backbone: false
+pretrained_path: htr_base/saved_models/pretrained_backbone.pt
+
+# ----------------------------------------------------------------------
+# Backbone feature pooling
+# ----------------------------------------------------------------------
+feat_pool: attn

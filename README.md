@@ -296,7 +296,7 @@ Defined in `alignment/alignment_trainer.py`. It fine-tunes the backbone using bo
 def optimise_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
                       lr=1e-4, main_weight=1.0, aux_weight=0.1,
                       proj_weight=0.5):
-    """Optimise *backbone* with CTC and `ProjectionLoss`."""
+    """Optimise *backbone* with `ProjectionLoss` on every sample and CTC on aligned ones."""
 ```
 
 * `dataset`: training dataset with alignment information.
@@ -307,6 +307,8 @@ def optimise_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 * `main_weight`/`aux_weight`: weights for the CTC losses.
 * `proj_weight`: weight of the projection loss.
 * External words are automatically wrapped with spaces before encoding so that no persistent changes are made to `dataset.external_words`.
+  Projection loss is computed on the whole batch, while the CTC terms only use
+  samples with a valid alignment.
 
 ## train\_projector
 
@@ -368,6 +370,9 @@ Key options:
 * `n_aligned` – number of pre-aligned samples for warm start.
 * `agree_threshold` – votes required before pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
+* `load_pretrained_backbone` – load weights before refinement.
+* `pretrained_path` – checkpoint path for the pretrained backbone.
+* `feat_pool` – how to pool CNN features when descriptors are enabled.
 
 
 ## Utilities / Metrics
