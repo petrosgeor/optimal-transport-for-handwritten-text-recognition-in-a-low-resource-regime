@@ -103,6 +103,8 @@ def optimise_backbone(
     # Build CTC mapping once.
     c2i, _ = _build_vocab_dicts(dataset)
 
+    # Mini-batches drawn randomly from the dataset. We keep the
+    # number of workers low to make CI execution lighter.
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
@@ -119,12 +121,15 @@ def optimise_backbone(
         word_probs = torch.full((word_embs.size(0),), 1.0 / word_embs.size(0), device=device)
     else:
         word_probs = torch.tensor(probs, dtype=torch.float32, device=device)
+    # ------------------------------------------------------------------
+    #                     Main training loop
+    # ------------------------------------------------------------------
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
         for imgs, _, aligned in dataloader:  # we ignore the transcription string
             imgs = imgs.to(device)
-            # ── forward ─────────────────────────────────────────────────
+            # ---- forward pass -------------------------------------------------
             out = backbone(imgs, return_feats=True)
             if not isinstance(out, (tuple, list)):
                 raise RuntimeError("Expected network.forward() → tuple")
@@ -140,6 +145,8 @@ def optimise_backbone(
             T, K, _ = main_logits.shape
             aligned_mask = aligned != -1
             if aligned_mask.any():
+                # Convert the pseudo-labelled words to CTC targets. We wrap them
+                # with spaces so no changes are persisted in ``dataset.external_words``.
                 words = [f" {dataset.external_words[i]} " for i in aligned[aligned_mask].tolist()]
                 targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
                 inp_lens = torch.full((aligned_mask.sum().item(),), T, dtype=torch.int32, device=device)
@@ -152,6 +159,8 @@ def optimise_backbone(
                 loss_main = torch.tensor(0.0, device=main_logits.device)
                 loss_aux = torch.tensor(0.0, device=main_logits.device)
 
+            # Projection loss is computed on the full batch, while the CTC terms
+            # use only the subset of aligned samples.
             loss_proj = criterion_proj(feats, word_embs, aligned.to(device), word_probs)
             loss = (
                 main_weight * loss_main
