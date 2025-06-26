@@ -986,3 +986,31 @@ def test_ctc_loss_fn():
     )
     val = _ctc_loss_fn(logits, targets, inp_lens, tgt_lens)
     assert torch.allclose(val, ref)
+
+
+def test_dataset_image_values(tmp_path):
+    """Test that dataset image values are scaled between 0 and 1."""
+    # Test HTRDataset
+    cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
+    base = 'htr_base/data/GW/processed_words'
+    dataset = HTRDataset(base, subset='train', fixed_size=(32, 128), transforms=aug_transforms, config=cfg)
+    img, _, _ = dataset[0]
+    assert img.min() >= 0.0, f"HTRDataset min value is {img.min()}"
+    assert img.max() <= 1.0, f"HTRDataset max value is {img.max()}"
+
+    # Test PretrainingHTRDataset
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    shutil.copy(src, base / 'foo_word_0.png')
+
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    pretrain_ds = PretrainingHTRDataset(
+        str(list_file), fixed_size=(32, 128), base_path=str(base), transforms=aug_transforms
+    )
+    img, _ = pretrain_ds[0]
+    assert img.min() >= 0.0, f"PretrainingHTRDataset min value is {img.min()}"
+    assert img.max() <= 1.0, f"PretrainingHTRDataset max value is {img.max()}"

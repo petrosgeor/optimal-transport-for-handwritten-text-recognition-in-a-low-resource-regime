@@ -227,6 +227,9 @@ def main(config: dict | None = None) -> Path:
             num_batches = 0
             for imgs, txts in train_loader:
                 imgs = imgs.to(device)
+
+                print('the min and max of imgs: ', imgs[0].min(), imgs[0].max())
+
                 out = net(imgs, return_feats=False)
                 main_logits, aux_logits = out[:2]
                 # Prepare CTC targets

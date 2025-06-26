@@ -25,7 +25,10 @@ def load_image(path: str,
     img = img_io.imread(path)
     if img.ndim == 3:
         img = img_color.rgb2gray(img)
-    img = img.astype(np.float32) / 255.0            # → [0,1]
+    # img = img.astype(np.float32) / 255.0            # → [0,1]
+    img = img.astype(np.float32)
+    if img.dtype == np.uint8 or img.max() > 1.01:
+        img = img / 255.0
 
     if ensure_black_bg:
         bg_est = np.median(img)
