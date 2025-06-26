@@ -20,6 +20,8 @@ tests/dataset_value_range_test.py
 __pycache__/
 **/__pycache__/
 
+google_drive_upload/upload_to_drive.py
+
 # Ignore all Markdown files EXCEPT README.md
 *.md
 !README.md
