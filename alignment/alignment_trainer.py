@@ -203,15 +203,24 @@ def alternating_refinement(
     refine_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
 ) -> None:
-    """Repeatedly optimise ``backbone`` and align more instances."""
+    """Repeatedly optimise ``backbone`` and align more instances.
 
+    The function alternates between fine‑tuning ``backbone`` on currently
+    aligned samples and running :func:`align_more_instances` to pseudo‑label
+    additional data.  The cycle continues until ``dataset.aligned`` no longer
+    contains ``-1`` entries.
+    """
+
+    # Show basic statistics about the dataset before refinement starts.
     print_dataset_stats(dataset)
+    # Optionally load pretrained weights if configured in ``cfg``.
     maybe_load_pretrained(backbone, torch.device(cfg.device))
 
     if refine_kwargs is None:
         refine_kwargs = {}
     if align_kwargs is None:
         align_kwargs = {}
+    # Default parameters controlling the alignment step.
     align_kwargs.setdefault("batch_size", cfg.align_batch_size)
     align_kwargs.setdefault("device", cfg.align_device)
     align_kwargs.setdefault("reg", cfg.align_reg)
@@ -220,6 +229,7 @@ def alternating_refinement(
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
 
+    # Repeat optimisation and alignment until every sample gets pseudo-labelled.
     while (dataset.aligned == -1).any():
         for r in range(rounds):
             print(f"[Round {r + 1}/{rounds}] Optimising backbone...")
@@ -232,6 +242,7 @@ def alternating_refinement(
                 )
 
         print("[Cycle] Aligning more instances...")
+        # Use current backbone features to update pseudo-labels via OT.
         align_more_instances(dataset, backbone, [nn.Identity()], **align_kwargs)
 
 

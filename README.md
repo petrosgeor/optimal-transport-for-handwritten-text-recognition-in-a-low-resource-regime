@@ -339,7 +339,9 @@ Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects im
 ## alternating\_refinement
 
 Also in `alignment/alignment_trainer.py`. This helper repeatedly optimises the
-backbone and then aligns more dataset instances using Optimal Transport.
+backbone and then aligns more dataset instances using Optimal Transport. During
+each cycle the backbone is fine-tuned on the currently aligned subset before new
+pseudo-labels are produced.
 
 ```python
 def alternating_refinement(dataset, backbone, *, rounds=4,
