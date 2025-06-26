@@ -4,27 +4,6 @@ import torch.nn.functional as F
 
 
 ###############################################################################
-#                            ─────  MLP Projector  ─────                       #
-###############################################################################
-class Projector(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int) -> None:
-        super(Projector, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
-        self.sequential = nn.Sequential(
-            nn.Linear(self.input_dim, self.input_dim),
-            nn.ReLU(),
-            nn.Linear(self.input_dim, self.input_dim),
-            nn.ReLU(),
-            nn.Linear(self.input_dim, self.output_dim)
-        )
-
-    def forward(self, x):
-        return self.sequential(x)
-
-
-###############################################################################
 #                        ─────  CNN building blocks  ─────                    #
 ###############################################################################
 class BasicBlock(nn.Module):

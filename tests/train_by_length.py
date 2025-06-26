@@ -48,7 +48,8 @@ ARCHITECTURE_CONFIG = {
     "rnn_hidden_size": 256,
     "flattening": "maxpool",
     "stn": False,
-    "feat_dim": None,
+    "feat_dim": 512,
+    "feat_pool": "attn",
 }
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
@@ -90,7 +91,14 @@ def maybe_load_pretrained(net, device,
     if LOAD_PRETRAINED_BACKBONE:
         state = torch.load(path, map_location=device)
         print('Backbone is loaded')
-        net.load_state_dict(state)
+        res = net.load_state_dict(state, strict=False)
+        if res is not None:
+            missing = getattr(res, 'missing_keys', res[0] if isinstance(res, tuple) else [])
+            unexpected = getattr(res, 'unexpected_keys', res[1] if isinstance(res, tuple) else [])
+            if missing:
+                print('Missing keys:', missing)
+            if unexpected:
+                print('Unexpected keys:', unexpected)
 # ---------------------------------------------------------------------
 # Save a histogram of characters appearing in the provided strings to a
 # PNG file.  Useful for quickly visualising the dataset distribution.

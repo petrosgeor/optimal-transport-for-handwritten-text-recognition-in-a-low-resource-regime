@@ -13,7 +13,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
-from htr_base.models import HTRNet, Projector, AttentivePool
+from htr_base.models import HTRNet, AttentivePool
 from alignment.alignment_utilities import (
     align_more_instances,
     print_dataset_stats,
@@ -22,8 +22,7 @@ from alignment.alignment_utilities import (
 )
 from alignment.alignment_trainer import tee_output
 from alignment.alignment_trainer import (
-    refine_visual_backbone,
-    train_projector,
+    optimise_backbone,
     _build_vocab_dicts,
 )
 from alignment.ctc_utils import encode_for_ctc
@@ -54,8 +53,7 @@ def test_align_logging(capsys):
         feat_dim=8,
     )
     backbone = HTRNet(arch_cfg, nclasses=len(dataset.character_classes) + 1)
-    projector = Projector(arch_cfg.feat_dim, dataset.word_emb_dim)
-    align_more_instances(dataset, backbone, projector, batch_size=1, device='cpu', k=1)
+    align_more_instances(dataset, backbone, [nn.Identity()], batch_size=1, device='cpu', k=1)
     out = capsys.readouterr().out
     assert '[Align] round accuracy' in out
     assert '[Align] cumulative accuracy' in out
@@ -152,9 +150,8 @@ def test_align_zero_row(tmp_path):
         feat_dim=8,
     )
     backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
-    projector = Projector(arch.feat_dim, ds.word_emb_dim)
 
-    align_more_instances(ds, backbone, projector, batch_size=1, device='cpu', unbalanced=True, reg_m=0.1, k=1)
+    align_more_instances(ds, backbone, [nn.Identity()], batch_size=1, device='cpu', unbalanced=True, reg_m=0.1, k=1)
     assert (ds.aligned != -1).any(), "No samples were pseudo-labelled"
 
 
@@ -276,7 +273,7 @@ def test_refine_prints_silhouette(capsys):
     )
     backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
 
-    refine_visual_backbone(ds, backbone, num_epochs=1, batch_size=1, lr=1e-3)
+    optimise_backbone(ds, backbone, num_epochs=1, batch_size=1, lr=1e-3)
     out = capsys.readouterr().out
     assert 'silhouette score' in out.lower()
 
@@ -293,75 +290,6 @@ def _tiny_dataset():
     return ds
 
 
-def test_train_projector_no_tsne(tmp_path):
-    ds = _tiny_dataset()
-
-    arch = SimpleNamespace(
-        cnn_cfg=[[1, 16], 'M', [1, 32]],
-        head_type='cnn',
-        rnn_type='gru',
-        rnn_layers=1,
-        rnn_hidden_size=32,
-        flattening='maxpool',
-        stn=False,
-        feat_dim=8,
-    )
-    backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
-    projector = Projector(arch.feat_dim, ds.word_emb_dim)
-
-    figs = Path('tests/figures')
-    if figs.exists():
-        shutil.rmtree(figs)
-
-    train_projector(
-        ds,
-        backbone,
-        projector,
-        num_epochs=1,
-        batch_size=1,
-        lr=1e-3,
-        num_workers=0,
-        device='cpu',
-        plot_tsne=False,
-    )
-
-    assert not figs.exists() or not any(figs.iterdir())
-
-
-def test_train_projector_with_tsne(tmp_path):
-    ds = _tiny_dataset()
-
-    arch = SimpleNamespace(
-        cnn_cfg=[[1, 16], 'M', [1, 32]],
-        head_type='cnn',
-        rnn_type='gru',
-        rnn_layers=1,
-        rnn_hidden_size=32,
-        flattening='maxpool',
-        stn=False,
-        feat_dim=8,
-    )
-    backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
-    projector = Projector(arch.feat_dim, ds.word_emb_dim)
-
-    figs = Path('tests/figures')
-    if figs.exists():
-        shutil.rmtree(figs)
-
-    train_projector(
-        ds,
-        backbone,
-        projector,
-        num_epochs=1,
-        batch_size=1,
-        lr=1e-3,
-        num_workers=0,
-        device='cpu',
-        plot_tsne=True,
-    )
-
-    assert (figs / 'tsne_backbone.png').exists()
-    assert any(figs.glob('tsne_projections_*.png'))
 
 
 def test_predicted_char_distribution():
@@ -428,8 +356,8 @@ def test_train_by_length_loads_checkpoint(monkeypatch):
         loaded["path"] = path
         return {"weights": True}
 
-    def fake_load_state(self, state):
-        loaded["state"] = state
+    def fake_load_state(self, state, strict=False):
+        loaded["state"] = (state, strict)
 
     monkeypatch.setattr(tbl.torch, "load", fake_torch_load)
     monkeypatch.setattr(HTRNet, "load_state_dict", fake_load_state)
@@ -451,7 +379,7 @@ def test_train_by_length_loads_checkpoint(monkeypatch):
     tbl.LOAD_PRETRAINED_BACKBONE = False
 
     assert loaded.get("path") == "htr_base/saved_models/pretrained_backbone.pt"
-    assert loaded.get("state") == {"weights": True}
+    assert loaded.get("state") == ({"weights": True}, False)
 
 
 def test_encode_for_ctc_vocab_size():
@@ -1125,13 +1053,13 @@ def test_htrnet_attentive_pool(tmp_path):
         rnn_hidden_size=8,
         flattening="maxpool",
         stn=False,
-        feat_dim=10,
+        feat_dim=8,
         feat_pool="attn",
     )
     net = HTRNet(arch, nclasses=3)
     imgs = torch.randn(2, 1, 32, 64)
     logits, feats = net(imgs, return_feats=True)
-    assert feats.shape == (2, 10)
+    assert feats.shape == (2, 8)
 
 
 def test_htrnet_feat_pool_invalid():
@@ -1143,8 +1071,26 @@ def test_htrnet_feat_pool_invalid():
         rnn_hidden_size=8,
         flattening="maxpool",
         stn=False,
-        feat_dim=10,
+        feat_dim=8,
         feat_pool="bad",
     )
     with pytest.raises(ValueError):
         HTRNet(arch, nclasses=3)
+
+
+def test_optimise_backbone_attn(tmp_path):
+    ds = _tiny_dataset()
+    ds.aligned = torch.tensor([0, 1] + [0] * (len(ds) - 2), dtype=torch.int32)
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 8]],
+        head_type="cnn",
+        rnn_type="gru",
+        rnn_layers=1,
+        rnn_hidden_size=8,
+        flattening="maxpool",
+        stn=False,
+        feat_dim=8,
+        feat_pool="attn",
+    )
+    net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+    optimise_backbone(ds, net, num_epochs=1, batch_size=1, lr=1e-3)

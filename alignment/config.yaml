@@ -6,6 +6,7 @@ refine_lr: 1e-4             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
 refine_epochs: 10           # epochs used for backbone refinement
+proj_weight: 0.5            # weight for the ProjectionLoss term
 
 
 # ----------------------------------------------------------------------

@@ -290,12 +290,13 @@ def predicted_char_distribution(logits):
 
 ## refine\_visual\_backbone
 
-Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
+Defined in `alignment/alignment_trainer.py`. It fine-tunes the backbone using both CTC and a projection loss on the aligned subset.
 
 ```python
-def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
-                           lr=1e-4, main_weight=1.0, aux_weight=0.1):
-    """Fine‑tune *backbone* only on words already aligned to external words."""
+def optimise_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
+                      lr=1e-4, main_weight=1.0, aux_weight=0.1,
+                      proj_weight=0.5):
+    """Optimise *backbone* with CTC and `ProjectionLoss`."""
 ```
 
 * `dataset`: training dataset with alignment information.
@@ -303,54 +304,31 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 * `num_epochs`: number of optimisation epochs (default from `refine_epochs` in `alignment/config.yaml`).
 * `batch_size`: mini-batch size.
 * `lr`: learning rate.
-* `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
-* External words are automatically wrapped with spaces before encoding so that
-  no persistent changes are made to `dataset.external_words`.
+* `main_weight`/`aux_weight`: weights for the CTC losses.
+* `proj_weight`: weight of the projection loss.
+* External words are automatically wrapped with spaces before encoding so that no persistent changes are made to `dataset.external_words`.
 
 ## train\_projector
 
 Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
 
-```python
-def train_projector(dataset, backbone, projector, num_epochs=150,
-                    batch_size=512, lr=1e-4, num_workers=0,
-                    weight_decay=1e-4, device="cuda", plot_tsne=True):
-    """Freeze *backbone*, collect image descriptors → train *projector*.
-    ``projector`` may also be a list which will be trained sequentially."""
-```
-
-* `dataset`: dataset with `external_word_embeddings`.
-* `backbone`: frozen encoder producing descriptors.
-* `projector`: learnable mapping to the embedding space. Can be a list for
-  ensemble training.
-* `num_epochs`, `batch_size`, `lr`: training hyperparameters. The default value
-  for `num_epochs` comes from `projector_epochs` in `alignment/config.yaml`.
-* `num_workers`: data loading workers during descriptor harvesting.
-* `weight_decay`: weight decay for the optimiser.
-* `device`: computation device for training.
-* `plot_tsne`: whether to generate t-SNE plots of backbone and projector outputs.
-
 ## alternating\_refinement
 
-Also in `alignment/alignment_trainer.py`. This helper repeatedly refines the
-visual backbone and projector while progressively aligning more dataset
-instances using Optimal Transport.
+Also in `alignment/alignment_trainer.py`. This helper repeatedly optimises the
+backbone and then aligns more dataset instances using Optimal Transport.
 
 ```python
-def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
-                           backbone_epochs=10, projector_epochs=100,
-                           refine_kwargs=None, projector_kwargs=None,
+def alternating_refinement(dataset, backbone, *, rounds=4,
+                           backbone_epochs=10,
+                           refine_kwargs=None,
                            align_kwargs=None):
-    """Alternately train ``backbone`` and multiple projectors with OT alignment."""
+    """Optimise ``backbone`` and align more instances."""
 ```
 
-* `rounds`: number of backbone/projector cycles per alignment pass.
-* `backbone_epochs`: epochs for each backbone refinement round (default from `refine_epochs`).
-* `projector_epochs`: epochs for each projector training round.
-  This value is also used as the default when calling `train_projector`.
+* `rounds`: number of optimisation cycles before each alignment step.
+* `backbone_epochs`: epochs for each optimisation round (default from `refine_epochs`).
 * `refine_kwargs`: extra keyword arguments forwarded to
-  `refine_visual_backbone`.
-* `projector_kwargs`: keyword arguments for `train_projector`.
+  `optimise_backbone`.
 * `align_kwargs`: parameters for `align_more_instances`.
 
 ## tee\_output
@@ -362,7 +340,7 @@ Also in `alignment/alignment_trainer.py`. This context manager duplicates
 from alignment.alignment_trainer import tee_output
 
 with tee_output("results.txt"):
-    alternating_refinement(dataset, backbone, projectors)
+    alternating_refinement(dataset, backbone)
 ```
 
 ## alignment/config.yaml
@@ -376,15 +354,11 @@ Key options:
 * `refine_main_weight` – weight for the main CTC loss branch.
 * `refine_aux_weight` – weight for the auxiliary CTC loss.
 * `refine_epochs` – epochs spent refining the backbone.
-* `projector_epochs` – number of epochs for projector training.
-* `projector_batch_size` – mini-batch size when harvesting descriptors.
-* `projector_lr` – learning rate for projector optimisation.
-* `projector_workers` – dataloader workers used during descriptor caching.
-* `projector_weight_decay` – weight decay for the projector optimiser.
+* `proj_weight` – weight of the projection loss during optimisation.
 * `plot_tsne` – save t-SNE plots during projector training.
 * `device` – compute device (`cpu` or `cuda`).
 * `gpu_id` – CUDA device index.
-* `alt_rounds` – backbone/projector cycles per alternating pass.
+* `alt_rounds` – optimisation cycles per alternating pass.
 * `align_batch_size` – mini-batch size for alignment descriptor caching.
 * `align_device` – device used for the alignment step.
 * `align_reg` – entropic regularisation for Sinkhorn.
@@ -392,7 +366,6 @@ Key options:
 * `align_reg_m` – mass regularisation term for unbalanced OT.
 * `align_k` – pseudo-label this many least-moved descriptors.
 * `n_aligned` – number of pre-aligned samples for warm start.
-* `ensemble_size` – how many projectors to train in parallel.
 * `agree_threshold` – votes required before pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
 
