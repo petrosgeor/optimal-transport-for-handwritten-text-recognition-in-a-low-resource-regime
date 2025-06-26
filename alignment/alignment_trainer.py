@@ -22,6 +22,7 @@ from alignment.alignment_utilities import (
 )
 from htr_base.utils.metrics import word_silhouette_score
 from htr_base.utils.transforms import aug_transforms
+from htr_base.utils.vocab import load_vocab
 from omegaconf import OmegaConf
 
 from contextlib import contextmanager
@@ -69,15 +70,9 @@ if str(cfg.device).startswith("cuda"):
 # --------------------------------------------------------------------------- #
 #                               Helper utilities                              #
 # --------------------------------------------------------------------------- #
-def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Create <char→id> / <id→char> dicts leaving index 0 for the CTC blank."""
-    chars: List[str] = list(dataset.character_classes)
-    if " " not in chars:
-        chars.append(" ")
-    chars = sorted(set(chars))
-    c2i = {c: i + 1 for i, c in enumerate(chars)}
-    i2c = {i + 1: c for i, c in enumerate(chars)}
-    return c2i, i2c
+def _build_vocab_dicts(_: HTRDataset | None = None) -> Tuple[Dict[str, int], Dict[int, str]]:
+    """Return the project vocabulary loaded from disk."""
+    return load_vocab()
 
 
 # --------------------------------------------------------------------------- #

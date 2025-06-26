@@ -3,6 +3,7 @@ import os, sys, random
 from types import SimpleNamespace
 from pathlib import Path
 import pickle
+from htr_base.utils.vocab import load_vocab
 from omegaconf import OmegaConf
 # ------------------------------------------------------------------
 # Hyper‑parameters controlling training and evaluation. The values
@@ -160,13 +161,8 @@ def save_char_histogram_png(
 # blank symbol required by CTC occupies index 0.
 # ---------------------------------------------------------------------
 def _build_vocab_dicts(_: HTRDataset | None = None) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Return char→id / id→char dicts loaded from saved pickles."""
-    base = Path(__file__).resolve().parents[1] / "htr_base" / "saved_models"
-    with open(base / "c2i.pkl", "rb") as f:
-        c2i = pickle.load(f)
-    with open(base / "i2c.pkl", "rb") as f:
-        i2c = pickle.load(f)
-    return c2i, i2c
+    """Return char→id / id→char dictionaries from :func:`load_vocab`."""
+    return load_vocab()
 # ---------------------------------------------------------------------
 # Evaluate character error rate on the given loader.  A few prediction
 # examples are printed, as well as CER by word length and overall.

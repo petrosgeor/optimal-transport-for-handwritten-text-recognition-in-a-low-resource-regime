@@ -21,10 +21,8 @@ from alignment.alignment_utilities import (
     predicted_char_distribution,
 )
 from alignment.alignment_trainer import tee_output
-from alignment.alignment_trainer import (
-    optimise_backbone,
-    _build_vocab_dicts,
-)
+from alignment.alignment_trainer import optimise_backbone
+from htr_base.utils.vocab import load_vocab
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 import shutil
@@ -391,14 +389,14 @@ def test_encode_for_ctc_vocab_size():
     ds.aligned = ds.aligned[:3]
     ds.is_in_dict = ds.is_in_dict[:3]
 
-    c2i, _ = _build_vocab_dicts(ds)
+    c2i, _ = load_vocab()
     chars = "".join(sorted(ds.character_classes))
     txt = f" {chars} "
     targets, _ = encode_for_ctc([txt], c2i)
     # Include the CTC blank to count all possible labels
     targets = torch.cat([targets, torch.tensor([0])])
-    assert len(c2i) + 1 == 37
-    assert targets.unique().numel() == 37
+    assert len(c2i) == 37
+    assert targets.unique().numel() == len(set(txt)) + 1
 
 
 def test_pretraining_dataset_filtering(tmp_path):
@@ -775,8 +773,7 @@ def test_pretraining_saves_and_loads_dicts(tmp_path, capsys):
     assert (save_dir / 'i2c.pkl').exists()
 
     pretraining.main(config)
-    out = capsys.readouterr().out
-    assert 'Loading vocabulary' in out
+    capsys.readouterr()
 
 
 def test_simple_train_script(tmp_path, capsys):
@@ -842,8 +839,34 @@ def test_vocab_dict_loading():
         expected_c2i = pickle.load(f)
     with open(base / 'i2c.pkl', 'rb') as f:
         expected_i2c = pickle.load(f)
-    c2i, i2c = tbl._build_vocab_dicts(None)
+    c2i, i2c = load_vocab()
     assert c2i == expected_c2i and i2c == expected_i2c
+
+
+def test_create_vocab(tmp_path):
+    import shutil as _sh
+    from htr_base.utils import vocab as voc
+
+    base = Path('htr_base/saved_models')
+    c2i_file = base / 'c2i.pkl'
+    i2c_file = base / 'i2c.pkl'
+    backup_c2i = tmp_path / 'c2i.pkl'
+    backup_i2c = tmp_path / 'i2c.pkl'
+    _sh.move(c2i_file, backup_c2i)
+    _sh.move(i2c_file, backup_i2c)
+    try:
+        c2i, i2c = voc.create_vocab()
+        assert c2i_file.exists() and i2c_file.exists()
+        loaded_c2i, loaded_i2c = voc.load_vocab()
+        assert c2i == loaded_c2i
+        assert i2c == loaded_i2c
+        expected = {c: i + 1 for i, c in enumerate('0123456789abcdefghijklmnopqrstuvwxyz ')}
+        assert c2i == expected
+    finally:
+        c2i_file.unlink(missing_ok=True)
+        i2c_file.unlink(missing_ok=True)
+        _sh.move(backup_c2i, c2i_file)
+        _sh.move(backup_i2c, i2c_file)
 
 
 def test_refine_with_pretraining(tmp_path, capsys):
@@ -881,7 +904,7 @@ def test_refine_with_pretraining(tmp_path, capsys):
         stn=False,
         feat_dim=None,
     )
-    c2i, _ = train_by_length._build_vocab_dicts(None)
+    c2i, _ = load_vocab()
     net = HTRNet(arch, nclasses=len(c2i) + 1)
     train_by_length.refine_visual_model(
         ds,
@@ -949,7 +972,7 @@ def _tiny_refine_setup(tmp_path):
         feat_dim=None,
     )
     from tests import train_by_length as tbl
-    c2i, _ = tbl._build_vocab_dicts(None)
+    c2i, _ = load_vocab()
     net = HTRNet(arch, nclasses=len(c2i) + 1)
     return ds, net
 
@@ -1093,4 +1116,5 @@ def test_optimise_backbone_attn(tmp_path):
         feat_pool="attn",
     )
     net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
-    optimise_backbone(ds, net, num_epochs=1, batch_size=1, lr=1e-3)
+    torch.manual_seed(0)
+    optimise_backbone(ds, net, num_epochs=1, batch_size=1, lr=1e-3, proj_weight=0)

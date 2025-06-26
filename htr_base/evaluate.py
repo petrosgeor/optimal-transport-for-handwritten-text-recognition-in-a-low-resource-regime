@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from .utils.htr_dataset import HTRDataset
+from .utils.vocab import load_vocab
 
 from .models import HTRNet
 from .utils.metrics import CER, WER
@@ -35,8 +36,8 @@ class HTREval(nn.Module):
         test_set = HTRDataset(dataset_folder, 'test', fixed_size=fixed_size, transforms=None)
         print('# testing lines ' + str(test_set.__len__()))
 
-        # load classes from the training set saved in the data folder
-        classes = np.load(os.path.join(dataset_folder, 'classes.npy'))
+        c2i, i2c = load_vocab()
+        classes = [i2c[i] for i in sorted(i2c)]
 
         val_loader = DataLoader(val_set, batch_size=config.eval.batch_size,
                                 shuffle=False, num_workers=config.eval.num_workers)
@@ -46,15 +47,10 @@ class HTREval(nn.Module):
 
         self.loaders = {'val': val_loader, 'test': test_loader}
 
-        # create dictionaries for character to index and index to character 
-        # 0 index is reserved for CTC blank
-        cdict = {c:(i+1) for i,c in enumerate(classes)}
-        icdict = {(i+1):c for i,c in enumerate(classes)}
-
         self.classes = {
             'classes': classes,
-            'c2i': cdict,
-            'i2c': icdict
+            'c2i': c2i,
+            'i2c': i2c,
         }
 
     def prepare_net(self):

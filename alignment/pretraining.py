@@ -15,6 +15,7 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
+from htr_base.utils.vocab import load_vocab
 from htr_base.utils.metrics import CER
 from alignment.ctc_utils import (
     encode_for_ctc,
@@ -80,12 +81,9 @@ ARCHITECTURE_CONFIG = {
     "feat_dim": 512,
     "feat_pool": "attn",
 }
-def _build_vocab(transcriptions):
-    """Build character-to-index mapping from transcriptions."""
-    chars = sorted(set(''.join(transcriptions)))
-    if ' ' not in chars:
-        chars.append(' ')
-    c2i = {c: i + 1 for i, c in enumerate(chars)}
+def _build_vocab(_: list | None = None) -> Dict[str, int]:
+    """Return the project vocabulary loaded from disk."""
+    c2i, _ = load_vocab()
     return c2i
 def main(config: dict | None = None) -> Path:
     """Train a small HTRNet on the given image list using dictionary configuration."""
@@ -151,25 +149,8 @@ def main(config: dict | None = None) -> Path:
         )
         print(f"[Pretraining] Dataset size: {len(train_set)}")
         print(f"[Pretraining] Test set size: {len(test_set)}")
-        # Load or build vocabulary dictionaries
-        save_dir = Path(save_path).parent
-        c2i_path = save_dir / "c2i.pkl"
-        i2c_path = save_dir / "i2c.pkl"
-        if c2i_path.exists() and i2c_path.exists():
-            print(f"[Pretraining] Loading vocabulary from {save_dir}")
-            with open(c2i_path, "rb") as f:
-                c2i = pickle.load(f)
-            with open(i2c_path, "rb") as f:
-                i2c = pickle.load(f)
-        else:
-            c2i = _build_vocab(train_set.transcriptions)
-            i2c = {i: c for c, i in c2i.items()}
-            if save_backbone:
-                save_dir.mkdir(parents=True, exist_ok=True)
-                with open(c2i_path, "wb") as f:
-                    pickle.dump(c2i, f)
-                with open(i2c_path, "wb") as f:
-                    pickle.dump(i2c, f)
+        # Load fixed vocabulary
+        c2i, i2c = load_vocab()
         nclasses = len(c2i) + 1
         print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
         arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
@@ -262,9 +243,9 @@ def main(config: dict | None = None) -> Path:
                     save_dir = Path(save_path).parent
                     save_dir.mkdir(parents=True, exist_ok=True)
                     torch.save(net.state_dict(), save_path)
-                    with open(c2i_path, "wb") as f:
+                    with open(save_dir / "c2i.pkl", "wb") as f:
                         pickle.dump(c2i, f)
-                    with open(i2c_path, "wb") as f:
+                    with open(save_dir / "i2c.pkl", "wb") as f:
                         pickle.dump(i2c, f)
                     print(f"[Pretraining] Model saved to: {save_path}")
         return Path(save_path)
