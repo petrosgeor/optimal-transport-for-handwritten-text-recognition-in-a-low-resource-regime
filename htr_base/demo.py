@@ -10,6 +10,7 @@ import torch.nn as nn
 
 from .models import HTRNet
 from .utils.preprocessing import load_image, preprocess
+from .utils.vocab import load_vocab
 
 
 class HTREval(nn.Module):
@@ -25,19 +26,15 @@ class HTREval(nn.Module):
         config = self.config
 
         # prepare datset loader
-        dataset_folder = config.data.path
-        # load classes from the training set saved in the data folder
-        classes = np.load(os.path.join(dataset_folder, 'classes.npy'))
+        _, i2c = load_vocab()
+        classes = [i2c[i] for i in sorted(i2c)]
 
-        # create dictionaries for character to index and index to character 
-        # 0 index is reserved for CTC blank
-        cdict = {c:(i+1) for i,c in enumerate(classes)}
-        icdict = {(i+1):c for i,c in enumerate(classes)}
+        c2i, i2c = load_vocab()
 
         self.classes = {
             'classes': classes,
-            'c2i': cdict,
-            'i2c': icdict
+            'c2i': c2i,
+            'i2c': i2c,
         }
 
     def prepare_net(self):

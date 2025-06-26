@@ -3,6 +3,7 @@ import random
 from types import SimpleNamespace
 from pathlib import Path
 from typing import Dict, List
+from htr_base.utils.vocab import load_vocab
 import sys
 
 import torch
@@ -46,11 +47,10 @@ ARCH = {
 }
 
 
-def _build_vocab(chars: List[str]) -> Dict[str, int]:
-    if " " not in chars:
-        chars.append(" ")
-    chars = sorted(set(chars))
-    return {c: i + 1 for i, c in enumerate(chars)}
+def _build_vocab(_: List[str] | None = None) -> Dict[str, int]:
+    """Return character→index mapping from :func:`load_vocab`."""
+    c2i, _ = load_vocab()
+    return c2i
 
 
 def _decode_random(net: HTRNet, dataset: HTRDataset, i2c: Dict[int, str], device) -> None:
@@ -111,9 +111,7 @@ def main(cfg: dict | None = None) -> None:
         indices = random.sample(indices, min(cfg["n_examples"], len(indices)))
     subset_ds = Subset(dataset, indices)
 
-    chars = list(dataset.character_classes)
-    c2i = _build_vocab(chars)
-    i2c = {i: c for c, i in c2i.items()}
+    c2i, i2c = load_vocab()
 
     arch = SimpleNamespace(**ARCH)
     net = HTRNet(arch, nclasses=len(c2i) + 1).to(device)

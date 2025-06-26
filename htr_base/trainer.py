@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 from .utils.htr_dataset import HTRDataset
+from .utils.vocab import load_vocab
 
 from .models import HTRNet
 from .utils.transforms import aug_transforms
@@ -38,7 +39,6 @@ class HTRTrainer(nn.Module):
         fixed_size = (config.preproc.image_height, config.preproc.image_width)
 
         train_set = HTRDataset(dataset_folder, 'train', fixed_size=fixed_size, transforms=aug_transforms)
-        classes = train_set.character_classes
         print('# training lines ' + str(train_set.__len__()))
 
         val_set = HTRDataset(dataset_folder, 'val', fixed_size=fixed_size, transforms=None)
@@ -74,22 +74,13 @@ class HTRTrainer(nn.Module):
 
         self.loaders = {'train': train_loader, 'val': val_loader, 'test': test_loader}
 
-        # add space to classes, if not already there
-        classes += ' ' 
-        classes = np.unique(classes)
-
-        # save classes in data folder
-        np.save(os.path.join(dataset_folder, 'classes.npy'), classes)
-
-        # create dictionaries for character to index and index to character 
-        # 0 index is reserved for CTC blank
-        cdict = {c:(i+1) for i,c in enumerate(classes)}
-        icdict = {(i+1):c for i,c in enumerate(classes)}
+        c2i, i2c = load_vocab()
+        classes = [i2c[i] for i in sorted(i2c)]
 
         self.classes = {
             'classes': classes,
-            'c2i': cdict,
-            'i2c': icdict
+            'c2i': c2i,
+            'i2c': i2c,
         }
 
     def prepare_net(self):
