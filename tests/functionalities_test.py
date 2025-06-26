@@ -969,6 +969,99 @@ def test_refine_with_pretraining(tmp_path, capsys):
     assert 'Epoch 001/1' in out
 
 
+def _make_pre_ds(tmp_path):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path / 'imgs'
+    base.mkdir()
+    shutil.copy(src, base / 'foo_word_0.png')
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+    return PretrainingHTRDataset(str(list_file), fixed_size=(32, 128), base_path=str(base))
+
+
+class _FakeLoader:
+    calls = []
+
+    def __init__(self, dataset, batch_size, shuffle=True, num_workers=0, pin_memory=False):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        _FakeLoader.calls.append(dataset)
+
+    def __iter__(self):
+        sample = self.dataset[0]
+        if isinstance(sample, tuple) and len(sample) == 3:
+            img, t, idx = sample
+            yield img.unsqueeze(0), [t], idx
+        else:
+            img, t = sample
+            yield img.unsqueeze(0), [t]
+
+    def __len__(self):
+        return 1
+
+
+def _tiny_refine_setup(tmp_path):
+    ds = _tiny_dataset()
+    ds.config.n_aligned = 1
+    ds.data = ds.data[:1]
+    ds.data = [(ds.data[0][0], 'word')]
+    ds.transcriptions = ['word']
+    ds.aligned = ds.aligned[:1]
+    ds.is_in_dict = ds.is_in_dict[:1]
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[1, 16]],
+        head_type='cnn',
+        rnn_type='gru',
+        rnn_layers=1,
+        rnn_hidden_size=16,
+        flattening='maxpool',
+        stn=False,
+        feat_dim=None,
+    )
+    from tests import train_by_length as tbl
+    c2i, _ = tbl._build_vocab_dicts(None)
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+    return ds, net
+
+
+def test_refine_syn_ratio_zero(monkeypatch, tmp_path):
+    from tests import train_by_length as tbl
+    pre_ds = _make_pre_ds(tmp_path)
+    ds, net = _tiny_refine_setup(tmp_path)
+
+    _FakeLoader.calls.clear()
+    monkeypatch.setattr(tbl, 'DataLoader', _FakeLoader)
+    monkeypatch.setattr(tbl, '_evaluate_cer', lambda *a, **k: 0.0)
+
+    tbl.refine_visual_model(ds, net, num_epochs=1, batch_size=2, lr=1e-3, max_length=10,
+                           pretrain_ds=pre_ds, syn_batch_ratio=0)
+
+    from torch.utils.data import Subset
+    gt_calls = sum(isinstance(d, Subset) for d in _FakeLoader.calls)
+    pre_calls = sum(d is pre_ds for d in _FakeLoader.calls)
+    assert gt_calls == 1 and pre_calls == 0
+
+
+def test_refine_syn_ratio_one(monkeypatch, tmp_path):
+    from tests import train_by_length as tbl
+    pre_ds = _make_pre_ds(tmp_path)
+    ds, net = _tiny_refine_setup(tmp_path)
+
+    _FakeLoader.calls.clear()
+    monkeypatch.setattr(tbl, 'DataLoader', _FakeLoader)
+    monkeypatch.setattr(tbl, '_evaluate_cer', lambda *a, **k: 0.0)
+
+    tbl.refine_visual_model(ds, net, num_epochs=1, batch_size=2, lr=1e-3, max_length=10,
+                           pretrain_ds=pre_ds, syn_batch_ratio=1)
+
+    from torch.utils.data import Subset
+    gt_calls = sum(isinstance(d, Subset) for d in _FakeLoader.calls)
+    pre_calls = sum(d is pre_ds for d in _FakeLoader.calls)
+    assert gt_calls == 0 and pre_calls == 1
+
+
 def test_ctc_loss_fn():
     torch.manual_seed(0)
     logits = torch.randn(8, 2, 5, requires_grad=True)

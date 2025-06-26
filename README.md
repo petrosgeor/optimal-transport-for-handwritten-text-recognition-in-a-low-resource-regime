@@ -105,6 +105,8 @@ It exposes:
 
 `__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
 
+The helper `refine_visual_model` in `tests/train_by_length.py` can mix ground‑truth words with this dataset via the `syn_batch_ratio` parameter. Setting `syn_batch_ratio=0` disables synthetic samples, while `syn_batch_ratio=1` trains purely on the pretraining dataset.
+
 ## pretraining.py
 
 `alignment/pretraining.py` trains a small backbone on an image list. All

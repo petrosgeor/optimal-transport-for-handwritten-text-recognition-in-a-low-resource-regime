@@ -305,25 +305,46 @@ def refine_visual_model(dataset: HTRDataset,
         f"[Refine] training on {len(subset_idx)} samples "
         f"containing {len(unique_words)} unique words"
     )
+    pretrain_only = False
     if pretrain_ds is not None and syn_batch_ratio is not None:
         syn_bs = int(batch_size * syn_batch_ratio)
-        gt_bs = max(1, batch_size - syn_bs)
-        train_loader = DataLoader(
-            subset_ds,
-            batch_size=gt_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pretrain_loader = DataLoader(
-            pretrain_ds,
-            batch_size=max(1, syn_bs),
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        from itertools import cycle
-        pre_iter = cycle(pretrain_loader)
+        gt_bs = batch_size - syn_bs
+        if syn_bs <= 0:
+            train_loader = DataLoader(
+                subset_ds,
+                batch_size=batch_size,
+                shuffle=True,
+                num_workers=0,
+                pin_memory=(device.type == "cuda"),
+            )
+            pre_iter = None
+        elif gt_bs <= 0:
+            train_loader = DataLoader(
+                pretrain_ds,
+                batch_size=syn_bs,
+                shuffle=True,
+                num_workers=2,
+                pin_memory=(device.type == "cuda"),
+            )
+            pre_iter = None
+            pretrain_only = True
+        else:
+            train_loader = DataLoader(
+                subset_ds,
+                batch_size=gt_bs,
+                shuffle=True,
+                num_workers=2,
+                pin_memory=(device.type == "cuda"),
+            )
+            pretrain_loader = DataLoader(
+                pretrain_ds,
+                batch_size=syn_bs,
+                shuffle=True,
+                num_workers=2,
+                pin_memory=(device.type == "cuda"),
+            )
+            from itertools import cycle
+            pre_iter = cycle(pretrain_loader)
     else:
         train_loader = DataLoader(
             subset_ds,
@@ -336,7 +357,11 @@ def refine_visual_model(dataset: HTRDataset,
     for epoch in range(1, num_epochs + 1):
         epoch_loss = 0.0; effective_batches = 0
         epoch_ctc = 0.0; epoch_prior = 0.0
-        for imgs, trans, _ in train_loader:
+        for batch in train_loader:
+            if pretrain_only:
+                imgs, trans = batch
+            else:
+                imgs, trans, _ = batch
             imgs = imgs.to(device)
             if pre_iter is not None:
                 imgs_pt, trans_pt = next(pre_iter)
