@@ -288,6 +288,28 @@ def predicted_char_distribution(logits):
 * `logits`: tensor `(T, B, C)` from the backbone where index 0 is the blank.
 * Returns a 1‑D tensor of shape `(C-1,)` with probabilities for each character.
 
+## calculate_ot_projections
+
+Located in `alignment/alignment_utilities.py`. This helper computes the
+OT-based barycentric projections of one feature set onto another.
+
+```python
+def calculate_ot_projections(pa, X, pb, Y, reg=0.1, *, unbalanced=False,
+                             reg_m=1.0, sinkhorn_kwargs=None):
+    """Compute OT projections of ``X`` onto ``Y``."""
+```
+
+* `pa`: source distribution over `X` `(N,)`.
+* `X`: source features `(N, D)`.
+* `pb`: target distribution over `Y` `(M,)`.
+* `Y`: target features `(M, D)`.
+* `reg`: entropic regularisation term.
+* `unbalanced`: use unbalanced OT when `True`.
+* `reg_m`: mass regularisation for unbalanced OT.
+* `sinkhorn_kwargs`: extra keyword arguments for the OT solver.
+
+Returns the projected features and the optimal transport plan.
+
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the backbone using both CTC and a projection loss on the aligned subset.
