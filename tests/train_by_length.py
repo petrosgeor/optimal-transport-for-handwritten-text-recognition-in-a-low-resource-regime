@@ -5,18 +5,22 @@ from pathlib import Path
 import pickle
 from omegaconf import OmegaConf
 # ------------------------------------------------------------------
-# Hyper‑parameters controlling training and evaluation. The values
+# Hyper
+# parameters controlling training and evaluation. The values
 # below are largely defaults used when running this script directly.
 #
 #   gpu_id              – CUDA device identifier.
 #   max_length/min_length – inclusive range of word lengths used for
 #                            selecting training samples (spaces ignored).
 #   eval_k              – length threshold used when reporting CER.
-#   n_aligned           – maximum number of aligned ground‑truth words
+#   n_aligned           – maximum number of aligned ground
+# truth words
 #                          sampled for training.
 #   k_external_words    – number of external words to align against.
-#   num_epochs          – number of fine‑tuning epochs.
-#   batch_size          – mini‑batch size during training.
+#   num_epochs          – number of fine
+# tuning epochs.
+#   batch_size          – mini
+# batch size during training.
 #   learning_rate       – optimiser learning rate.
 #   main/aux_loss_weight – weights for the main and auxiliary CTC losses.
 #   dataset_fixed_size  – target (H, W) used when resizing dataset images.
@@ -34,7 +38,7 @@ N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
 NUM_EPOCHS = 600
 BATCH_SIZE = 128
-SYN_BATCH_RATIO = 0.5
+SYN_BATCH_RATIO = 0.5 # if 0 then we only use gt samples. If 1 then we use only synthetic samples
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
@@ -53,7 +57,7 @@ ARCHITECTURE_CONFIG = {
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
-LOAD_PRETRAINED_BACKBONE = False
+LOAD_PRETRAINED_BACKBONE = True
 DECODE_CONFIG = {
     "method": "beam",  # 'greedy' or 'beam'
     "beam_width": 3,
@@ -309,6 +313,7 @@ def refine_visual_model(dataset: HTRDataset,
     if pretrain_ds is not None and syn_batch_ratio is not None:
         syn_bs = int(batch_size * syn_batch_ratio)
         gt_bs = batch_size - syn_bs
+        print(f"Batch composition: HTRDataset samples: {gt_bs if gt_bs > 0 else 0}, PretrainingHTRDataset samples: {syn_bs if syn_bs > 0 else 0}")
         if syn_bs <= 0:
             train_loader = DataLoader(
                 subset_ds,
@@ -346,6 +351,7 @@ def refine_visual_model(dataset: HTRDataset,
             from itertools import cycle
             pre_iter = cycle(pretrain_loader)
     else:
+        print(f"Batch composition: HTRDataset samples: {batch_size}, PretrainingHTRDataset samples: 0")
         train_loader = DataLoader(
             subset_ds,
             batch_size=batch_size,
@@ -437,7 +443,7 @@ if __name__ == "__main__":
         fixed_size=DATASET_FIXED_SIZE,
         base_path=str(corp_root),
         transforms=aug_transforms,
-        n_random=1000,
+        n_random=10000,
         preload_images=True
     )
     # build vector Q (same order as network classes, blank excluded)

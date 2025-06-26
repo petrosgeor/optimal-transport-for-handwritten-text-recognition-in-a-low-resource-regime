@@ -33,3 +33,6 @@ __pycache__/
 
 # Ignore all Shell scripts
 *.sh
+
+# Ignore google drive upload directory
+google_drive_upload/

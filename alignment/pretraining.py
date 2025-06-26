@@ -7,7 +7,6 @@ from contextlib import contextmanager, nullcontext
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
 # ------------------------------------------------------------------
-
 # Add project root to path for imports
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
@@ -58,7 +57,7 @@ PRETRAINING_CONFIG = {
     "fixed_size": (64, 256),
     "device": "cuda" if torch.cuda.is_available() else "cpu",
     "gpu_ids": [0],
-    "use_augmentations": False,
+    "use_augmentations": True,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
     "save_path": "htr_base/saved_models/pretrained_backbone.pt",
@@ -66,7 +65,6 @@ PRETRAINING_CONFIG = {
     "results_file": False,
 }
 DEVICE = PRETRAINING_CONFIG["device"]
-
 # Architecture configuration for the pretraining backbone
 # Matches exactly the config used in alignment_trainer.py
 ARCHITECTURE_CONFIG = {
@@ -150,25 +148,24 @@ def main(config: dict | None = None) -> Path:
         )
         print(f"[Pretraining] Dataset size: {len(train_set)}")
         print(f"[Pretraining] Test set size: {len(test_set)}")
-        # Load or build vocabulary dictionaries
+        # ------------------------------------------------------------------ #
+        # ❶ Always rebuild the vocabulary from the *current* training list   #
+        # ------------------------------------------------------------------ #
         save_dir = Path(save_path).parent
         c2i_path = save_dir / "c2i.pkl"
         i2c_path = save_dir / "i2c.pkl"
-        if c2i_path.exists() and i2c_path.exists():
-            print(f"[Pretraining] Loading vocabulary from {save_dir}")
-            with open(c2i_path, "rb") as f:
-                c2i = pickle.load(f)
-            with open(i2c_path, "rb") as f:
-                i2c = pickle.load(f)
-        else:
-            c2i = _build_vocab(train_set.transcriptions)
-            i2c = {i: c for c, i in c2i.items()}
-            if save_backbone:
-                save_dir.mkdir(parents=True, exist_ok=True)
-                with open(c2i_path, "wb") as f:
-                    pickle.dump(c2i, f)
-                with open(i2c_path, "wb") as f:
-                    pickle.dump(i2c, f)
+
+        c2i = _build_vocab(train_set.transcriptions)   # fresh mapping
+        i2c = {i: c for c, i in c2i.items()}
+
+        # Optionally (re-)save the dictionaries next to the backbone weights
+        if save_backbone:
+            save_dir.mkdir(parents=True, exist_ok=True)
+            with open(c2i_path, "wb") as f:
+                pickle.dump(c2i, f)
+            with open(i2c_path, "wb") as f:
+                pickle.dump(i2c, f)
+
         nclasses = len(c2i) + 1
         print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
         arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
@@ -227,9 +224,6 @@ def main(config: dict | None = None) -> Path:
             num_batches = 0
             for imgs, txts in train_loader:
                 imgs = imgs.to(device)
-
-                print('the min and max of imgs: ', imgs[0].min(), imgs[0].max())
-
                 out = net(imgs, return_feats=False)
                 main_logits, aux_logits = out[:2]
                 # Prepare CTC targets
@@ -240,7 +234,6 @@ def main(config: dict | None = None) -> Path:
                 loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
                 loss = main_weight * loss_main + aux_weight * loss_aux
                 # Optimization step
-
                 loss.backward()
                 opt.step()
                 opt.zero_grad(set_to_none=True)
@@ -269,4 +262,3 @@ def main(config: dict | None = None) -> Path:
         return Path(save_path)
 if __name__ == '__main__':
     main()
-

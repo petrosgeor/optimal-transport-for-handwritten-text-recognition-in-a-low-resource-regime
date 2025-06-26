@@ -1148,3 +1148,7 @@ def test_htrnet_feat_pool_invalid():
     )
     with pytest.raises(ValueError):
         HTRNet(arch, nclasses=3)
+
+def test_google_drive_upload_import():
+    pytest.importorskip("googleapiclient")
+    from google_drive_upload import upload_to_drive
