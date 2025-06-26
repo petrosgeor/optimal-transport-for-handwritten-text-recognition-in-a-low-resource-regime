@@ -302,13 +302,21 @@ def align_more_instances(
         sinkhorn_kwargs = {}
 
     device = torch.device(device)
+    # Word embeddings of the external vocabulary live on the chosen device
+    # throughout the alignment routine.
     word_embs = dataset.external_word_embeddings.to(device)  # (V, E)
 
     # --------------------------------------------------------- 1. descriptors
+    # Extract image features for the whole dataset with augmentations disabled.
+    # ``feats_all`` and ``aligned_all`` stay on CPU to avoid unnecessary device
+    # transfers when projecting.
     feats_all, aligned_all = harvest_backbone_features(
         dataset, backbone,
         batch_size=batch_size, num_workers=0, device=device
-    )                                     # both tensors on CPU
+    )
+
+    # ``projectors`` may be a single module or a sequence. Normalise it to a
+    # list for simpler iteration.
     projs = projectors if isinstance(projectors, Sequence) else [projectors]
     Z_list = []
     dist_list = []
@@ -316,6 +324,8 @@ def align_more_instances(
     moved_list = []
     plan = None
     for proj in projs:
+        # Project backbone features into the word embedding space. Each projector
+        # is evaluated independently in inference mode.
         proj.eval().to(device)
         proj_feats = proj(feats_all.to(device)).cpu()        # (N, E)
 
@@ -333,8 +343,15 @@ def align_more_instances(
             reg, unbalanced=unbalanced, reg_m=reg_m,
             sinkhorn_kwargs=sinkhorn_kwargs,
         )
+        # OT gives barycentric projections in numpy format; convert back to
+        # torch tensors for further processing.
         proj_feats_ot = torch.from_numpy(proj_np).float()
+
+        # Distance each descriptor travels in the embedding space due to OT.
         moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)           # (N,)
+
+        # Pairwise distances between projected descriptors and vocabulary words
+        # used to find the nearest candidate.
         dist_matrix = torch.cdist(proj_feats_ot, word_embs.cpu())            # (N,V)
         nearest_word = dist_matrix.argmin(dim=1)
 
@@ -343,13 +360,22 @@ def align_more_instances(
         nearest_list.append(nearest_word)
         moved_list.append(moved_dist)
 
+    # Average results from all projectors. ``Z`` holds the barycentric
+    # projections, ``dist_matrix`` the distances to each vocabulary word and
+    # ``moved_dist`` how far each sample moved during OT.
     Z = torch.stack(Z_list)                             # (M,N,E)
     dist_matrix = torch.stack(dist_list).mean(dim=0)    # (N,V)
     moved_dist = torch.stack(moved_list).mean(dim=0)    # (N,)
+
+    # Determine the nearest word per projector, then keep the majority vote.
     preds = torch.stack(nearest_list)                   # (M,N)
     nearest_word, _ = preds.mode(dim=0)
     counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
-    plan_torch = torch.from_numpy(plan).float() if plan is not None else torch.empty(0)
+
+    # Save the OT transport plan from the last projector for optional debugging.
+    plan_torch = (
+        torch.from_numpy(plan).float() if plan is not None else torch.empty(0)
+    )
 
     # --------------------------------------------------------- 4. certainty
     # We first obtain all indices ordered *by decreasing uncertainty*,
@@ -359,12 +385,13 @@ def align_more_instances(
         transport_plan=plan if metric == "entropy" else None,
         dist_matrix=dist_matrix.numpy() if metric == "gap" else None,
         metric=metric,
-    )                                         # most-uncertain → least-certain
-    order_cert = order_unc[::-1]              # least-uncertain first
+    )  # most-uncertain → least-certain
+    order_cert = order_unc[::-1]  # flip order to iterate from most certain
 
-    mask_new = (aligned_all == -1).numpy()
+    mask_new = (aligned_all == -1).numpy()  # only unaligned items are eligible
     chosen: List[int] = []
     for idx in order_cert:
+        # Accept rows with enough votes until ``k`` new pseudo-labels are found.
         if mask_new[idx] and counts[idx].item() >= agree_threshold:
             chosen.append(idx)
             if len(chosen) == min(k, mask_new.sum()):
@@ -373,11 +400,13 @@ def align_more_instances(
 
     # --------------------------------------------------------- 5. label writing
     if chosen:
+        # Write the predicted word indices back into ``dataset.aligned`` for the
+        # newly selected items.
         dataset.aligned[chosen_tensor] = nearest_word[chosen_tensor].to(torch.int32)
 
     # --------------------------------------------------------- 6. logging
     if k > 0 and chosen:
-        # accuracy on *just* the new items
+        # Accuracy on *just* the new items
         correct_new = sum(
             dataset.external_words[dataset.aligned[i].item()] ==
             dataset.transcriptions[i].strip()
@@ -389,7 +418,7 @@ def align_more_instances(
             f"({correct_new/len(chosen):.1%})"
         )
 
-        # 10 random examples
+        # Show up to 10 random example predictions
         for idx in random.sample(chosen, min(10, len(chosen))):
             gt   = dataset.transcriptions[idx].strip()
             pred = dataset.external_words[dataset.aligned[idx].item()]
@@ -402,7 +431,9 @@ def align_more_instances(
         if metric == "gap":
             top2 = torch.topk(dist_matrix[chosen_tensor], 2, largest=False).values
             gap_vals = (top2[:, 1] - top2[:, 0])
-            print(f"[Align] mean NN-gap: {gap_vals.mean():.4f} ± {gap_vals.std(unbiased=False):.4f}")
+            print(
+                f"[Align] mean NN-gap: {gap_vals.mean():.4f} ± {gap_vals.std(unbiased=False):.4f}"
+            )
         else:  # entropy
             row = plan[chosen] / plan[chosen].sum(axis=1, keepdims=True)
             ent = -(row * np.log(row + 1e-12)).sum(axis=1)
@@ -411,6 +442,7 @@ def align_more_instances(
     # cumulative accuracy
     aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
     if aligned_idx.numel():
+        # Evaluate cumulative pseudo-labelling accuracy on all aligned samples so far.
         correct_tot = sum(
             dataset.external_words[dataset.aligned[i].item()] ==
             dataset.transcriptions[i].strip()
@@ -422,9 +454,11 @@ def align_more_instances(
             f"{aligned_idx.numel()} of {len(dataset)} samples aligned"
         )
 
+    # Restore training mode on backbone and projectors before returning.
     for proj in projs:
         proj.train()
     backbone.train()
+    # Mean of projected descriptors across projectors can be handy for metrics.
     proj_feats_mean = Z.mean(dim=0)
     return plan_torch, proj_feats_mean, moved_dist
 
