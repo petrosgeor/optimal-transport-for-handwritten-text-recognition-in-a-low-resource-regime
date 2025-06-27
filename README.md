@@ -23,6 +23,11 @@ Key features:
 - The `forward` method returns CTC logits and optionally image descriptors.
   For the transformer head, provide `transf_d_model`, `transf_nhead`,
   `transf_layers` and `transf_dim_ff` in the architecture config.
+- With `flattening='maxpool'`, the CNN collapses the height dimension of its
+  output. For an input batch of width `W`, `t = self.features(x)` has shape
+  `(batch_size, last_cnn_channels, 1, W_out)` where `last_cnn_channels` is the
+  last channel count in `cnn_cfg` and `W_out` is roughly `W/8` with the default
+  configuration.
 
 Example usage:
 ```python
