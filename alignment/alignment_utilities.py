@@ -11,6 +11,9 @@ import ot
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.spatial import distance
+from omegaconf import OmegaConf
+
+cfg = OmegaConf.load("alignment/config.yaml")
 
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
@@ -59,7 +62,7 @@ def harvest_backbone_features(
     *,
     batch_size: int = 64,
     num_workers: int = 0,
-    device: torch.device = "cuda",
+    device: torch.device = torch.device(cfg.device),
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Return image descriptors and alignment info for the whole dataset.
 
@@ -243,7 +246,7 @@ def align_more_instances(
     projectors: Sequence[nn.Module],
     *,
     batch_size: int = 512,
-    device: str = "cpu",
+    device: str = cfg.device,
     reg: float = 0.1,
     unbalanced: bool = False,
     reg_m: float = 1.0,
@@ -455,7 +458,13 @@ def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
     plt.close(fig)
 
 
-def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) -> None:
+def plot_tsne_embeddings(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    save_path: str,
+    *,
+    device: torch.device = torch.device(cfg.device),
+) -> None:
     """Generate a coloured t-SNE plot of backbone embeddings and save it.
 
     Features and current alignment labels are harvested from ``dataset`` using
@@ -472,7 +481,7 @@ def plot_tsne_embeddings(dataset: HTRDataset, backbone: HTRNet, save_path: str) 
         Path where the generated t-SNE plot (PNG image) will be saved.
     """
     # Determine device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(device)
 
     # print(f"Harvesting features for t-SNE plot on device: {device}")
     features, aligned = harvest_backbone_features(dataset, backbone, device=device)

@@ -30,6 +30,11 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
 
 yaml_cfg = OmegaConf.load(Path(__file__).with_name("config.yaml"))
+GPU_ID = int(yaml_cfg.get("gpu_id", 0))
+DEVICE = str(yaml_cfg.get("device", "cuda"))
+os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
+if DEVICE.startswith("cuda"):
+    DEVICE = f"cuda:{GPU_ID}"
 ENABLE_PHOC = bool(yaml_cfg.get("enable_phoc", False))
 PHOC_LEVELS = tuple(yaml_cfg.get("phoc_levels", (1, 2, 3, 4)))
 PHOC_W = float(yaml_cfg.get("phoc_loss_weight", 0.1))
@@ -62,8 +67,7 @@ PRETRAINING_CONFIG = {
     "learning_rate": 1e-3,
     "base_path": None,
     "fixed_size": (64, 256),
-    "device": "cuda" if torch.cuda.is_available() else "cpu",
-    "gpu_id": 0,
+    "device": DEVICE,
     "use_augmentations": True,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
@@ -71,7 +75,6 @@ PRETRAINING_CONFIG = {
     "save_backbone": True,
     "results_file": False,
 }
-DEVICE = PRETRAINING_CONFIG["device"]
 # Architecture configuration for the pretraining backbone
 # Loaded from alignment/config.yaml to stay consistent with other scripts
 ARCHITECTURE_CONFIG = yaml_cfg["architecture"]
@@ -91,11 +94,9 @@ def main(config: dict | None = None) -> Path:
     base_path = config.get("base_path", None)
     fixed_size = config["fixed_size"]
     device = config["device"]
-    gpu_id = config.get("gpu_id", None)
+    gpu_id = config.pop("gpu_id", None)
     if gpu_id is not None:
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
-        if str(device).startswith("cuda"):
-            device = f"cuda:{gpu_id}"
+        print("[Pretraining] 'gpu_id' in config is ignored; set it in alignment/config.yaml")
     use_augmentations = config.get("use_augmentations", True)
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
@@ -112,7 +113,7 @@ def main(config: dict | None = None) -> Path:
         print(f"  device: {device}")
         print(f"  augmentations: {use_augmentations}")
         print(f"  save_backbone: {save_backbone}")
-        print(f"  gpu_id: {gpu_id}")
+        print(f"  gpu_id: {GPU_ID}")
         if base_path is None:
             base_path = str(Path(list_file).parent)
         # Create training dataset with optional augmentations

@@ -872,7 +872,14 @@ def test_simple_train_script(tmp_path, capsys):
 
 
 def test_pretraining_single_gpu(monkeypatch, tmp_path):
+    cfg_file = Path('alignment/config.yaml')
+    orig = cfg_file.read_text()
+    yaml_cfg = OmegaConf.load(cfg_file)
+    yaml_cfg['gpu_id'] = 3
+    OmegaConf.save(yaml_cfg, cfg_file)
+    import importlib
     from alignment import pretraining
+    importlib.reload(pretraining)
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
     base = tmp_path
     shutil.copy(src, base / 'foo_word_0.png')
@@ -880,7 +887,6 @@ def test_pretraining_single_gpu(monkeypatch, tmp_path):
     with open(list_file, 'w') as f:
         f.write('foo_word_0.png\n')
 
-    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
     called = {}
 
     def fake_dp(module, device_ids=None):
@@ -898,12 +904,15 @@ def test_pretraining_single_gpu(monkeypatch, tmp_path):
         'base_path': str(base),
         'fixed_size': (32, 128),
         'device': 'cpu',
-        'gpu_id': 3,
     }
-
-    pretraining.main(cfg)
     assert os.environ.get('CUDA_VISIBLE_DEVICES') == '3'
-    assert not called
+    try:
+        pretraining.main(cfg)
+        assert os.environ.get('CUDA_VISIBLE_DEVICES') == '3'
+        assert not called
+    finally:
+        cfg_file.write_text(orig)
+        importlib.reload(pretraining)
 
 
 def test_vocab_dict_loading():
