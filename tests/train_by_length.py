@@ -2,6 +2,11 @@ from __future__ import annotations
 import os, sys, random
 from types import SimpleNamespace
 from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]  # project root for local imports
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
+
 import pickle
 from htr_base.utils.vocab import load_vocab
 from omegaconf import OmegaConf
@@ -55,7 +60,7 @@ ARCHITECTURE_CONFIG = {
 DATASET_BASE_FOLDER_NAME = "GW"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
-LOAD_PRETRAINED_BACKBONE = False
+LOAD_PRETRAINED_BACKBONE = True
 DECODE_CONFIG = {
     "method": "beam",  # 'greedy' or 'beam'
     "beam_width": 3,
@@ -68,9 +73,7 @@ import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader, Subset
 import matplotlib.pyplot as plt
 from collections import Counter
-root = Path(__file__).resolve().parents[1]  # project root for local imports
-if str(root) not in sys.path:
-    sys.path.insert(0, str(root))
+
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset  # for the priors
 from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
@@ -441,8 +444,8 @@ if __name__ == "__main__":
         fixed_size=DATASET_FIXED_SIZE,
         base_path=str(corp_root),
         transforms=aug_transforms,
-        n_random=1000,
-        preload_images=True
+        n_random=7000,
+        preload_images=False
     )
     # build vector Q (same order as network classes, blank excluded)
     prior_dict = HTRDataset.letter_priors()
