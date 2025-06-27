@@ -74,8 +74,11 @@ ARCHITECTURE_CONFIG = {
     "rnn_hidden_size": 256,
     "flattening": "maxpool",
     "stn": False,
-    "feat_dim": None,
+    "feat_dim": 512,
+    "feat_pool": "attn",
 }
+
+
 def _build_vocab(transcriptions):
     """Build character-to-index mapping from transcriptions."""
     chars = sorted(set(''.join(transcriptions)))
