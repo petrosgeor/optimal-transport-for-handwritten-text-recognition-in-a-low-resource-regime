@@ -4,6 +4,7 @@ import os, sys, random, pickle
 from pathlib import Path
 from types import SimpleNamespace
 from contextlib import contextmanager, nullcontext
+from typing import Dict, Tuple, List
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
 # ------------------------------------------------------------------
@@ -58,7 +59,7 @@ PRETRAINING_CONFIG = {
     "base_path": None,
     "fixed_size": (64, 256),
     "device": "cuda" if torch.cuda.is_available() else "cpu",
-    "gpu_ids": [0],
+    "gpu_ids": [1],
     "use_augmentations": False,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
@@ -81,10 +82,9 @@ ARCHITECTURE_CONFIG = {
     "feat_dim": 512,
     "feat_pool": "attn",
 }
-def _build_vocab(_: list | None = None) -> Dict[str, int]:
-    """Return the project vocabulary loaded from disk."""
-    c2i, _ = load_vocab()
-    return c2i
+
+
+
 def main(config: dict | None = None) -> Path:
     """Train a small HTRNet on the given image list using dictionary configuration."""
     if config is None:
@@ -210,7 +210,7 @@ def main(config: dict | None = None) -> Path:
             for imgs, txts in train_loader:
                 imgs = imgs.to(device)
 
-                print('the min and max of imgs: ', imgs[0].min(), imgs[0].max())
+                # print('the min and max of imgs: ', imgs[0].min(), imgs[0].max())
 
                 out = net(imgs, return_feats=False)
                 main_logits, aux_logits = out[:2]
@@ -243,10 +243,10 @@ def main(config: dict | None = None) -> Path:
                     save_dir = Path(save_path).parent
                     save_dir.mkdir(parents=True, exist_ok=True)
                     torch.save(net.state_dict(), save_path)
-                    with open(save_dir / "c2i.pkl", "wb") as f:
-                        pickle.dump(c2i, f)
-                    with open(save_dir / "i2c.pkl", "wb") as f:
-                        pickle.dump(i2c, f)
+                    # with open(save_dir / "c2i.pkl", "wb") as f:
+                    #     pickle.dump(c2i, f)
+                    # with open(save_dir / "i2c.pkl", "wb") as f:
+                    #     pickle.dump(i2c, f)
                     print(f"[Pretraining] Model saved to: {save_path}")
         return Path(save_path)
 if __name__ == '__main__':
