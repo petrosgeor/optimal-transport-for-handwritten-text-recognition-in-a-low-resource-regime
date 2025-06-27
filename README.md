@@ -405,7 +405,18 @@ Key options:
 * **wasserstein\_L2(p, q)** – L2 distance between two distributions.
 * **word\_silhouette\_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
 * **_ctc_loss_fn(logits, targets, inp_lens, tgt_lens)** – wrapper around PyTorch's CTC loss with log-softmax and zero-infinity handling.
-* **load_vocab()** – load character-to-index and index-to-character dictionaries from `htr_base/saved_models/c2i.pkl` and `i2c.pkl`.
+* **load_vocab()** – fetch the `c2i` and `i2c` dictionaries from `htr_base/saved_models`, calling `create_vocab()` if the pickles are missing.
+
+## load_vocab
+
+Located in `htr_base/utils/vocab.py`. Loads the character vocabulary used throughout the codebase.
+
+```python
+def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
+    """Load ``c2i`` and ``i2c`` dictionaries, creating them on first use."""
+```
+
+* Returns ``c2i`` and ``i2c`` dictionaries for encoding and decoding characters.
 
 ## Requirements
 
