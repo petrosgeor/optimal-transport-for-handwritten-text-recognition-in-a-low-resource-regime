@@ -377,16 +377,7 @@ if __name__ == "__main__":
         config=DummyCfg(),
     )
 
-    arch = SimpleNamespace(
-        cnn_cfg=[[2, 64], "M", [3, 128], "M", [2, 256]],
-        head_type="both",
-        rnn_type="gru",
-        rnn_layers=3,
-        rnn_hidden_size=256,
-        flattening="maxpool",
-        stn=False,
-        feat_dim=512,
-    )
+    arch = SimpleNamespace(**cfg["architecture"])
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
     projectors = [
         Projector(arch.feat_dim, dataset.word_emb_dim)

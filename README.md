@@ -10,7 +10,7 @@ Most of the logic for alignment and model training lives in the `alignment` dire
 
 ## HTRNet
 
-`htr_base/models.py` defines the main neural network used throughout the codebase. `HTRNet` is composed of a CNN backbone followed by different CTC heads. The architecture is configurable through a YAML file or a small namespace object.
+`htr_base/models.py` defines the main neural network used throughout the codebase. `HTRNet` is composed of a CNN backbone followed by different CTC heads. The architecture is configurable through a YAML file or a small namespace object. All alignment scripts read these parameters from `alignment/config.yaml`.
 
 Key features:
 
@@ -394,6 +394,9 @@ Key options:
 * `ensemble_size` – how many projectors to train in parallel.
 * `agree_threshold` – votes required before pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
+* `architecture` – dictionary defining the HTRNet backbone parameters:
+  `cnn_cfg`, `head_type`, `rnn_type`, `rnn_layers`, `rnn_hidden_size`,
+  `flattening`, `stn`, `feat_dim`, `feat_pool` and `phoc_levels`.
 
 
 ## Utilities / Metrics

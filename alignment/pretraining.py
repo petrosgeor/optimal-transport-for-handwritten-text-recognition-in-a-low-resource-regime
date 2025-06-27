@@ -73,19 +73,8 @@ PRETRAINING_CONFIG = {
 }
 DEVICE = PRETRAINING_CONFIG["device"]
 # Architecture configuration for the pretraining backbone
-# Matches exactly the config used in alignment_trainer.py
-ARCHITECTURE_CONFIG = {
-    "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
-    "head_type": "both",
-    "rnn_type": "gru",
-    "rnn_layers": 3,
-    "rnn_hidden_size": 256,
-    "flattening": "maxpool",
-    "stn": False,
-    "feat_dim": 512,
-    "feat_pool": "attn",
-    "phoc_levels": PHOC_LEVELS,
-}
+# Loaded from alignment/config.yaml to stay consistent with other scripts
+ARCHITECTURE_CONFIG = yaml_cfg["architecture"]
 
 def main(config: dict | None = None) -> Path:
     """Train a small HTRNet on the given image list using dictionary configuration."""

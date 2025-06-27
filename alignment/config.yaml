@@ -53,3 +53,18 @@ prior_weight: 6            # weight of the Wasserstein prior loss
 enable_phoc: true        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # same default as HTRNet
 phoc_loss_weight: 0.1     # loss scaling factor
+
+# ----------------------------------------------------------------------
+# Default HTRNet architecture
+# ----------------------------------------------------------------------
+architecture:
+  cnn_cfg: [[2, 64], "M", [3, 128], "M", [2, 256]]
+  head_type: both
+  rnn_type: gru
+  rnn_layers: 3
+  rnn_hidden_size: 256
+  flattening: maxpool
+  stn: false
+  feat_dim: 512
+  feat_pool: attn
+  phoc_levels: [1, 2, 3, 4]
