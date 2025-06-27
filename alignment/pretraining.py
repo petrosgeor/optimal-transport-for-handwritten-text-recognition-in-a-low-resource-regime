@@ -22,10 +22,17 @@ from alignment.ctc_utils import (
     beam_search_ctc_decode,
 )
 from alignment.losses import _ctc_loss_fn
+from htr_base.utils.phoc import build_phoc_description
+from omegaconf import OmegaConf
 import torch
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
+
+yaml_cfg = OmegaConf.load(Path(__file__).with_name("config.yaml"))
+ENABLE_PHOC = bool(yaml_cfg.get("enable_phoc", False))
+PHOC_LEVELS = tuple(yaml_cfg.get("phoc_levels", (1, 2, 3, 4)))
+PHOC_W = float(yaml_cfg.get("phoc_loss_weight", 0.1))
 class _Tee:
     """Write to multiple streams simultaneously."""
     def __init__(self, *streams):
@@ -77,6 +84,7 @@ ARCHITECTURE_CONFIG = {
     "stn": False,
     "feat_dim": 512,
     "feat_pool": "attn",
+    "phoc_levels": PHOC_LEVELS,
 }
 
 def main(config: dict | None = None) -> Path:
@@ -210,31 +218,44 @@ def main(config: dict | None = None) -> Path:
         for epoch in range(num_epochs):
             epoch_loss = 0.0
             num_batches = 0
+            phoc_epoch_loss = 0.0
             for imgs, txts in train_loader:
                 imgs = imgs.to(device)
-                out = net(imgs, return_feats=False)
+                out = net(imgs) if ENABLE_PHOC else net(imgs, return_feats=False)
                 main_logits, aux_logits = out[:2]
+                if ENABLE_PHOC:
+                    phoc_logits = out[-1]
                 # Prepare CTC targets
                 targets, lengths = encode_for_ctc(list(txts), c2i)
                 inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
                 # Compute losses
                 loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
                 loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
-                loss = main_weight * loss_main + aux_weight * loss_aux
+                if ENABLE_PHOC:
+                    phoc_targets = build_phoc_description([t.strip() for t in txts], c2i, levels=PHOC_LEVELS).float().to(device)
+                    assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
+                    loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+                else:
+                    loss_phoc = torch.tensor(0.0, device=device)
+                total_loss = (main_weight * loss_main + aux_weight * loss_aux + PHOC_W * loss_phoc)
                 # Optimization step
-                loss.backward()
+                total_loss.backward()
                 opt.step()
                 opt.zero_grad(set_to_none=True)
-                epoch_loss += loss.item()
+                epoch_loss += total_loss.item()
+                phoc_epoch_loss += loss_phoc.item()
                 num_batches += 1
             avg_loss = epoch_loss / max(1, num_batches)
+            avg_phoc_loss = phoc_epoch_loss / max(1, num_batches)
             sched.step()
             # Print progress every 20 epochs or on last epoch
             if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
                 lr_val = sched.get_last_lr()[0]
-                print(
-                    f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f} - lr: {lr_val:.2e}"
-                )
+                msg = f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}"
+                if ENABLE_PHOC:
+                    msg += f" - PHOC: {avg_phoc_loss:.4f}"
+                msg += f" - lr: {lr_val:.2e}"
+                print(msg)
                 _evaluate_cer(test_loader)
                 _decode_random_samples(test_set)
                 if save_backbone:
