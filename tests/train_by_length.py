@@ -82,7 +82,6 @@ from alignment.ctc_utils import (
     greedy_ctc_decode,
     beam_search_ctc_decode,
 )
-from alignment.alignment_utilities import predicted_char_distribution
 from alignment.losses import _ctc_loss_fn
 
 # ---------------------------------------------------------------------
@@ -384,7 +383,8 @@ def refine_visual_model(dataset: HTRDataset,
                 else torch.tensor(0.0, device=main_logits.device)
             )
             if prior is not None:
-                D = predicted_char_distribution(main_logits)
+                probs = main_logits.softmax(dim=2)[:, :, 1:]
+                D = probs.mean(dim=(0, 1))
                 loss_prior = wasserstein_L2(D[1:], prior)
             else:
                 loss_prior = torch.tensor(0.0, device=main_logits.device)
