@@ -124,23 +124,6 @@ def harvest_backbone_features(
     return feats_all, aligned_all
 
 
-def predicted_char_distribution(logits: torch.Tensor) -> torch.Tensor:
-    """Return the average non‑blank character distribution.
-
-    Parameters
-    ----------
-    logits : torch.Tensor
-        Backbone outputs shaped ``(T, B, C)`` where index 0 is the CTC blank.
-
-    Returns
-    -------
-    torch.Tensor
-        1‑D tensor of length ``C-1`` with the average probability assigned to
-        each character excluding the blank.
-    """
-
-    probs = logits.softmax(dim=2)[:, :, 1:]
-    return probs.mean(dim=(0, 1))
 
 
 def calculate_ot_projections(

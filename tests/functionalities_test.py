@@ -18,7 +18,6 @@ from alignment.alignment_utilities import (
     align_more_instances,
     print_dataset_stats,
     plot_projector_tsne,
-    predicted_char_distribution,
 )
 from alignment.alignment_trainer import tee_output
 from alignment.alignment_trainer import (
@@ -372,16 +371,6 @@ def test_train_projector_with_tsne(tmp_path):
     assert (figs / 'tsne_backbone.png').exists()
     assert any(figs.glob('tsne_projections_*.png'))
 
-
-def test_predicted_char_distribution():
-    logits = torch.randn(4, 2, 5)
-    dist = predicted_char_distribution(logits)
-    probs = logits.softmax(dim=2)
-    expected = probs[:, :, 1:].mean(dim=(0, 1))
-    assert dist.shape == (logits.size(2) - 1,)
-    assert torch.allclose(dist, expected)
-    blank_prob = probs[:, :, 0].mean()
-    assert torch.allclose(dist.sum(), 1 - blank_prob)
 
 
 def test_wasserstein_L2():
