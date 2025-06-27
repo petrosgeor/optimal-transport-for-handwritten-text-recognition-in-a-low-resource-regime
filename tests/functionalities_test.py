@@ -90,6 +90,15 @@ def test_external_words_lowercase():
     assert all(w.islower() for w in dataset.external_words)
 
 
+def test_dataset_default_vocab(monkeypatch):
+    def fake_load_vocab():
+        return {"@": 1, "#": 2}, {1: "@", 2: "#"}
+
+    monkeypatch.setattr("htr_base.utils.htr_dataset.load_vocab", fake_load_vocab)
+    ds = HTRDataset("htr_base/data/GW/processed_words", subset="train", fixed_size=(32, 128))
+    assert ds.character_classes == ["@", "#"]
+
+
 def test_tee_output(tmp_path, capsys):
     out_file = tmp_path / "log.txt"
     with tee_output(out_file):
