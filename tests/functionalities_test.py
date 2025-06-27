@@ -18,6 +18,7 @@ from alignment.alignment_utilities import (
     align_more_instances,
     print_dataset_stats,
     plot_projector_tsne,
+    plot_pretrained_backbone_tsne,
 )
 from alignment.alignment_trainer import tee_output
 from alignment.alignment_trainer import (
@@ -194,6 +195,13 @@ def test_plot_projector_tsne(tmp_path):
     projections = torch.randn(len(ds), ds.word_emb_dim)
     out_file = tmp_path / 'proj_tsne.png'
     plot_projector_tsne(projections, ds, out_file)
+    assert out_file.exists()
+
+
+def test_plot_pretrained_backbone_tsne(tmp_path):
+    ds = _tiny_dataset()
+    out_file = tmp_path / "pretrained_tsne.png"
+    plot_pretrained_backbone_tsne(ds, 5, out_file)
     assert out_file.exists()
 
 

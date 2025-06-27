@@ -1,6 +1,7 @@
 """Utility functions for aligning dataset instances to external words."""
 
 from typing import Optional, Tuple, List, Sequence
+from pathlib import Path
 
 import os
 import random
@@ -546,3 +547,74 @@ def plot_projector_tsne(
     plt.savefig(save_path)
     plt.close(fig)
 
+
+
+def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path: str) -> None:
+    """Plot t-SNE embeddings from the pretrained backbone.
+
+    Parameters
+    ----------
+    dataset : HTRDataset
+        Dataset instance providing images and alignment labels.
+    n_samples : int
+        Number of random samples to visualise.
+    save_path : str
+        Path where the PNG figure will be saved.
+    """
+    from types import SimpleNamespace
+    from omegaconf import OmegaConf
+    from htr_base.utils.vocab import load_vocab
+
+    cfg = OmegaConf.load(Path(__file__).with_name("config.yaml"))
+    arch_cfg = SimpleNamespace(**cfg["architecture"])
+    c2i, _ = load_vocab()
+    backbone = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    state = torch.load(
+        "htr_base/saved_models/pretrained_backbone.pt", map_location=device
+    )
+    backbone.load_state_dict(state)
+    backbone.eval().to(device)
+
+    indices = random.sample(range(len(dataset)), min(len(dataset), n_samples))
+    orig_transforms = getattr(dataset, "transforms", None)
+    dataset.transforms = None
+    loader = torch.utils.data.DataLoader(
+        torch.utils.data.Subset(dataset, indices),
+        batch_size=64,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
+    )
+    feats_buf: list[torch.Tensor] = []
+    aligned_buf: list[torch.Tensor] = []
+    with torch.no_grad():
+        for imgs, _txt, aligned in loader:
+            imgs = imgs.to(device)
+            feats = backbone(imgs, return_feats=True)[-1]
+            feats_buf.append(feats.cpu())
+            aligned_buf.append(aligned.cpu())
+    dataset.transforms = orig_transforms
+
+    feats_all = torch.cat(feats_buf, dim=0)
+    aligned_all = torch.cat(aligned_buf, dim=0)
+
+    perplexity = min(30, max(1, feats_all.size(0) // 3))
+    tsne = TSNE(
+        n_components=2,
+        random_state=42,
+        perplexity=perplexity,
+        init="pca",
+        learning_rate="auto",
+    )
+    tsne_res = tsne.fit_transform(feats_all.numpy())
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    colors = ["blue" if int(a.item()) == 1 else "black" for a in aligned_all]
+    ax.scatter(tsne_res[:, 0], tsne_res[:, 1], s=5, c=colors)
+    ax.set_title("t-SNE of pretrained backbone")
+    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close(fig)
