@@ -1157,3 +1157,35 @@ def test_htrnet_feat_pool_invalid():
 def test_google_drive_upload_import():
     pytest.importorskip("googleapiclient")
     from google_drive_upload import upload_to_drive
+
+
+# New PHOC tests
+
+from htr_base.utils.phoc import build_phoc_description
+
+
+def test_phoc_shapes():
+    c2i, _ = load_vocab()
+    words = [" hello ", " world "]
+    phoc = build_phoc_description(words, c2i)
+    assert phoc.shape[0] == len(words)
+    expected_dim = len(c2i) * 10
+    assert phoc.shape[1] == expected_dim
+    assert phoc.dtype == torch.bool or phoc.max() <= 1
+
+
+def test_htrnet_phoc_head_outputs():
+    arch = SimpleNamespace(
+        cnn_cfg=[[2,64],'M',[3,128],'M',[2,256]],
+        head_type='both',
+        rnn_type='gru', rnn_layers=3, rnn_hidden_size=256,
+        flattening='maxpool', stn=False,
+        feat_dim=512,
+        feat_pool='attn',
+        phoc_levels=(1,2,3,4),
+    )
+    c2i, _ = load_vocab()
+    model = HTRNet(arch, nclasses=len(c2i)+1)
+    dummy = torch.randn(1,1,128,512)
+    outs = model(dummy)
+    assert len(outs) == 4

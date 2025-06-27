@@ -235,16 +235,33 @@ class HTRNet(nn.Module):
                 raise ValueError(
                     f"Unknown feat_pool '{self.feat_pool}'. Supported: 'avg', 'attn'"
                 )
+        
+        self.phoc_levels = getattr(arch_cfg, 'phoc_levels', None)
+        if self.feat_dim and self.phoc_levels:
+            phoc_dim = (nclasses - 1) * sum(self.phoc_levels)
+            self.phoc_head = nn.Sequential(
+                nn.ReLU(inplace=True),
+                nn.Linear(self.feat_dim, phoc_dim)
+            )
+        else:
+            self.phoc_head = None
 
     def forward(self, x, *, return_feats: bool = True):
         y = self.features(x)
         feat = self.feat_head(y) if self.feat_dim and return_feats else None
         logits = self.top(y)
-        if feat is None:
+        phoc_logits = None
+        if self.phoc_head is not None and feat is not None:
+            phoc_logits = self.phoc_head(feat)
+        if feat is None and phoc_logits is None:
             return logits
         if isinstance(logits, tuple):
-            return (*logits, feat)
-        return logits, feat
+            out = (*logits, feat)
+        else:
+            out = (logits, feat)
+        if phoc_logits is not None:
+            out = (*out, phoc_logits)
+        return out
     
 
 

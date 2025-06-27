@@ -20,6 +20,12 @@ Key features:
 - **feat_pool**: how to collapse the CNN feature map when `feat_dim` is set.
   * "avg" (default) – global average + two linear layers (old behaviour)
   * "attn" – **learned attention pooling** (new)
+- **PHOC branch (optional)** – If the architecture config contains
+  `phoc_levels` (e.g. `(1,2,3,4)`), a small head `ReLU → Linear(feat_dim →
+  |vocab|×Σlevels)` is attached to the global feature vector and the
+  network returns **four** tensors: `(main_logits, aux_logits, features,
+  phoc_logits)`. Use `htr_base.utils.build_phoc_description` to build matching
+  binary targets for a BCE loss.
 - The `forward` method returns CTC logits and optionally image descriptors.
   For the transformer head, provide `transf_d_model`, `transf_nhead`,
   `transf_layers` and `transf_dim_ff` in the architecture config.
@@ -410,6 +416,7 @@ Key options:
 * **wasserstein\_L2(p, q)** – L2 distance between two distributions.
 * **word\_silhouette\_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.
 * **_ctc_loss_fn(logits, targets, inp_lens, tgt_lens)** – wrapper around PyTorch's CTC loss with log-softmax and zero-infinity handling.
+* **build_phoc_description(words, c2i, levels=(1,2,3,4))** – convert a list of words into binary PHOC descriptors.
 * **load_vocab()** – fetch the `c2i` and `i2c` dictionaries from `htr_base/saved_models`, calling `create_vocab()` if the pickles are missing.
 
 ## load_vocab
