@@ -117,7 +117,7 @@ The script trains the projector for 2000 epochs and halves the learning rate eve
 `alignment/pretraining.py` trains a small backbone on an image list. All
 options are stored in the `PRETRAINING_CONFIG` dictionary.  Modify this
 dictionary or pass your own configuration to `pretraining.main` to control
-the list file, number of GPUs or whether output should be written to
+ the list file, GPU index or whether output should be written to
 `pretraining_results.txt`.  When `results_file` is `True` the script also
 evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
 stdout to that file.
@@ -130,7 +130,7 @@ output into a file wrap the call in `tee_output('pretraining_results.txt')`:
 ```python
 from alignment import pretraining
 
-cfg = {"gpu_ids": [0], "base_path": "/data/images"}
+cfg = {"gpu_id": 0, "base_path": "/data/images"}
 pretraining.main(cfg)
 ```
 

@@ -59,7 +59,7 @@ PRETRAINING_CONFIG = {
     "base_path": None,
     "fixed_size": (64, 256),
     "device": "cuda" if torch.cuda.is_available() else "cpu",
-    "gpu_ids": [1],
+    "gpu_id": 1,
     "use_augmentations": False,
     "main_loss_weight": 1.0,
     "aux_loss_weight": 0.1,
@@ -100,13 +100,11 @@ def main(config: dict | None = None) -> Path:
     base_path = config.get("base_path", None)
     fixed_size = config["fixed_size"]
     device = config["device"]
-    gpu_ids = config.get("gpu_ids", [0])
-    if isinstance(gpu_ids, str):
-        gpu_ids = [int(g) for g in gpu_ids.split(',') if g]
-    elif isinstance(gpu_ids, int):
-        gpu_ids = [gpu_ids]
-    if len(gpu_ids) > 1:
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(str(g) for g in gpu_ids)
+    gpu_id = config.get("gpu_id")
+    if gpu_id is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+        if str(device).startswith("cuda"):
+            device = f"cuda:{gpu_id}"
     use_augmentations = config.get("use_augmentations", True)
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
@@ -123,7 +121,7 @@ def main(config: dict | None = None) -> Path:
         print(f"  device: {device}")
         print(f"  augmentations: {use_augmentations}")
         print(f"  save_backbone: {save_backbone}")
-        print(f"  gpu_ids: {gpu_ids}")
+        print(f"  gpu_id: {gpu_id}")
         if base_path is None:
             base_path = str(Path(list_file).parent)
         # Create training dataset with optional augmentations
@@ -155,8 +153,6 @@ def main(config: dict | None = None) -> Path:
         print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
         arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
         net = HTRNet(arch, nclasses=nclasses).to(device).train()
-        if len(gpu_ids) > 1:
-            net = nn.DataParallel(net, device_ids=list(range(len(gpu_ids))))
         # if Path(save_path).exists():
         #     print(f"[Pretraining] Loading checkpoint from {save_path}")
         #     state = torch.load(save_path, map_location=device)
@@ -243,10 +239,10 @@ def main(config: dict | None = None) -> Path:
                     save_dir = Path(save_path).parent
                     save_dir.mkdir(parents=True, exist_ok=True)
                     torch.save(net.state_dict(), save_path)
-                    # with open(save_dir / "c2i.pkl", "wb") as f:
-                    #     pickle.dump(c2i, f)
-                    # with open(save_dir / "i2c.pkl", "wb") as f:
-                    #     pickle.dump(i2c, f)
+                    with open(save_dir / "c2i.pkl", "wb") as f:
+                        pickle.dump(c2i, f)
+                    with open(save_dir / "i2c.pkl", "wb") as f:
+                        pickle.dump(i2c, f)
                     print(f"[Pretraining] Model saved to: {save_path}")
         return Path(save_path)
 if __name__ == '__main__':
