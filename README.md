@@ -129,7 +129,7 @@ output into a file wrap the call in `tee_output('pretraining_results.txt')`:
 ```python
 from alignment import pretraining
 
-cfg = {"gpu_ids": [0], "base_path": "/data/images"}
+cfg = {"gpu_id": 0, "base_path": "/data/images"}
 pretraining.main(cfg)
 ```
 
