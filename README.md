@@ -285,20 +285,6 @@ def harvest_backbone_features(dataset, backbone, *, batch_size=512,
 
 Dataset augmentations are disabled while features are harvested.
 
-## predicted\_char\_distribution
-
-Also in `alignment/alignment_utilities.py`. Given the CTC logits returned by
-`HTRNet`, this helper computes the average probability assigned to each
-character while ignoring the blank label.
-
-```python
-def predicted_char_distribution(logits):
-    """Return average non-blank character probabilities."""
-```
-
-* `logits`: tensor `(T, B, C)` from the backbone where index 0 is the blank.
-* Returns a 1‑D tensor of shape `(C-1,)` with probabilities for each character.
-
 ## refine\_visual\_backbone
 
 Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
