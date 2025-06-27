@@ -13,16 +13,17 @@ def build_phoc_description(words: List[str],
     words : list[str]
         Words to encode.
     c2i : dict[str, int]
-        Mapping from character to index; index 0 is the blank.
+        Mapping from character to index. This dictionary **does not**
+        contain the CTC blank which is implicitly reserved at index 0.
     levels : list[int], optional
         Pyramid levels. Default ``(1, 2, 3, 4)``.
 
     Returns
     -------
     torch.BoolTensor
-        Tensor of shape ``(B, |c2i|-1 * sum(levels))`` with PHOC descriptors.
+        Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors.
     """
-    # alphabet excluding blank id 0, ordered by index
+    # alphabet ordered by index (index 0 reserved for the CTC blank)
     alphabet = [c for c, i in sorted(c2i.items(), key=lambda kv: kv[1]) if i != 0]
     char_to_pos = {c: p for p, c in enumerate(alphabet)}
     dim_per_level = len(alphabet)
