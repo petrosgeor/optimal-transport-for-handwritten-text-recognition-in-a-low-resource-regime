@@ -260,7 +260,6 @@ def select_uncertain_instances(
 def align_more_instances(
     dataset: HTRDataset,
     backbone: HTRNet,
-    projectors: Sequence[nn.Module],
     *,
     batch_size: int = 512,
     device: str = "cpu",
@@ -273,28 +272,26 @@ def align_more_instances(
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Use OT to project each projector's descriptors onto the external
+    Use OT to project backbone descriptors onto the external
     word-embedding space, then pseudo-label the **k most-certain yet-unaligned**
-    images. Predictions are combined by majority vote and only accepted when the
-    number of agreeing projectors meets ``agree_threshold``.
+    images. ``agree_threshold`` gates pseudo-labelling but descriptors come
+    directly from the backbone so ``counts`` are always one.
 
     Parameters
     ----------
-    projectors : sequence of nn.Module
-        One or more projector networks producing word-space descriptors.
     metric : {'gap', 'entropy'}
         How certainty is measured:
         * **gap**     – nearest-word margin  (large ⇒ confident)
         * **entropy** – OT row entropy       (small ⇒ confident)
 
     agree_threshold : int
-        Minimum number of votes required for a pseudo-label to be accepted.
+        Minimum count required for a pseudo-label to be accepted.
 
     Returns
     -------
     plan_torch   : (N, V) float32  – OT transport plan
-    proj_feats_ot: (N, E) float32  – averaged barycentric projections
-    moved_dist   : (N,)  float32   – L2 distance projector→projection
+    proj_feats_ot: (N, E) float32  – barycentric projections
+    moved_dist   : (N,)  float32   – L2 distance descriptor→projection
     """
     if metric not in {"gap", "entropy"}:
         raise ValueError("metric must be 'gap' or 'entropy'")
@@ -315,62 +312,29 @@ def align_more_instances(
         batch_size=batch_size, num_workers=0, device=device
     )
 
-    # ``projectors`` may be a single module or a sequence. Normalise it to a
-    # list for simpler iteration.
-    projs = projectors if isinstance(projectors, Sequence) else [projectors]
-    Z_list = []
-    dist_list = []
-    nearest_list = []
-    moved_list = []
-    plan = None
-    for proj in projs:
-        # Project backbone features into the word embedding space. Each projector
-        # is evaluated independently in inference mode.
-        proj.eval().to(device)
-        proj_feats = proj(feats_all.to(device)).cpu()        # (N, E)
+    N, V = feats_all.size(0), word_embs.size(0)
+    a = np.full((N,), 1.0 / N, dtype=np.float64)
+    if getattr(dataset, "external_word_probs", None):
+        b = np.asarray(dataset.external_word_probs, dtype=np.float64)
+        if not unbalanced:
+            b /= b.sum()
+    else:
+        b = np.full((V,), 1.0 / V, dtype=np.float64)
 
-        N, V = proj_feats.size(0), word_embs.size(0)
-        a = np.full((N,), 1.0 / N, dtype=np.float64)
-        if getattr(dataset, "external_word_probs", None):
-            b = np.asarray(dataset.external_word_probs, dtype=np.float64)
-            if not unbalanced:
-                b /= b.sum()
-        else:
-            b = np.full((V,), 1.0 / V, dtype=np.float64)
+    proj_np, plan = calculate_ot_projections(
+        a, feats_all.numpy(), b, word_embs.cpu().numpy(),
+        reg, unbalanced=unbalanced, reg_m=reg_m,
+        sinkhorn_kwargs=sinkhorn_kwargs,
+    )
 
-        proj_np, plan = calculate_ot_projections(
-            a, proj_feats.numpy(), b, word_embs.cpu().numpy(),
-            reg, unbalanced=unbalanced, reg_m=reg_m,
-            sinkhorn_kwargs=sinkhorn_kwargs,
-        )
-        # OT gives barycentric projections in numpy format; convert back to
-        # torch tensors for further processing.
-        proj_feats_ot = torch.from_numpy(proj_np).float()
+    proj_feats_ot = torch.from_numpy(proj_np).float()
 
-        # Distance each descriptor travels in the embedding space due to OT.
-        moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)           # (N,)
+    moved_dist = (proj_feats_ot - feats_all).norm(p=2, dim=1)           # (N,)
 
-        # Pairwise distances between projected descriptors and vocabulary words
-        # used to find the nearest candidate.
-        dist_matrix = torch.cdist(proj_feats_ot, word_embs.cpu())            # (N,V)
-        nearest_word = dist_matrix.argmin(dim=1)
+    dist_matrix = torch.cdist(proj_feats_ot, word_embs.cpu())            # (N,V)
+    nearest_word = dist_matrix.argmin(dim=1)
 
-        Z_list.append(proj_feats_ot)
-        dist_list.append(dist_matrix)
-        nearest_list.append(nearest_word)
-        moved_list.append(moved_dist)
-
-    # Average results from all projectors. ``Z`` holds the barycentric
-    # projections, ``dist_matrix`` the distances to each vocabulary word and
-    # ``moved_dist`` how far each sample moved during OT.
-    Z = torch.stack(Z_list)                             # (M,N,E)
-    dist_matrix = torch.stack(dist_list).mean(dim=0)    # (N,V)
-    moved_dist = torch.stack(moved_list).mean(dim=0)    # (N,)
-
-    # Determine the nearest word per projector, then keep the majority vote.
-    preds = torch.stack(nearest_list)                   # (M,N)
-    nearest_word, _ = preds.mode(dim=0)
-    counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
+    counts = torch.ones_like(nearest_word)
 
     # Save the OT transport plan from the last projector for optional debugging.
     plan_torch = (
@@ -454,13 +418,9 @@ def align_more_instances(
             f"{aligned_idx.numel()} of {len(dataset)} samples aligned"
         )
 
-    # Restore training mode on backbone and projectors before returning.
-    for proj in projs:
-        proj.train()
+    # Restore training mode on backbone before returning.
     backbone.train()
-    # Mean of projected descriptors across projectors can be handy for metrics.
-    proj_feats_mean = Z.mean(dim=0)
-    return plan_torch, proj_feats_mean, moved_dist
+    return plan_torch, proj_feats_ot, moved_dist
 
 
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
