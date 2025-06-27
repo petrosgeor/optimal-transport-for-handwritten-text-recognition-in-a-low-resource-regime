@@ -19,7 +19,7 @@ tests/dataset_value_range_test.py
 # Ignore all __pycache__ directories
 __pycache__/
 **/__pycache__/
-
+htr_base/saved_models/pretrained_backbone.pt
 # Ignore all Markdown files EXCEPT README.md
 *.md
 !README.md
