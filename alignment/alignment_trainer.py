@@ -361,8 +361,8 @@ if __name__ == "__main__":
     gw_folder = proj_root / "htr_base" / "data" / "GW" / "processed_words"
     if not gw_folder.exists():
         raise RuntimeError(
-            "GW processed dataset not found – please generate it with "
-            "`python htr_base/prepare_gw.py` before running this dummy test."
+            "GW processed dataset not found – run the dataset preparation step "
+            "before executing this dummy test."
         )
 
     class DummyCfg:
