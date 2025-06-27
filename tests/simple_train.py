@@ -21,6 +21,7 @@ from htr_base.models import HTRNet
 from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
 from alignment.losses import _ctc_loss_fn
 from htr_base.utils.metrics import CER
+from htr_base.utils.vocab import load_vocab
 
 
 DEFAULT_CONFIG = {
@@ -46,11 +47,6 @@ ARCH = {
 }
 
 
-def _build_vocab(chars: List[str]) -> Dict[str, int]:
-    if " " not in chars:
-        chars.append(" ")
-    chars = sorted(set(chars))
-    return {c: i + 1 for i, c in enumerate(chars)}
 
 
 def _decode_random(net: HTRNet, dataset: HTRDataset, i2c: Dict[int, str], device) -> None:
@@ -111,9 +107,7 @@ def main(cfg: dict | None = None) -> None:
         indices = random.sample(indices, min(cfg["n_examples"], len(indices)))
     subset_ds = Subset(dataset, indices)
 
-    chars = list(dataset.character_classes)
-    c2i = _build_vocab(chars)
-    i2c = {i: c for c, i in c2i.items()}
+    c2i, i2c = load_vocab()
 
     arch = SimpleNamespace(**ARCH)
     net = HTRNet(arch, nclasses=len(c2i) + 1).to(device)
