@@ -50,7 +50,7 @@ model = HTRNet(arch, nclasses=80 + 1)
 
 ## HTRDataset
 
-Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and corresponding transcriptions. It automatically builds the character vocabulary if not provided. Main arguments include:
+Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and corresponding transcriptions. When no character list is given it falls back to `load_vocab()` from `htr_base.utils.vocab`. Main arguments include:
 
 * `basefolder`: root folder containing `train/`, `val/` and `test/` subdirectories with a `gt.txt` file inside each.
 
@@ -63,7 +63,7 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 
 * `transforms`: optional Albumentations augmentation pipeline applied to the images.
 
-* `character_classes`: list of characters. If `None`, the dataset infers it from the data.
+* `character_classes`: list of characters. If `None`, the dataset uses the vocabulary from `load_vocab()`.
 
 * `word_emb_dim`: dimensionality of the MDS word embeddings (default `512`).
 

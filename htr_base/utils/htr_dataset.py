@@ -12,6 +12,7 @@ from sklearn.manifold import MDS
 import editdistance
 import random
 from typing import List
+from htr_base.utils.vocab import load_vocab
 class HTRDataset(Dataset):
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
@@ -64,12 +65,8 @@ class HTRDataset(Dataset):
         self.transcriptions = transcrs
         self.prior_char_probs = self.letter_priors()
         if self.character_classes is None:
-            res = set()
-            for t in transcrs:
-                res.update(list(t))
-            res = sorted(list(res))
-            print('Character classes: {} ({} different characters)'.format(res, len(res)))
-            self.character_classes = res
+            c2i, _ = load_vocab()
+            self.character_classes = list(c2i.keys())
         # External vocabulary and probabilities
         self.external_words = []
         self.external_word_probs = []
