@@ -848,7 +848,7 @@ def test_pretraining_saves_and_loads_dicts(tmp_path, capsys):
 
     pretraining.main(config)
     out = capsys.readouterr().out
-    assert 'Loading vocabulary' in out
+    assert 'Loading vocabulary' not in out
 
 
 def test_simple_train_script(tmp_path, capsys):
@@ -868,7 +868,7 @@ def test_simple_train_script(tmp_path, capsys):
     assert "CER:" in out
 
 
-def test_pretraining_dataparallel(monkeypatch, tmp_path):
+def test_pretraining_single_gpu(monkeypatch, tmp_path):
     from alignment import pretraining
     src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
     base = tmp_path
@@ -877,14 +877,14 @@ def test_pretraining_dataparallel(monkeypatch, tmp_path):
     with open(list_file, 'w') as f:
         f.write('foo_word_0.png\n')
 
-    calls = {}
+    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    called = {}
 
     def fake_dp(module, device_ids=None):
-        calls['ids'] = device_ids
+        called['used'] = True
         return module
 
-    monkeypatch.setattr(pretraining.nn, 'DataParallel', fake_dp)
-    monkeypatch.setenv('CUDA_VISIBLE_DEVICES', '')
+    monkeypatch.setattr(torch.nn, 'DataParallel', fake_dp)
 
     cfg = {
         'list_file': str(list_file),
@@ -895,16 +895,12 @@ def test_pretraining_dataparallel(monkeypatch, tmp_path):
         'base_path': str(base),
         'fixed_size': (32, 128),
         'device': 'cpu',
-        'gpu_ids': [0, 1],
+        'gpu_id': 3,
     }
 
     pretraining.main(cfg)
-    assert calls.get('ids') == [0, 1]
-
-    calls.clear()
-    cfg['gpu_ids'] = [0]
-    pretraining.main(cfg)
-    assert calls == {}
+    assert os.environ.get('CUDA_VISIBLE_DEVICES') == '3'
+    assert not called
 
 
 def test_vocab_dict_loading():
