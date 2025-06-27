@@ -589,21 +589,28 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
     indices = random.sample(range(len(dataset)), min(len(dataset), n_samples))
     orig_transforms = getattr(dataset, "transforms", None)
     dataset.transforms = None
+    
+    subset = torch.utils.data.Subset(dataset, indices)
     loader = torch.utils.data.DataLoader(
-        torch.utils.data.Subset(dataset, indices),
+        subset,
         batch_size=64,
         shuffle=False,
         num_workers=0,
         pin_memory=(device.type == "cuda"),
     )
+    
     feats_buf: list[torch.Tensor] = []
     aligned_buf: list[torch.Tensor] = []
+    transcriptions_buf: list[str] = []
+
     with torch.no_grad():
         for imgs, _txt, aligned in loader:
             imgs = imgs.to(device)
             feats = backbone(imgs, return_feats=True)[-1]
             feats_buf.append(feats.cpu())
             aligned_buf.append(aligned.cpu())
+            transcriptions_buf.extend(_txt)
+
     dataset.transforms = orig_transforms
 
     feats_all = torch.cat(feats_buf, dim=0)
@@ -622,6 +629,10 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
     fig, ax = plt.subplots(figsize=(8, 6))
     colors = ["blue" if int(a.item()) == 1 else "black" for a in aligned_all]
     ax.scatter(tsne_res[:, 0], tsne_res[:, 1], s=5, c=colors)
+
+    for i, txt in enumerate(transcriptions_buf):
+        ax.text(tsne_res[i, 0], tsne_res[i, 1], txt, fontsize=6)
+
     ax.set_title("t-SNE of pretrained backbone")
     os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
     plt.tight_layout()

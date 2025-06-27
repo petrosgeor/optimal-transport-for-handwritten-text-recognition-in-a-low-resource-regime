@@ -147,6 +147,19 @@ pretraining.main(cfg)
 
 * **PHOC optional loss** – Set `enable_phoc: true` in `alignment/config.yaml` to let *pretraining.py* build PHOC targets on-the-fly (`build_phoc_description`) and optimise an extra BCE-with-logits term weighted by `phoc_loss_weight`. The PHOC head is enabled automatically when `feat_dim` and `phoc_levels` are present in the architecture config.
 
+> **Pretraining optional losses**
+> You can now activate a *soft contrastive* objective that encourages global image descriptors to respect lexical similarity.
+> Add the following keys to `alignment/config.yaml`:
+>
+> ```yaml
+> contrastive_enable: true        # turn on
+> contrastive_weight: 0.2         # β in total loss
+> contrastive_tau: 0.07           # τ for descriptor space
+> contrastive_text_T: 1.0         # temperature for edit‑distance kernel
+> ```
+>
+> The loss is computed automatically on the third tensor returned by `HTRNet.forward`.
+
 ## encode\_for\_ctc
 
 Defined in `alignment/ctc_utils.py`. This helper converts a batch of strings into the flattened `(targets, lengths)` representation required by `torch.nn.CTCLoss`.

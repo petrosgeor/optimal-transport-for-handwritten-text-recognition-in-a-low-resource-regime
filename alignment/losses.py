@@ -127,3 +127,55 @@ class ProjectionLoss(torch.nn.Module):
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
             distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
         return ot_loss + 100*distance_loss
+
+# ------------------------------------------------------------------
+# Soft Contrastive / InfoNCE with continuous positives (Euclidean)
+# ------------------------------------------------------------------
+class SoftContrastiveLoss(torch.nn.Module):
+    """
+    InfoNCE‑style loss that pulls together image descriptors whose
+    transcripts have small Levenshtein distance.
+
+    Parameters
+    ----------
+    tau   : float  – temperature in image space (distance → similarity).
+    T_txt : float  – temperature in transcript space (controls softness).
+    eps   : float  – numeric stability.
+    """
+    def __init__(self, tau: float = .07, T_txt: float = 1.0, eps: float = 1e-8):
+        super().__init__()
+        self.tau   = tau
+        self.T_txt = T_txt
+        self.eps   = eps
+
+    def forward(self, feats: torch.Tensor, transcripts: list[str]) -> torch.Tensor:
+        """
+        feats        : (B, D) float tensor (output of HTRNet, 3ʳᵈ element)
+        transcripts  : list of B padded strings (" word ")
+        """
+        # ---- 1. pairwise Euclidean distances in descriptor space ----
+        dists = torch.cdist(feats, feats, p=2)        # (B, B)
+        sim_img = torch.exp(-dists / self.tau)        # convert to similarity
+
+        # ---- 2. edit‑distance matrix on CPU (small batches) ----------
+        import editdistance
+        with torch.no_grad():
+            B = len(transcripts)
+            edit = torch.zeros(B, B, dtype=torch.float32, device=feats.device)
+            for i in range(B):
+                for j in range(i + 1, B):
+                    e = editdistance.eval(transcripts[i].strip(),
+                                           transcripts[j].strip())
+                    edit[i, j] = edit[j, i] = float(e)
+        sim_txt = torch.exp(-edit / self.T_txt)       # soft positives
+
+        # ---- 3. InfoNCE objective ------------------------------------
+        # exclude diagonal (self‑similarity) from both sums
+        eye = torch.eye(sim_img.size(0), device=feats.device)
+        sim_img = sim_img * (1 - eye)
+        sim_txt = sim_txt * (1 - eye)
+
+        numerator   = (sim_txt * sim_img).sum(dim=1)          # (B,)
+        denominator = sim_img.sum(dim=1) + self.eps           # (B,)
+        loss = -torch.log((numerator + self.eps) / denominator).mean()
+        return loss

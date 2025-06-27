@@ -68,3 +68,11 @@ architecture:
   feat_dim: 512
   feat_pool: attn
   phoc_levels: [1, 2, 3, 4]
+
+# ----------------------------------------------------------------------
+# Soft‑contrastive loss 
+# ----------------------------------------------------------------------
+contrastive_enable: false   # turn on to activate the loss
+contrastive_weight: 0.2     # β – scales the new loss inside total_loss
+contrastive_tau: 0.07       # τ – temperature for descriptor similarities
+contrastive_text_T: 1.0     # T_txt – softness in edit‑distance space

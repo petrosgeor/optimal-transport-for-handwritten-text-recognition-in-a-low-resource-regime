@@ -21,7 +21,7 @@ from alignment.ctc_utils import (
     greedy_ctc_decode,
     beam_search_ctc_decode,
 )
-from alignment.losses import _ctc_loss_fn
+from alignment.losses import _ctc_loss_fn, SoftContrastiveLoss   # new class
 from htr_base.utils.phoc import build_phoc_description
 from omegaconf import OmegaConf
 import torch
@@ -38,6 +38,10 @@ if DEVICE.startswith("cuda"):
 ENABLE_PHOC = bool(yaml_cfg.get("enable_phoc", False))
 PHOC_LEVELS = tuple(yaml_cfg.get("phoc_levels", (1, 2, 3, 4)))
 PHOC_W = float(yaml_cfg.get("phoc_loss_weight", 0.1))
+ENABLE_CONTR = bool(yaml_cfg.get("contrastive_enable", False))
+CONTR_W      = float(yaml_cfg.get("contrastive_weight", 0.0))
+CONTR_TAU    = float(yaml_cfg.get("contrastive_tau", 0.07))
+CONTR_TTXT   = float(yaml_cfg.get("contrastive_text_T", 1.0))
 class _Tee:
     """Write to multiple streams simultaneously."""
     def __init__(self, *streams):
@@ -170,7 +174,10 @@ def main(config: dict | None = None) -> Path:
         test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
         opt = optim.Adam(net.parameters(), lr=lr)
         sched = lr_scheduler.StepLR(opt, step_size=1500, gamma=0.5)
+        contr_loss_fn = SoftContrastiveLoss(CONTR_TAU, CONTR_TTXT).to(device)
         print(f"[Pretraining] Starting training...")
+        print(f"[Pretraining] PHOC loss enabled: {ENABLE_PHOC}")
+        print(f"[Pretraining] Contrastive loss enabled: {ENABLE_CONTR}")
         def _decode_random_samples(ds):
             """Print predictions for up to ten random samples from *ds*."""
             net.eval()
@@ -209,34 +216,47 @@ def main(config: dict | None = None) -> Path:
             epoch_loss = 0.0
             num_batches = 0
             phoc_epoch_loss = 0.0
+            running_contr = 0.0
             for imgs, txts in train_loader:
                 imgs = imgs.to(device)
-                out = net(imgs) if ENABLE_PHOC else net(imgs, return_feats=False)
-                main_logits, aux_logits = out[:2]
-                if ENABLE_PHOC:
-                    phoc_logits = out[-1]
+                out = net(imgs)
+                main_logits, aux_logits, features = out[:3]
+
                 # Prepare CTC targets
                 targets, lengths = encode_for_ctc(list(txts), c2i)
                 inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
+
                 # Compute losses
                 loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
                 loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
+
+                loss_contr = torch.tensor(0.0, device=device)
+                if ENABLE_CONTR:
+                    loss_contr = contr_loss_fn(features, list(txts))
+
                 if ENABLE_PHOC:
+                    phoc_logits = out[-1]
                     phoc_targets = build_phoc_description(list(txts), c2i, levels=PHOC_LEVELS).float().to(device)
                     assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
                     loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
                 else:
                     loss_phoc = torch.tensor(0.0, device=device)
-                total_loss = (main_weight * loss_main + aux_weight * loss_aux + PHOC_W * loss_phoc)
+
+                total_loss = (main_weight * loss_main +
+                              aux_weight  * loss_aux  +
+                              PHOC_W      * loss_phoc +
+                              CONTR_W     * loss_contr)
                 # Optimization step
                 total_loss.backward()
                 opt.step()
                 opt.zero_grad(set_to_none=True)
                 epoch_loss += total_loss.item()
                 phoc_epoch_loss += loss_phoc.item()
+                running_contr += loss_contr.item()
                 num_batches += 1
             avg_loss = epoch_loss / max(1, num_batches)
             avg_phoc_loss = phoc_epoch_loss / max(1, num_batches)
+            avg_contr_loss = running_contr / max(1, num_batches)
             sched.step()
             # Print progress every 20 epochs or on last epoch
             if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
@@ -244,6 +264,8 @@ def main(config: dict | None = None) -> Path:
                 msg = f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}"
                 if ENABLE_PHOC:
                     msg += f" - PHOC: {avg_phoc_loss:.4f}"
+                if ENABLE_CONTR:
+                    msg += f" - Contr: {avg_contr_loss:.4f}"
                 msg += f" - lr: {lr_val:.2e}"
                 print(msg)
                 _evaluate_cer(test_loader)
