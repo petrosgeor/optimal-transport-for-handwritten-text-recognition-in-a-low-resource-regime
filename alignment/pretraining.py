@@ -232,7 +232,7 @@ def main(config: dict | None = None) -> Path:
                 loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
                 loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
                 if ENABLE_PHOC:
-                    phoc_targets = build_phoc_description([t.strip() for t in txts], c2i, levels=PHOC_LEVELS).float().to(device)
+                    phoc_targets = build_phoc_description(list(txts), c2i, levels=PHOC_LEVELS).float().to(device)
                     assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
                     loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
                 else:

@@ -32,7 +32,7 @@ def build_phoc_description(words: List[str],
     phoc = torch.zeros(len(words), total_dim, dtype=torch.bool)
 
     for w_idx, word in enumerate(words):
-        text = word.strip().lower()
+        text = word.lower()
         offset = 0
         for l in levels:
             seg_len = max(len(text), 1) / l

@@ -50,6 +50,6 @@ prior_weight: 6            # weight of the Wasserstein prior loss
 # ----------------------------------------------------------------------
 # Pretraining PHOC
 # ----------------------------------------------------------------------
-enable_phoc: false        # turn PHOC loss on/off
+enable_phoc: true        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # same default as HTRNet
 phoc_loss_weight: 0.1     # loss scaling factor

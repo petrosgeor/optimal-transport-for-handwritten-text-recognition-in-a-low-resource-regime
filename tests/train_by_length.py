@@ -14,7 +14,7 @@ from omegaconf import OmegaConf
 #   eval_k              – length threshold used when reporting CER.
 #   n_aligned           – maximum number of aligned ground
 # truth words
-#                          sampled for training.
+#                          sampled for training.P
 #   k_external_words    – number of external words to align against.
 #   num_epochs          – number of fine
 # tuning epochs.
@@ -436,7 +436,7 @@ if __name__ == "__main__":
         base_path=str(corp_root),
         transforms=aug_transforms,
         n_random=10000,
-        preload_images=True
+        preload_images=False
     )
     # build vector Q (same order as network classes, blank excluded)
     prior_dict = HTRDataset.letter_priors()
