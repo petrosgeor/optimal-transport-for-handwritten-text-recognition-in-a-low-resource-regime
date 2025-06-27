@@ -2,7 +2,6 @@ from __future__ import annotations
 import os, sys, random
 from types import SimpleNamespace
 from pathlib import Path
-import pickle
 from omegaconf import OmegaConf
 # ------------------------------------------------------------------
 # Hyper
@@ -76,6 +75,7 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset  # for the priors
 from htr_base.models import HTRNet
 from htr_base.utils.metrics import CER
+from htr_base.utils.vocab import load_vocab
 from htr_base.utils.transforms import aug_transforms
 from alignment.ctc_utils import (
     encode_for_ctc,
@@ -155,14 +155,6 @@ def save_char_histogram_png(
 # Construct dictionaries that map characters to integer IDs and back. The
 # blank symbol required by CTC occupies index 0.
 # ---------------------------------------------------------------------
-def _build_vocab_dicts(_: HTRDataset | None = None) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Return char→id / id→char dicts loaded from saved pickles."""
-    base = Path(__file__).resolve().parents[1] / "htr_base" / "saved_models"
-    with open(base / "c2i.pkl", "rb") as f:
-        c2i = pickle.load(f)
-    with open(base / "i2c.pkl", "rb") as f:
-        i2c = pickle.load(f)
-    return c2i, i2c
 # ---------------------------------------------------------------------
 # Evaluate character error rate on the given loader.  A few prediction
 # examples are printed, as well as CER by word length and overall.
@@ -282,7 +274,7 @@ def refine_visual_model(dataset: HTRDataset,
         f"epochs={num_epochs} batch={batch_size} lr={lr}"
     )
     # Build vocabulary
-    c2i, i2c = _build_vocab_dicts(dataset)
+    c2i, i2c = load_vocab()
     # Test loader
     test_set = HTRDataset(dataset.basefolder, subset="test",
                           fixed_size=dataset.fixed_size, transforms=None,
@@ -452,7 +444,7 @@ if __name__ == "__main__":
     Q = torch.tensor([prior_dict[c] for c in chars], dtype=torch.float32)
     Q = Q / Q.sum()
     Q = Q.to(cfg.device)
-    c2i, _ = _build_vocab_dicts(train_set)
+    c2i, _ = load_vocab()
     arch_cfg_dict = ARCHITECTURE_CONFIG
     net = HTRNet(SimpleNamespace(**arch_cfg_dict), nclasses=len(c2i) + 1)
     net.to("cuda")

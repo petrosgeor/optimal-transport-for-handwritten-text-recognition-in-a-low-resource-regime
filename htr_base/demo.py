@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 
 from .models import HTRNet
+from .utils.vocab import load_vocab
 from .utils.preprocessing import load_image, preprocess
 
 
@@ -24,15 +25,9 @@ class HTREval(nn.Module):
 
         config = self.config
 
-        # prepare datset loader
-        dataset_folder = config.data.path
-        # load classes from the training set saved in the data folder
-        classes = np.load(os.path.join(dataset_folder, 'classes.npy'))
-
-        # create dictionaries for character to index and index to character 
-        # 0 index is reserved for CTC blank
-        cdict = {c:(i+1) for i,c in enumerate(classes)}
-        icdict = {(i+1):c for i,c in enumerate(classes)}
+        # Load the fixed vocabulary used by all models
+        cdict, icdict = load_vocab()
+        classes = np.array([icdict[i] for i in sorted(icdict.keys())])
 
         self.classes = {
             'classes': classes,

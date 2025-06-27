@@ -25,6 +25,7 @@ from alignment.alignment_utilities import (
 )
 from htr_base.utils.metrics import word_silhouette_score
 from htr_base.utils.transforms import aug_transforms
+from htr_base.utils.vocab import load_vocab
 from omegaconf import OmegaConf
 
 from contextlib import contextmanager
@@ -70,20 +71,6 @@ if str(cfg.device).startswith("cuda"):
     cfg.device = f"cuda:{cfg.gpu_id}"
 
 # --------------------------------------------------------------------------- #
-#                               Helper utilities                              #
-# --------------------------------------------------------------------------- #
-def _build_vocab_dicts(dataset: HTRDataset) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Create <char→id> / <id→char> dicts leaving index 0 for the CTC blank."""
-    chars: List[str] = list(dataset.character_classes)
-    if " " not in chars:
-        chars.append(" ")
-    chars = sorted(set(chars))
-    c2i = {c: i + 1 for i, c in enumerate(chars)}
-    i2c = {i + 1: c for i, c in enumerate(chars)}
-    return c2i, i2c
-
-
-# --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #
 # --------------------------------------------------------------------------- #
 def refine_visual_backbone(
@@ -100,8 +87,8 @@ def refine_visual_backbone(
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
     device = next(backbone.parameters()).device
     backbone.train().to(device)
-    # Build CTC mapping once.
-    c2i, _ = _build_vocab_dicts(dataset)
+    # Build CTC mapping once using the fixed vocabulary.
+    c2i, _ = load_vocab()
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
     if len(aligned_indices) == 0:

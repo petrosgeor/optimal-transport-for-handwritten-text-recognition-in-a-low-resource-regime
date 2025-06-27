@@ -15,6 +15,7 @@ from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.metrics import CER
+from htr_base.utils.vocab import load_vocab
 from alignment.ctc_utils import (
     encode_for_ctc,
     greedy_ctc_decode,
@@ -78,14 +79,6 @@ ARCHITECTURE_CONFIG = {
     "feat_pool": "attn",
 }
 
-
-def _build_vocab(transcriptions):
-    """Build character-to-index mapping from transcriptions."""
-    chars = sorted(set(''.join(transcriptions)))
-    if ' ' not in chars:
-        chars.append(' ')
-    c2i = {c: i + 1 for i, c in enumerate(chars)}
-    return c2i
 def main(config: dict | None = None) -> Path:
     """Train a small HTRNet on the given image list using dictionary configuration."""
     if config is None:
@@ -148,15 +141,12 @@ def main(config: dict | None = None) -> Path:
         )
         print(f"[Pretraining] Dataset size: {len(train_set)}")
         print(f"[Pretraining] Test set size: {len(test_set)}")
-        # ------------------------------------------------------------------ #
-        # ❶ Always rebuild the vocabulary from the *current* training list   #
-        # ------------------------------------------------------------------ #
         save_dir = Path(save_path).parent
         c2i_path = save_dir / "c2i.pkl"
         i2c_path = save_dir / "i2c.pkl"
 
-        c2i = _build_vocab(train_set.transcriptions)   # fresh mapping
-        i2c = {i: c for c, i in c2i.items()}
+        # Use the fixed vocabulary for training
+        c2i, i2c = load_vocab()
 
         # Optionally (re-)save the dictionaries next to the backbone weights
         if save_backbone:

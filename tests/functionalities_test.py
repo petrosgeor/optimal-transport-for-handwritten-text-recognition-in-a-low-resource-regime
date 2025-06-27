@@ -24,8 +24,8 @@ from alignment.alignment_trainer import tee_output
 from alignment.alignment_trainer import (
     refine_visual_backbone,
     train_projector,
-    _build_vocab_dicts,
 )
+from htr_base.utils.vocab import load_vocab
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 import shutil
@@ -463,14 +463,14 @@ def test_encode_for_ctc_vocab_size():
     ds.aligned = ds.aligned[:3]
     ds.is_in_dict = ds.is_in_dict[:3]
 
-    c2i, _ = _build_vocab_dicts(ds)
+    c2i, _ = load_vocab()
     chars = "".join(sorted(ds.character_classes))
     txt = f" {chars} "
     targets, _ = encode_for_ctc([txt], c2i)
     # Include the CTC blank to count all possible labels
     targets = torch.cat([targets, torch.tensor([0])])
-    assert len(c2i) + 1 == 37
-    assert targets.unique().numel() == 37
+    expected = len(set(ds.character_classes) | {" "}) + 1
+    assert targets.unique().numel() == expected
 
 
 def test_pretraining_dataset_filtering(tmp_path):
@@ -910,7 +910,7 @@ def test_vocab_dict_loading():
         expected_c2i = pickle.load(f)
     with open(base / 'i2c.pkl', 'rb') as f:
         expected_i2c = pickle.load(f)
-    c2i, i2c = tbl._build_vocab_dicts(None)
+    c2i, i2c = load_vocab()
     assert c2i == expected_c2i and i2c == expected_i2c
 
 
@@ -949,7 +949,7 @@ def test_refine_with_pretraining(tmp_path, capsys):
         stn=False,
         feat_dim=None,
     )
-    c2i, _ = train_by_length._build_vocab_dicts(None)
+    c2i, _ = load_vocab()
     net = HTRNet(arch, nclasses=len(c2i) + 1)
     train_by_length.refine_visual_model(
         ds,
@@ -1017,7 +1017,7 @@ def _tiny_refine_setup(tmp_path):
         feat_dim=None,
     )
     from tests import train_by_length as tbl
-    c2i, _ = tbl._build_vocab_dicts(None)
+    c2i, _ = load_vocab()
     net = HTRNet(arch, nclasses=len(c2i) + 1)
     return ds, net
 

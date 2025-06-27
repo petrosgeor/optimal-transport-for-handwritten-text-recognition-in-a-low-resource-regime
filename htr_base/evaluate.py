@@ -12,6 +12,7 @@ from .utils.htr_dataset import HTRDataset
 
 from .models import HTRNet
 from .utils.metrics import CER, WER
+from .utils.vocab import load_vocab
 
 class HTREval(nn.Module):
     def __init__(self, config):
@@ -35,21 +36,17 @@ class HTREval(nn.Module):
         test_set = HTRDataset(dataset_folder, 'test', fixed_size=fixed_size, transforms=None)
         print('# testing lines ' + str(test_set.__len__()))
 
-        # load classes from the training set saved in the data folder
-        classes = np.load(os.path.join(dataset_folder, 'classes.npy'))
-
         val_loader = DataLoader(val_set, batch_size=config.eval.batch_size,
                                 shuffle=False, num_workers=config.eval.num_workers)
 
-        test_loader = DataLoader(test_set, batch_size=config.eval.batch_size,  
+        test_loader = DataLoader(test_set, batch_size=config.eval.batch_size,
                                     shuffle=False, num_workers=config.eval.num_workers)
 
         self.loaders = {'val': val_loader, 'test': test_loader}
 
-        # create dictionaries for character to index and index to character 
-        # 0 index is reserved for CTC blank
-        cdict = {c:(i+1) for i,c in enumerate(classes)}
-        icdict = {(i+1):c for i,c in enumerate(classes)}
+        # Load the fixed vocabulary
+        cdict, icdict = load_vocab()
+        classes = np.array([icdict[i] for i in sorted(icdict.keys())])
 
         self.classes = {
             'classes': classes,
