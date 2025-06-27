@@ -51,7 +51,7 @@ def test_align_logging(capsys):
         feat_dim=8,
     )
     backbone = HTRNet(arch_cfg, nclasses=len(dataset.character_classes) + 1)
-    align_more_instances(dataset, backbone, [nn.Identity()], batch_size=1, device='cpu', k=1)
+    align_more_instances(dataset, backbone, batch_size=1, device='cpu', k=1)
     out = capsys.readouterr().out
     assert '[Align] round accuracy' in out
     assert '[Align] cumulative accuracy' in out
@@ -149,7 +149,7 @@ def test_align_zero_row(tmp_path):
     )
     backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
 
-    align_more_instances(ds, backbone, [nn.Identity()], batch_size=1, device='cpu', unbalanced=True, reg_m=0.1, k=1)
+    align_more_instances(ds, backbone, batch_size=1, device='cpu', unbalanced=True, reg_m=0.1, k=1)
     assert (ds.aligned != -1).any(), "No samples were pseudo-labelled"
 
 
@@ -223,21 +223,9 @@ def test_majority_vote_alignment():
     )
     backbone = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
 
-    class ConstProj(nn.Module):
-        def __init__(self, vec):
-            super().__init__()
-            self.vec = nn.Parameter(vec, requires_grad=False)
-
-        def forward(self, x):
-            return self.vec.expand(x.size(0), -1)
-
-    vec0 = ds.external_word_embeddings[0]
-    vec1 = ds.external_word_embeddings[1]
-    projectors = [ConstProj(vec0), ConstProj(vec0), ConstProj(vec1)]
-
-    align_more_instances(ds, backbone, projectors, batch_size=1, device='cpu', k=2, agree_threshold=4)
+    align_more_instances(ds, backbone, batch_size=1, device='cpu', k=2, agree_threshold=4)
     assert (ds.aligned == -1).all()
-    align_more_instances(ds, backbone, projectors, batch_size=1, device='cpu', k=2, agree_threshold=1)
+    align_more_instances(ds, backbone, batch_size=1, device='cpu', k=2, agree_threshold=1)
     assert (ds.aligned != -1).all()
 
 def test_word_silhouette_score():

@@ -243,7 +243,7 @@ def alternating_refinement(
 
         print("[Cycle] Aligning more instances...")
         # Use current backbone features to update pseudo-labels via OT.
-        align_more_instances(dataset, backbone, [nn.Identity()], **align_kwargs)
+        align_more_instances(dataset, backbone, **align_kwargs)
 
 
 if __name__ == "__main__":

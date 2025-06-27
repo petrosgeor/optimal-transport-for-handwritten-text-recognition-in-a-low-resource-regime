@@ -170,24 +170,22 @@ Returns a list of decoded strings, one for each element in the batch.
 Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.
 
 ```python
-def align_more_instances(dataset, backbone, projectors, *, batch_size=512,
+def align_more_instances(dataset, backbone, *, batch_size=512,
                          device="cpu", reg=0.1, unbalanced=False, reg_m=1.0,
                          sinkhorn_kwargs=None, k=0, agree_threshold=1):
     """Automatically align dataset images to external words using OT."""
 ```
 
 * `dataset`: instance of `HTRDataset` providing images and `external_word_embeddings`.
-* `backbone`: `HTRNet` used to extract visual descriptors.
-* `projectors`: list of projectors mapping descriptors to the embedding space.
+* `backbone`: `HTRNet` used to extract visual descriptors directly.
 * `batch_size`: mini-batch size when harvesting descriptors.
-* `device`: device used for feature extraction, descriptor processing and
-  the projector.
+* `device`: device used for feature extraction and OT computation.
 * `reg`: entropic regularisation for Sinkhorn.
 * `unbalanced`: use unbalanced OT formulation.
 * `reg_m`: additional unbalanced regularisation parameter.
 * `sinkhorn_kwargs`: extra arguments for the Sinkhorn solver.
 * `k`: number of least-moved descriptors to pseudo-label.
-* `agree_threshold`: minimum number of agreeing projectors for a pseudo-label.
+* `agree_threshold`: threshold gating pseudo-labelling (counts are always 1).
 
 After each call, the function now reports round-wise pseudo-labelling accuracy
 and the cumulative accuracy over all aligned samples. It also prints up to ten
@@ -393,7 +391,7 @@ Key options:
 * `align_reg_m` – mass regularisation term for unbalanced OT.
 * `align_k` – pseudo-label this many least-moved descriptors.
 * `n_aligned` – number of pre-aligned samples for warm start.
-* `agree_threshold` – votes required before pseudo-labelling.
+* `agree_threshold` – threshold gating pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
 * `load_pretrained_backbone` – load weights before refinement.
 * `pretrained_path` – checkpoint path for the pretrained backbone.
