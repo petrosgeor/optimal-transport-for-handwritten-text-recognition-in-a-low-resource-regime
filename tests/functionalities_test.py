@@ -1183,3 +1183,12 @@ def test_config_new_keys():
     assert cfg.load_pretrained_backbone is False
     assert cfg.pretrained_path == "htr_base/saved_models/pretrained_backbone.pt"
     assert cfg.feat_pool == "attn"
+
+
+def test_train_by_length_schedule():
+    import inspect
+    from tests import train_by_length as tbl
+
+    assert tbl.NUM_EPOCHS == 2000
+    src = inspect.getsource(tbl.refine_visual_model)
+    assert "step_size=500" in src
