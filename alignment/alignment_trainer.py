@@ -19,7 +19,9 @@ from alignment.losses import _ctc_loss_fn
 from alignment.alignment_utilities import (
     align_more_instances,
     harvest_backbone_features,
-    print_dataset_stats,
+    print_dataset_stats
+)
+from alignment.plot import (
     plot_tsne_embeddings,
     plot_projector_tsne
 )
@@ -29,6 +31,16 @@ from htr_base.utils.vocab import load_vocab
 from omegaconf import OmegaConf
 
 from contextlib import contextmanager
+
+
+def _assert_finite(t: torch.Tensor, where: str):
+    assert torch.isfinite(t).all(), f"Non-finite values in {where}"
+
+def _assert_grad_finite(model: nn.Module, name: str):
+    assert all(
+        p.grad is None or torch.isfinite(p.grad).all()
+        for p in model.parameters()
+    ), f"Gradient explosion in {name}"
 
 
 class _Tee:
@@ -89,6 +101,7 @@ def refine_visual_backbone(
     backbone.train().to(device)
     # Build CTC mapping once using the fixed vocabulary.
     c2i, _ = load_vocab()
+    assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned),         "Dataset alignment flags vector is malformed."
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
     if len(aligned_indices) == 0:
@@ -108,6 +121,7 @@ def refine_visual_backbone(
         epoch_loss: float = 0.0
         effective_batches = 0
         for imgs, _, aligned in dataloader:  # we ignore the transcription string
+            _assert_finite(imgs, "images")
             imgs = imgs.to(device)
             # Pad each external word with spaces to mimic dataset transcriptions
             ext_words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
@@ -118,6 +132,7 @@ def refine_visual_backbone(
             main_logits, aux_logits = out[:2]           # (T,K,C)
 
             T, K, _ = main_logits.shape
+            assert main_logits.shape[2] == len(c2i), "CTC class dimension mismatch"
             # ── encode labels ───────────────────────────────────────────
             targets, tgt_lens = encode_for_ctc(ext_words, c2i, device="cpu")
 
@@ -126,9 +141,11 @@ def refine_visual_backbone(
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_aux  = _ctc_loss_fn(aux_logits,  targets, inp_lens, tgt_lens)
             loss = main_weight * loss_main + aux_weight * loss_aux
+            _assert_finite(loss, "loss")
             # ── optimisation step ──────────────────────────────────────
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
+            _assert_grad_finite(backbone, "backbone")
             optimizer.step()
             epoch_loss += loss.item()
             effective_batches += 1
@@ -215,6 +232,8 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers=num_workers,
         device=device,
     )
+    assert feats_all.shape[1] == backbone.output_dim, \
+        "Descriptor dimension mismatch after harvesting features."
     
     
 
@@ -238,6 +257,7 @@ def train_projector(  # pylint: disable=too-many-arguments
             for feats_cpu, align_cpu in proj_loader:
                 feats = feats_cpu.to(device)
                 align = align_cpu.to(device)
+                assert (0 <= align).all() and (align < len(dataset.external_words)).all(),                     "Alignment indices out of bounds."
 
                 assert torch.isfinite(feats).all(), \
                     "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
@@ -260,6 +280,8 @@ def train_projector(  # pylint: disable=too-many-arguments
                 optimiser.step()
                 optimiser.zero_grad(set_to_none=True)
                 running_loss += loss.item()
+            for p in proj.parameters():
+                assert torch.isfinite(p).all(), "Parameter blow-up detected in projector."
 
         proj.eval()
         with torch.no_grad():
@@ -291,6 +313,8 @@ def alternating_refinement(
     """Alternately train ``backbone`` and one or more projectors with OT alignment."""
 
     print_dataset_stats(dataset)
+    assert isinstance(projectors, (list, tuple)) and len(projectors) > 0, \
+        "Projectors must be a non-empty list or tuple."
 
     if refine_kwargs is None:
         refine_kwargs = {}
@@ -322,6 +346,13 @@ def alternating_refinement(
             for proj in projectors:
                 for param in proj.parameters():
                     param.requires_grad_(True)
+            
+            # Verify that exactly one module family has requires_grad=True
+            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
+            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
+            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
+                   (backbone_trainable > 0 and projectors_trainable == 0), \
+                   "Exactly one module family (backbone or projectors) should be trainable."
 
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
@@ -349,7 +380,16 @@ def alternating_refinement(
                 for param in proj.parameters():
                     param.requires_grad_(False)
 
+            # Verify that exactly one module family has requires_grad=True
+            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
+            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
+            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
+                   (backbone_trainable > 0 and projectors_trainable == 0), \
+                   "Exactly one module family (backbone or projectors) should be trainable."
+
         print("[Cycle] Aligning more instances...")
+        assert (dataset.aligned != -1).sum() > 0, \
+            "Cannot align more instances with zero seeds."
         align_more_instances(dataset, backbone, projectors, **align_kwargs)
 
 

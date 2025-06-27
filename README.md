@@ -242,7 +242,7 @@ def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metr
 
 ## plot\_dataset\_augmentations
 
-Also in `alignment/alignment_utilities.py`. Saves a figure with three dataset
+Located in `alignment/plot.py`. Saves a figure with three dataset
 images and their augmented versions side by side.
 
 ```python
@@ -255,7 +255,7 @@ def plot_dataset_augmentations(dataset, save_path):
 
 ## plot\_projector\_tsne
 
-Also in `alignment/alignment_utilities.py`. Creates a 2‑D t‑SNE plot of
+Located in `alignment/plot.py`. Creates a 2‑D t‑SNE plot of
 projector outputs alongside the external word embeddings.
 
 ```python
@@ -267,7 +267,36 @@ def plot_projector_tsne(projections, dataset, save_path):
 * `dataset`: `HTRDataset` providing `external_word_embeddings`.
 * `save_path`: destination PNG path.
 
-## print\_dataset\_stats
+## Plotting Utilities
+
+### plot_tsne_embeddings
+
+Located in `alignment/plot.py`. Generates a coloured t-SNE plot of backbone embeddings and saves it.
+
+```python
+def plot_tsne_embeddings(dataset, backbone, save_path, *, device):
+    """Generate a coloured t-SNE plot of backbone embeddings and save it."""
+```
+
+* `dataset`: `HTRDataset` instance providing the images.
+* `backbone`: The visual backbone model to extract embeddings from.
+* `save_path`: Path where the generated t-SNE plot (PNG image) will be saved.
+* `device`: Device on which the backbone runs.
+
+### plot_pretrained_backbone_tsne
+
+Located in `alignment/plot.py`. Plots t-SNE embeddings from the pretrained backbone.
+
+```python
+def plot_pretrained_backbone_tsne(dataset, n_samples, save_path):
+    """Plot t-SNE embeddings from the pretrained backbone."""
+```
+
+* `dataset`: `HTRDataset` instance providing images and alignment labels.
+* `n_samples`: Number of random samples to visualise.
+* `save_path`: Path where the PNG figure will be saved.
+
+## print_dataset_stats
 
 Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
 this helper prints useful information such as:

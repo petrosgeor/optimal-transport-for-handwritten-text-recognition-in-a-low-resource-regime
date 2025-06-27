@@ -4,6 +4,15 @@ import os, sys, random, pickle
 from pathlib import Path
 from types import SimpleNamespace
 from contextlib import contextmanager, nullcontext
+import torch
+
+def _assert_finite(t: torch.Tensor, name: str):
+    assert torch.isfinite(t).all(), f"{name} contains NaN/Inf"
+
+def _check_grad_finite(model: torch.nn.Module):
+    for n, p in model.named_parameters():
+        if p.grad is not None:
+            assert torch.isfinite(p.grad).all(), f"grad NaN/Inf in {n}"
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
 # ------------------------------------------------------------------
@@ -91,12 +100,16 @@ def main(config: dict | None = None) -> Path:
     results_file = config.pop("results_file", False)
     # Extract parameters from config
     list_file = config["list_file"]
+    assert Path(list_file).is_file(), "list_file not found"
     n_random = config.get("n_random", None)
     num_epochs = config["num_epochs"]
     batch_size = config["batch_size"]
+    assert batch_size > 0 and batch_size <= 1024, "batch_size must be between 1 and 1024"
     lr = config["learning_rate"]
+    assert lr > 0, "learning_rate must be positive"
     base_path = config.get("base_path", None)
     fixed_size = config["fixed_size"]
+    assert fixed_size[0] > 0 and fixed_size[1] > 0, "fixed_size dimensions must be positive"
     device = config["device"]
     gpu_id = config.pop("gpu_id", None)
     if gpu_id is not None:
@@ -131,6 +144,8 @@ def main(config: dict | None = None) -> Path:
             preload_images=True,
             random_seed=0,
         )
+        assert len(train_set) > 0, "training dataset is empty"
+        assert train_set.fixed_size == fixed_size, "train_set fixed_size mismatch"
         # Separate test set without augmentations
         test_set = PretrainingHTRDataset(
             list_file,
@@ -141,6 +156,7 @@ def main(config: dict | None = None) -> Path:
             preload_images=True,
             random_seed=1,
         )
+        assert test_set.fixed_size == fixed_size, "test_set fixed_size mismatch"
         print(f"[Pretraining] Dataset size: {len(train_set)}")
         print(f"[Pretraining] Test set size: {len(test_set)}")
         save_dir = Path(save_path).parent
@@ -149,6 +165,8 @@ def main(config: dict | None = None) -> Path:
 
         # Use the fixed vocabulary for training
         c2i, i2c = load_vocab()
+        assert (len(c2i) + 1) == nclasses, "nclasses mismatch with vocab size"
+        assert 0 not in c2i.values(), "blank index 0 found in c2i values"
 
         # Optionally (re-)save the dictionaries next to the backbone weights
         if save_backbone:
@@ -182,6 +200,7 @@ def main(config: dict | None = None) -> Path:
             """Print predictions for up to ten random samples from *ds*."""
             net.eval()
             with torch.no_grad():
+                assert len(ds) > 0, "empty dataset for random samples"
                 # 1) pick up to 10 random indices
                 indices = random.sample(range(len(ds)), min(10, len(ds)))
                 # 2) load all (image, gt) pairs and stack into a batch
@@ -200,6 +219,7 @@ def main(config: dict | None = None) -> Path:
             """Return CER on *loader* and print the value."""
             net.eval()
             metric = CER()
+            assert metric.total_len > 0, "empty eval loader"
             with torch.no_grad():
                 for imgs, trans in loader:
                     imgs = imgs.to(device)
@@ -221,9 +241,12 @@ def main(config: dict | None = None) -> Path:
                 imgs = imgs.to(device)
                 out = net(imgs)
                 main_logits, aux_logits, features = out[:3]
+                assert features.dim() == 2 and features.size(1) == arch.feat_dim, "features tensor has wrong dimensions or feature size"
+                for name, tens in {"main_logits":main_logits, "aux_logits":aux_logits, "features":features}.items(): _assert_finite(tens, name)
 
                 # Prepare CTC targets
                 targets, lengths = encode_for_ctc(list(txts), c2i)
+                assert targets.max() < nclasses, "target contains index out of nclasses range"
                 inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
 
                 # Compute losses
@@ -233,9 +256,11 @@ def main(config: dict | None = None) -> Path:
                 loss_contr = torch.tensor(0.0, device=device)
                 if ENABLE_CONTR:
                     loss_contr = contr_loss_fn(features, list(txts))
+                    assert loss_contr >= 0 and torch.isfinite(loss_contr), "Contrastive loss is negative or non-finite"
 
                 if ENABLE_PHOC:
                     phoc_logits = out[-1]
+                    assert not torch.isnan(loss_phoc), "PHOC loss is NaN"
                     phoc_targets = build_phoc_description(list(txts), c2i, levels=PHOC_LEVELS).float().to(device)
                     assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
                     loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
@@ -246,8 +271,10 @@ def main(config: dict | None = None) -> Path:
                               aux_weight  * loss_aux  +
                               PHOC_W      * loss_phoc +
                               CONTR_W     * loss_contr)
+                _assert_finite(total_loss, "total_loss")
                 # Optimization step
                 total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(net.parameters(), 5.0); _check_grad_finite(net)
                 opt.step()
                 opt.zero_grad(set_to_none=True)
                 epoch_loss += total_loss.item()
@@ -261,6 +288,8 @@ def main(config: dict | None = None) -> Path:
             # Print progress every 20 epochs or on last epoch
             if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
                 lr_val = sched.get_last_lr()[0]
+                import math
+                assert lr_val > 0 and math.isfinite(lr_val), "learning rate underflow or became non-finite"
                 msg = f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}"
                 if ENABLE_PHOC:
                     msg += f" - PHOC: {avg_phoc_loss:.4f}"
@@ -273,7 +302,7 @@ def main(config: dict | None = None) -> Path:
                 if save_backbone:
                     # Save the trained model and vocabulary
                     save_dir = Path(save_path).parent
-                    save_dir.mkdir(parents=True, exist_ok=True)
+                    save_dir.mkdir(parents=True, exist_ok=True); assert os.access(save_dir, os.W_OK), "save_dir is not writable"
                     torch.save(net.state_dict(), save_path)
                     with open(c2i_path, "wb") as f:
                         pickle.dump(c2i, f)
