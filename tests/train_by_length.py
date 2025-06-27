@@ -38,7 +38,7 @@ MIN_LENGTH = 0
 EVAL_K = 4
 N_ALIGNED = cfg.n_aligned
 K_EXTERNAL_WORDS = 200
-NUM_EPOCHS = 600
+NUM_EPOCHS = 2000
 BATCH_SIZE = 128
 SYN_BATCH_RATIO = 0.5
 LEARNING_RATE = 1e-3
@@ -294,7 +294,7 @@ def refine_visual_model(dataset: HTRDataset,
                              num_workers=0, pin_memory=(device.type == "cuda"))
     # Optimiser & scheduler
     opt = optim.AdamW(backbone.parameters(), lr=lr, weight_decay=1e-4)
-    sched = lr_scheduler.StepLR(opt, step_size=150, gamma=0.5)
+    sched = lr_scheduler.StepLR(opt, step_size=500, gamma=0.5)
     n_aligned = getattr(dataset.config, "n_aligned", len(dataset))
     # how many ground-truth words to keep in the training subset
     # Pre-compute indices by length and build a fixed subset
