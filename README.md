@@ -144,6 +144,8 @@ cfg = {"gpu_id": 0, "base_path": "/data/images"}
 pretraining.main(cfg)
 ```
 
+* **PHOC optional loss** – Set `enable_phoc: true` in `alignment/config.yaml` to let *pretraining.py* build PHOC targets on-the-fly (`build_phoc_description`) and optimise an extra BCE-with-logits term weighted by `phoc_loss_weight`. The PHOC head is enabled automatically when `feat_dim` and `phoc_levels` are present in the architecture config.
+
 ## encode\_for\_ctc
 
 Defined in `alignment/ctc_utils.py`. This helper converts a batch of strings into the flattened `(targets, lengths)` representation required by `torch.nn.CTCLoss`.

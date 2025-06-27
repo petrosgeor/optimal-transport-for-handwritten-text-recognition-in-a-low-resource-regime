@@ -1175,3 +1175,38 @@ def test_htrnet_phoc_head_outputs():
     dummy = torch.randn(1,1,128,512)
     outs = model(dummy)
     assert len(outs) == 4
+
+
+def test_pretraining_phoc_hparams():
+    from alignment import pretraining
+    cfg = OmegaConf.load('alignment/config.yaml')
+    assert pretraining.PHOC_LEVELS == tuple(cfg['phoc_levels'])
+    assert pretraining.PHOC_W == float(cfg['phoc_loss_weight'])
+    assert pretraining.ENABLE_PHOC == bool(cfg['enable_phoc'])
+
+
+def test_pretraining_with_phoc(tmp_path, monkeypatch, capsys):
+    src = Path('htr_base/data/GW/processed_words/train/train_000000.png')
+    base = tmp_path
+    shutil.copy(src, base / 'foo_word_0.png')
+    list_file = tmp_path / 'list.txt'
+    with open(list_file, 'w') as f:
+        f.write('foo_word_0.png\n')
+
+    from alignment import pretraining
+
+    monkeypatch.setattr(pretraining, 'ENABLE_PHOC', True)
+    config = {
+        'list_file': str(list_file),
+        'n_random': 1,
+        'num_epochs': 1,
+        'batch_size': 1,
+        'learning_rate': 1e-3,
+        'base_path': str(base),
+        'fixed_size': (32, 128),
+        'device': 'cpu',
+    }
+
+    pretraining.main(config)
+    out = capsys.readouterr().out
+    assert 'PHOC:' in out
