@@ -214,6 +214,14 @@ def test_no_alt_backbone_hparam():
     assert not hasattr(loaded, 'alt_backbone_epochs')
 
 
+def test_architecture_config_matches_yaml():
+    from alignment import pretraining
+    yaml_arch = OmegaConf.load('alignment/config.yaml')['architecture']
+    pre_arch = pretraining.ARCHITECTURE_CONFIG
+    assert OmegaConf.to_container(pre_arch, resolve=True) == \
+        OmegaConf.to_container(yaml_arch, resolve=True)
+
+
 def test_majority_vote_alignment():
     cfg = SimpleNamespace(k_external_words=5, n_aligned=0, word_emb_dim=8)
     base = 'htr_base/data/GW/processed_words'
