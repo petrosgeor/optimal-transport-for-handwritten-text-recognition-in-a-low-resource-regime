@@ -127,8 +127,9 @@ The helper `refine_visual_model` in `tests/train_by_length.py` can mix ground‑
 `alignment/pretraining.py` trains a small backbone on an image list. All
 options are stored in the `PRETRAINING_CONFIG` dictionary.  Modify this
 dictionary or pass your own configuration to `pretraining.main` to control
-the list file, number of GPUs or whether output should be written to
-`pretraining_results.txt`.  When `results_file` is `True` the script also
+the list file and whether output should be written to
+`pretraining_results.txt`. GPU selection is configured only in
+`alignment/config.yaml`. When `results_file` is `True` the script also
 evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
 stdout to that file.
 
@@ -140,7 +141,7 @@ output into a file wrap the call in `tee_output('pretraining_results.txt')`:
 ```python
 from alignment import pretraining
 
-cfg = {"gpu_id": 0, "base_path": "/data/images"}
+cfg = {"base_path": "/data/images"}  # GPU selection is set in alignment/config.yaml
 pretraining.main(cfg)
 ```
 
@@ -382,7 +383,7 @@ Key options:
 * `projector_weight_decay` – weight decay for the projector optimiser.
 * `plot_tsne` – save t-SNE plots during projector training.
 * `device` – compute device (`cpu` or `cuda`).
-* `gpu_id` – CUDA device index.
+* `gpu_id` – CUDA device index (set only in `alignment/config.yaml`).
 * `alt_rounds` – backbone/projector cycles per alternating pass.
 * `align_batch_size` – mini-batch size for alignment descriptor caching.
 * `align_device` – device used for the alignment step.

@@ -201,7 +201,8 @@ def train_projector(  # pylint: disable=too-many-arguments
         plot_tsne_embeddings(
             dataset,
             backbone=backbone,
-            save_path='tests/figures/tsne_backbone.png'
+            save_path='tests/figures/tsne_backbone.png',
+            device=device,
         )
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
