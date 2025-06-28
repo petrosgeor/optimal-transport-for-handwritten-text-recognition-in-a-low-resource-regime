@@ -8,7 +8,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
 from htr_base.utils.htr_dataset import HTRDataset
-from alignment.alignment_utilities import plot_pretrained_backbone_tsne
+from alignment.plot import plot_pretrained_backbone_tsne
 
 def generate_plot():
     """
@@ -25,7 +25,7 @@ def generate_plot():
         fixed_size=(64, 256),
     )
 
-    n_samples = 500
+    n_samples = 800
     save_path = str(root / "tests" / "figures" / "pretrained_backbone_tsne.png")
 
     print(f"Generating t-SNE plot for {n_samples} samples...")

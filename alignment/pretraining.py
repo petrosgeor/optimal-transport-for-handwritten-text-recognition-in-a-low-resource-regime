@@ -165,18 +165,16 @@ def main(config: dict | None = None) -> Path:
 
         # Use the fixed vocabulary for training
         c2i, i2c = load_vocab()
-        assert (len(c2i) + 1) == nclasses, "nclasses mismatch with vocab size"
+        
         assert 0 not in c2i.values(), "blank index 0 found in c2i values"
 
         # Optionally (re-)save the dictionaries next to the backbone weights
         if save_backbone:
             save_dir.mkdir(parents=True, exist_ok=True)
-            with open(c2i_path, "wb") as f:
-                pickle.dump(c2i, f)
-            with open(i2c_path, "wb") as f:
-                pickle.dump(i2c, f)
+
 
         nclasses = len(c2i) + 1
+        assert (len(c2i) + 1) == nclasses, "nclasses mismatch with vocab size"
         print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
         arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
         net = HTRNet(arch, nclasses=nclasses).to(device).train()
@@ -260,10 +258,10 @@ def main(config: dict | None = None) -> Path:
 
                 if ENABLE_PHOC:
                     phoc_logits = out[-1]
-                    assert not torch.isnan(loss_phoc), "PHOC loss is NaN"
                     phoc_targets = build_phoc_description(list(txts), c2i, levels=PHOC_LEVELS).float().to(device)
                     assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
                     loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+                    assert not torch.isnan(loss_phoc), "PHOC loss is NaN"
                 else:
                     loss_phoc = torch.tensor(0.0, device=device)
 
@@ -304,10 +302,6 @@ def main(config: dict | None = None) -> Path:
                     save_dir = Path(save_path).parent
                     save_dir.mkdir(parents=True, exist_ok=True); assert os.access(save_dir, os.W_OK), "save_dir is not writable"
                     torch.save(net.state_dict(), save_path)
-                    with open(c2i_path, "wb") as f:
-                        pickle.dump(c2i, f)
-                    with open(i2c_path, "wb") as f:
-                        pickle.dump(i2c, f)
                     print(f"[Pretraining] Model saved to: {save_path}")
         return Path(save_path)
 if __name__ == '__main__':
