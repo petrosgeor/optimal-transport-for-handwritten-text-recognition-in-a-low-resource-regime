@@ -337,7 +337,8 @@ Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone o
 
 ```python
 def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
-                           lr=1e-4, main_weight=1.0, aux_weight=0.1):
+                           lr=1e-4, main_weight=1.0, aux_weight=0.1,
+                           pretrain_ds=None, syn_batch_ratio=0.0):
     """Fine‑tune *backbone* only on words already aligned to external words."""
 ```
 
@@ -347,6 +348,9 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 * `batch_size`: mini-batch size.
 * `lr`: learning rate.
 * `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
+* `pretrain_ds`: optional `PretrainingHTRDataset` providing synthetic images.
+* `syn_batch_ratio`: fraction of each batch drawn from `pretrain_ds` (0 disables).
+  Synthetic samples are always considered aligned.
 * External words are automatically wrapped with spaces before encoding so that
   no persistent changes are made to `dataset.external_words`.
 
@@ -419,6 +423,7 @@ Key options:
 * `refine_main_weight` – weight for the main CTC loss branch.
 * `refine_aux_weight` – weight for the auxiliary CTC loss.
 * `refine_epochs` – epochs spent refining the backbone.
+* `syn_batch_ratio` – fraction of each batch drawn from `PretrainingHTRDataset`.
 * `projector_epochs` – number of epochs for projector training.
 * `projector_batch_size` – mini-batch size when harvesting descriptors.
 * `projector_lr` – learning rate for projector optimisation.

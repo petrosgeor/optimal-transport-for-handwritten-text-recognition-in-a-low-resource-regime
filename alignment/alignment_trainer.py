@@ -7,11 +7,12 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from itertools import cycle
 from torch.utils.data import DataLoader, TensorDataset
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
 from alignment.ctc_utils import encode_for_ctc
@@ -94,6 +95,8 @@ def refine_visual_backbone(
     lr: float = cfg.refine_lr,
     main_weight: float = cfg.refine_main_weight,
     aux_weight: float = cfg.refine_aux_weight,
+    pretrain_ds: PretrainingHTRDataset | None = None,
+    syn_batch_ratio: float = cfg.syn_batch_ratio,
 ) -> None:
     """Fine‑tune *backbone* only on words already aligned to external words."""
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
@@ -104,45 +107,90 @@ def refine_visual_backbone(
     assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned),         "Dataset alignment flags vector is malformed."
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
-    if len(aligned_indices) == 0:
-        print("[Refine] no pre-aligned samples found – aborting.")
-        return
     subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
 
-    dataloader = DataLoader(
-        subset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=2,            # keep CI simple
-        pin_memory=(device.type == "cuda"),
-    )
+    if len(aligned_indices) == 0 and (pretrain_ds is None or syn_batch_ratio <= 0):
+        print("[Refine] no pre-aligned samples found – aborting.")
+        return
+
+    syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
+    gt_bs = batch_size - syn_bs
+
+    if pretrain_ds is not None and syn_bs > 0 and gt_bs > 0:
+        gt_loader = DataLoader(
+            subset,
+            batch_size=gt_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pretrain_loader = DataLoader(
+            pretrain_ds,
+            batch_size=syn_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pre_iter = cycle(pretrain_loader)
+        pretrain_only = False
+    elif pretrain_ds is not None and syn_bs > 0 and gt_bs <= 0:
+        gt_loader = DataLoader(
+            pretrain_ds,
+            batch_size=syn_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pre_iter = None
+        pretrain_only = True
+    else:
+        gt_loader = DataLoader(
+            subset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pre_iter = None
+        pretrain_only = False
+
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
-        for imgs, _, aligned in dataloader:  # we ignore the transcription string
-            _assert_finite(imgs, "images")
+        for batch in gt_loader:
+            if pretrain_only:
+                imgs, trans = batch
+                words = list(trans)
+            else:
+                imgs, _, aligned = batch
+                words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
+
             imgs = imgs.to(device)
-            # Pad each external word with spaces to mimic dataset transcriptions
-            ext_words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
-            # ── forward ─────────────────────────────────────────────────
+
+            if pre_iter is not None:
+                imgs_syn, trans_syn = next(pre_iter)
+                imgs = torch.cat([imgs, imgs_syn.to(device)], dim=0)
+                words.extend(list(trans_syn))
+
+            _assert_finite(imgs, "images")
+
             out = backbone(imgs, return_feats=False)
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
-            main_logits, aux_logits = out[:2]           # (T,K,C)
+            main_logits, aux_logits = out[:2]
 
             T, K, _ = main_logits.shape
-            assert main_logits.shape[2] == len(c2i), "CTC class dimension mismatch"
-            # ── encode labels ───────────────────────────────────────────
-            targets, tgt_lens = encode_for_ctc(ext_words, c2i, device="cpu")
+            assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
+
+            targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
 
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-            # ── losses ─────────────────────────────────────────────────
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_aux  = _ctc_loss_fn(aux_logits,  targets, inp_lens, tgt_lens)
+            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
             loss = main_weight * loss_main + aux_weight * loss_aux
             _assert_finite(loss, "loss")
-            # ── optimisation step ──────────────────────────────────────
+
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             _assert_grad_finite(backbone, "backbone")
@@ -155,11 +203,12 @@ def refine_visual_backbone(
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     backbone.eval()
-    with torch.no_grad():
-        feats, _ = harvest_backbone_features(subset, backbone, device=device)
-    words = [dataset.external_words[dataset.aligned[i].item()] for i in aligned_indices.tolist()]
-    score = word_silhouette_score(feats, words)
-    print(f"[Refine] silhouette score: {score:.4f}")
+    if len(aligned_indices) > 1:
+        with torch.no_grad():
+            feats, _ = harvest_backbone_features(subset, backbone, device=device)
+        words = [dataset.external_words[dataset.aligned[i].item()] for i in aligned_indices.tolist()]
+        score = word_silhouette_score(feats, words)
+        print(f"[Refine] silhouette score: {score:.4f}")
     print("[Refine] finished.")
 
 # File: alignment/alignment_trainer.py
