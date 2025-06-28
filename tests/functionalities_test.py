@@ -11,7 +11,7 @@ import torch
 
 from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.utils.vocab import load_vocab
-from htr_base.models import HTRNet
+from htr_base.models import HTRNet, Projector
 from alignment.alignment_trainer import refine_visual_backbone, cfg
 from types import SimpleNamespace
 
@@ -77,4 +77,32 @@ def test_refine_backbone_with_pretraining(tmp_path):
                            pretrain_ds=pre_ds, syn_batch_ratio=0.5)
 
     assert not net.training
+
+
+def test_otaligner_shapes():
+    base = Path("htr_base/data/GW/processed_words")
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))
+
+    # minimal external vocabulary
+    ds.external_words = [ds.transcriptions[0].strip(), ds.transcriptions[1].strip()]
+    ds.word_emb_dim = 8
+    ds.external_word_embeddings = ds.find_word_embeddings(ds.external_words, n_components=8)
+    ds.aligned[:] = -1
+    ds.aligned[0] = 0
+
+    c2i, _ = load_vocab()
+    arch = SimpleNamespace(**cfg.architecture)
+    arch.feat_dim = 32
+    arch.phoc_levels = None
+    backbone = HTRNet(arch, nclasses=len(c2i) + 1)
+    projector = Projector(arch.feat_dim, ds.word_emb_dim)
+
+    from alignment.alignment_utilities import OTAligner
+
+    aligner = OTAligner(ds, backbone, [projector], batch_size=2, device="cpu", k=1)
+    plan, proj, moved = aligner.align()
+
+    assert plan.shape == (len(ds), len(ds.external_words))
+    assert proj.shape == (len(ds), ds.word_emb_dim)
+    assert moved.shape[0] == len(ds)
 
