@@ -60,8 +60,9 @@ Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and c
 
 * `basefolder`: root folder containing `train/`, `val/` and `test/` subdirectories with a `gt.txt` file inside each.
 
-* `subset`: which portion of the dataset to load (`train`, `val`, `test` or `all`).
-  Using `all` merges the three splits and applies the same augmentation policy as the training split.
+* `subset`: which portion of the dataset to load (`train`, `val`, `test`, `all` or `train_val`).
+  Using `all` merges the three splits while `train_val` merges the training and validation subsets.
+  Both `train` and `train_val` use the training augmentation policy.
 
 * **Data path**: the default configuration expects processed line images under `./data/IAM/processed_lines`.  A small sample dataset for the unit tests lives in `htr_base/data/GW/processed_words`.
 

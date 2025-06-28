@@ -16,7 +16,7 @@ from htr_base.utils.vocab import load_vocab
 class HTRDataset(Dataset):
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
-        subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all')
+        subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
         fixed_size: tuple =(128, None),          # Resize inputs to this size
         transforms: list = None,                 # List of augmentation transforms to apply on input
         character_classes: list = None,          # If None, computed automatically; else list of characters
@@ -38,10 +38,15 @@ class HTRDataset(Dataset):
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
         # Load gt.txt from basefolder - each line contains image path and transcription
-        if subset not in {'train', 'val', 'test', 'all'}:
-            raise ValueError("subset must be 'train', 'val', 'test' or 'all'")
+        if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
+            raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
         data = []
-        subsets = ['train', 'val', 'test'] if subset == 'all' else [subset]
+        if subset == 'all':
+            subsets = ['train', 'val', 'test']
+        elif subset == 'train_val':
+            subsets = ['train', 'val']
+        else:
+            subsets = [subset]
         for sub in subsets:
             gt_file = os.path.join(basefolder, sub, 'gt.txt')
             with open(gt_file, 'r') as f:
@@ -104,7 +109,7 @@ class HTRDataset(Dataset):
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
         def build_view(im):
-            if self.subset in {'train', 'all'}:
+            if self.subset in {'train', 'all', 'train_val'}:
                 nwidth = int(np.random.uniform(.75, 1.25) * im.shape[1])
                 nheight = int((np.random.uniform(.9, 1.1) * im.shape[0] / im.shape[1]) * nwidth)
                 im = resize(image=im, output_shape=(nheight, nwidth)).astype(np.float32)
