@@ -373,6 +373,20 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `device`: computation device for training.
 * `plot_tsne`: whether to generate t-SNE plots of backbone and projector outputs.
 
+## maybe_load_backbone
+
+Also in `alignment/alignment_trainer.py`. This helper loads pretrained weights for a backbone if configured.
+
+```python
+def maybe_load_backbone(backbone, cfg):
+    """Load pretrained backbone weights when `cfg.load_pretrained_backbone` is true."""
+```
+
+* `backbone`: `HTRNet` instance whose parameters will be updated.
+* `cfg.load_pretrained_backbone`: boolean toggle controlling the behaviour.
+* `cfg.pretrained_backbone_path`: path to the `.pt` checkpoint file.
+* Prints a short message when loading occurs.
+
 ## alternating\_refinement
 
 Also in `alignment/alignment_trainer.py`. This helper repeatedly refines the
@@ -438,6 +452,8 @@ Key options:
 * `ensemble_size` – how many projectors to train in parallel.
 * `agree_threshold` – votes required before pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
+* `load_pretrained_backbone` – whether to load backbone weights from disk.
+* `pretrained_backbone_path` – path to the pretrained backbone checkpoint.
 * `architecture` – dictionary defining the HTRNet backbone parameters:
   `cnn_cfg`, `head_type`, `rnn_type`, `rnn_layers`, `rnn_hidden_size`,
   `flattening`, `stn`, `feat_dim`, `feat_pool` and `phoc_levels`.

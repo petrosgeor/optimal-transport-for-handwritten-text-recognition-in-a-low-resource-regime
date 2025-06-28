@@ -82,6 +82,15 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if str(cfg.device).startswith("cuda"):
     cfg.device = f"cuda:{cfg.gpu_id}"
 
+
+def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
+    """Load pretrained backbone weights if ``cfg.load_pretrained_backbone``."""
+    if getattr(cfg, "load_pretrained_backbone", False):
+        path = cfg.pretrained_backbone_path
+        state = torch.load(path, map_location=cfg.device)
+        backbone.load_state_dict(state)
+        print(f"[Init] loaded pretrained backbone from {path}")
+
 # --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #
 # --------------------------------------------------------------------------- #
@@ -312,6 +321,8 @@ def alternating_refinement(
 ) -> None:
     """Alternately train ``backbone`` and one or more projectors with OT alignment."""
 
+    maybe_load_backbone(backbone, cfg)
+
     print_dataset_stats(dataset)
     assert isinstance(projectors, (list, tuple)) and len(projectors) > 0, \
         "Projectors must be a non-empty list or tuple."
@@ -420,6 +431,7 @@ if __name__ == "__main__":
 
     arch = SimpleNamespace(**cfg["architecture"])
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
+    maybe_load_backbone(backbone, cfg)
     projectors = [
         Projector(arch.feat_dim, dataset.word_emb_dim)
         for _ in range(cfg.ensemble_size)

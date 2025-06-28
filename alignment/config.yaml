@@ -76,3 +76,9 @@ contrastive_enable: true   # turn on to activate the loss
 contrastive_weight: 0.2     # β – scales the new loss inside total_loss
 contrastive_tau: 0.07       # τ – temperature for descriptor similarities
 contrastive_text_T: 1.0     # T_txt – softness in edit‑distance space
+
+# ----------------------------------------------------------------------
+# Optional pretrained backbone
+# ----------------------------------------------------------------------
+load_pretrained_backbone: false   # load weights for the backbone at startup
+pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
