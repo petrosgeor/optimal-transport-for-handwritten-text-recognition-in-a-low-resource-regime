@@ -194,14 +194,16 @@ Returns a list of decoded strings, one for each element in the batch.
 
 ## align\_more\_instances
 
-Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.
+Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.  Internally it now instantiates an :class:`OTAligner`:
 
 ```python
-def align_more_instances(dataset, backbone, projectors, *, batch_size=512,
-                         device="cpu", reg=0.1, unbalanced=False, reg_m=1.0,
-                         sinkhorn_kwargs=None, k=0, agree_threshold=1):
-    """Automatically align dataset images to external words using OT."""
+from alignment.alignment_utilities import OTAligner
+
+aligner = OTAligner(dataset, backbone, projectors, batch_size=512)
+plan, projections, moved = aligner.align()
 ```
+
+The function `align_more_instances(dataset, backbone, projectors, **kwargs)` remains as a thin wrapper for backward compatibility.
 
 * `dataset`: instance of `HTRDataset` providing images and `external_word_embeddings`.
 * `backbone`: `HTRNet` used to extract visual descriptors.
@@ -226,6 +228,10 @@ The underlying OT projection step handles rows with zero mass safely, avoiding
 `inf` or `nan` values when some descriptors receive no transport mass.
 
 Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
+
+## OTAligner
+
+`OTAligner` exposes the same functionality as `align_more_instances` in a reusable class form. It takes the dataset, backbone and projectors during construction and exposes a single `align()` method returning the OT plan, the averaged projections and the moved distances.
 
 ## select\_uncertain\_instances
 
