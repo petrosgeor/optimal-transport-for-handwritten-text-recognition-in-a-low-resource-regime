@@ -1,9 +1,13 @@
 from __future__ import annotations
 import warnings
+import logging
+
 warnings.filterwarnings(
     "ignore",
     message="kenlm python bindings are not installed.*"
 )
+# Suppress pyctcdecode warnings about missing kenlm bindings
+logging.getLogger("pyctcdecode.decoder").setLevel(logging.ERROR)
 
 import torch
 from typing import List, Dict, Tuple, Callable
@@ -167,10 +171,7 @@ def beam_search_ctc_decode(
     # pyctcdecode expects the blank token to be at the blank_id index in the labels list.
     vocab_list[blank_id] = "" # An empty string is a common convention for the blank token in pyctcdecode.
 
-    decoder = build_ctcdecoder(
-        labels=vocab_list,
-        language_model=None
-    )
+    decoder = build_ctcdecoder(labels=vocab_list)
 
     # Convert logits to numpy array for pyctcdecode
     log_probs = logits.log_softmax(dim=2).cpu().numpy()
