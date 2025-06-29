@@ -63,9 +63,15 @@ def test_maybe_load_backbone():
     assert changed
 def test_refine_backbone_with_pretraining(tmp_path):
     base = Path("htr_base/data/GW/processed_words")
-    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))
+    class DummyCfg:
+        k_external_words = 0
+        n_aligned = 0
+
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256), config=DummyCfg())
     ds.external_words = [ds.transcriptions[0].strip()]
     ds.aligned[0] = 0
+    ds.word_emb_dim = 8
+    ds.external_word_embeddings = torch.zeros(len(ds.external_words), ds.word_emb_dim)
 
     pre_dir = tmp_path / "pretrain"
     pre_dir.mkdir()
@@ -116,4 +122,59 @@ def test_otaligner_shapes():
     assert plan.shape == (len(ds), len(ds.external_words))
     assert proj.shape == (len(ds), ds.word_emb_dim)
     assert moved.shape[0] == len(ds)
+
+
+def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
+    base = Path("htr_base/data/GW/processed_words")
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))
+    ds.external_words = [ds.transcriptions[0].strip()]
+    ds.aligned[0] = 0
+
+    # create tiny synthetic dataset
+    syn_dir = tmp_path / "syn"
+    syn_dir.mkdir()
+    img_src = ds.data[1][0]
+    syn_img = syn_dir / "synth.png"
+    shutil.copy(img_src, syn_img)
+    list_file = syn_dir / "list.txt"
+    with open(list_file, "w") as f:
+        f.write("synth.png\n")
+
+    local_cfg = OmegaConf.create(OmegaConf.to_container(cfg, resolve=True))
+    local_cfg.syn_batch_ratio = 0.5
+    local_cfg.synthetic_dataset = {
+        "list_file": str(list_file),
+        "base_path": str(syn_dir),
+        "n_random": 1,
+        "fixed_size": [64, 256],
+    }
+    local_cfg.device = "cpu"
+    local_cfg.load_pretrained_backbone = False
+
+    used = {}
+
+    def fake_refine(*args, pretrain_ds=None, **kwargs):
+        used["length"] = len(pretrain_ds) if pretrain_ds is not None else 0
+
+    monkeypatch.setattr("alignment.alignment_trainer.refine_visual_backbone", fake_refine)
+    monkeypatch.setattr("alignment.alignment_trainer.align_more_instances", lambda *a, **k: None)
+    monkeypatch.setattr("alignment.alignment_trainer.cfg", local_cfg)
+
+    arch = SimpleNamespace(**local_cfg["architecture"])
+    net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
+    proj = [Projector(arch.feat_dim, ds.word_emb_dim)]
+
+    from alignment.alignment_trainer import alternating_refinement
+
+    alternating_refinement(
+        ds,
+        net,
+        proj,
+        rounds=1,
+        backbone_epochs=0,
+        projector_epochs=0,
+        align_kwargs={"k": 0},
+    )
+
+    assert used.get("length", 0) == 1
 

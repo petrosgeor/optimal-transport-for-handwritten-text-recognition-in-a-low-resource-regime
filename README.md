@@ -361,6 +361,9 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 * `pretrain_ds`: optional `PretrainingHTRDataset` providing synthetic images.
 * `syn_batch_ratio`: fraction of each batch drawn from `pretrain_ds` (0 disables).
   Synthetic samples are always considered aligned.
+  Ground‑truth batches are mixed with synthetic ones using `cycle(pretrain_loader)`
+  according to `syn_batch_ratio`. If no aligned samples are available the routine
+  falls back to training solely on the synthetic dataset.
 * External words are automatically wrapped with spaces before encoding so that
   no persistent changes are made to `dataset.external_words`.
 
@@ -423,6 +426,9 @@ def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
   `refine_visual_backbone`.
 * `projector_kwargs`: keyword arguments for `train_projector`.
 * `align_kwargs`: parameters for `align_more_instances`.
+  When `trainer_config.yaml` defines a `synthetic_dataset` section,
+  `alternating_refinement` will instantiate a `PretrainingHTRDataset` using those
+  values and pass it as `pretrain_ds` to `refine_visual_backbone`.
 
 
 
@@ -470,6 +476,8 @@ The following keys from `trainer_config.yaml` are loaded at import time:
 * `prior_weight` – strength of the Wasserstein prior loss.
 * `load_pretrained_backbone` – whether to load backbone weights from disk.
 * `pretrained_backbone_path` – path to the pretrained backbone checkpoint.
+* `synthetic_dataset` – dictionary with `list_file`, `base_path`, `n_random` and
+  `fixed_size` used to build the optional `PretrainingHTRDataset`.
 * `architecture` – dictionary defining the HTRNet backbone parameters (see
   `pretraining_config.yaml`): `cnn_cfg`, `head_type`, `rnn_type`,
   `rnn_layers`, `rnn_hidden_size`, `flattening`, `stn`, `feat_dim`,

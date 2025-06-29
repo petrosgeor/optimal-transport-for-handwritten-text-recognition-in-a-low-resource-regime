@@ -67,3 +67,12 @@ prior_weight: 6            # strength of the Wasserstein prior loss
 # ----------------------------------------------------------------------
 load_pretrained_backbone: true   # load weights for the backbone at startup
 pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
+
+# ----------------------------------------------------------------------
+# Synthetic dataset parameters
+# ----------------------------------------------------------------------
+synthetic_dataset:
+  list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
+  base_path: null
+  n_random: 0
+  fixed_size: [64, 256]

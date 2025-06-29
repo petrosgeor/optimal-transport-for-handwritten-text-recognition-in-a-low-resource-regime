@@ -90,20 +90,20 @@ def refine_visual_backbone(
         print("[Refine] no pre-aligned samples found – aborting.")
         return
 
-    # Determine batch sizes for ground truth (gt) and synthetic (syn) data
     syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
     gt_bs = batch_size - syn_bs
 
-    # Setup DataLoaders based on whether synthetic data is used
-    if pretrain_ds is not None and syn_bs > 0 and gt_bs > 0:
-        # Mixed training: both ground truth and synthetic samples
-        gt_loader = DataLoader(
-            subset,
-            batch_size=gt_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
+    gt_loader = DataLoader(
+        subset,
+        batch_size=gt_bs if gt_bs > 0 else 1,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    pretrain_loader = None
+    pre_iter = None
+    if pretrain_ds is not None and syn_bs > 0:
         pretrain_loader = DataLoader(
             pretrain_ds,
             batch_size=syn_bs,
@@ -112,29 +112,10 @@ def refine_visual_backbone(
             pin_memory=(device.type == "cuda"),
         )
         pre_iter = cycle(pretrain_loader)
-        pretrain_only = False
-    elif pretrain_ds is not None and syn_bs > 0 and gt_bs <= 0:
-        # Purely synthetic training (e.g., when no aligned GT samples are available)
-        gt_loader = DataLoader(
-            pretrain_ds, # Use pretrain_ds as the main loader
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
+
+    if len(aligned_indices) == 0:
+        gt_loader = pretrain_loader
         pre_iter = None
-        pretrain_only = True
-    else:
-        # Purely ground truth training (no synthetic data or ratio is zero)
-        gt_loader = DataLoader(
-            subset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pre_iter = None
-        pretrain_only = False
 
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
     # Training loop for backbone refinement
@@ -142,19 +123,16 @@ def refine_visual_backbone(
         epoch_loss: float = 0.0
         effective_batches = 0
         for batch in gt_loader:
-            # Prepare batch: combine ground truth and synthetic data if applicable
-            if pretrain_only:
+            if len(aligned_indices) == 0:
                 imgs, trans = batch
                 words = list(trans)
             else:
                 imgs, _, aligned = batch
-                # Use external words for aligned samples
                 words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
 
             imgs = imgs.to(device)
 
             if pre_iter is not None:
-                # Fetch synthetic batch and concatenate
                 imgs_syn, trans_syn = next(pre_iter)
                 imgs = torch.cat([imgs, imgs_syn.to(device)], dim=0)
                 words.extend(list(trans_syn))
@@ -483,5 +461,21 @@ if __name__ == "__main__":
         for _ in range(cfg.ensemble_size)
     ]
 
-    alternating_refinement(dataset, backbone, projectors)
+    # Synthetic dataset for pretraining samples
+    syn_cfg = cfg.get("synthetic_dataset", None)
+    pre_syn_ds = None
+    if syn_cfg is not None:
+        pre_syn_ds = PretrainingHTRDataset(
+            list_file=syn_cfg.list_file,
+            base_path=syn_cfg.base_path,
+            n_random=syn_cfg.n_random,
+            fixed_size=tuple(syn_cfg.fixed_size),
+        )
+
+    alternating_refinement(
+        dataset,
+        backbone,
+        projectors,
+        refine_kwargs={"pretrain_ds": pre_syn_ds},
+    )
 
