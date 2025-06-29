@@ -302,21 +302,7 @@ def plot_pretrained_backbone_tsne(dataset, n_samples, save_path):
 * `n_samples`: Number of random samples to visualise.
 * `save_path`: Path where the PNG figure will be saved.
 
-## print_dataset_stats
 
-Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
-this helper prints useful information such as:
-
-* total number of samples and how many are already aligned,
-* size of the external vocabulary,
-* number and percentage of dataset items found in that vocabulary,
-* whether all transcriptions and external words are lowercase,
-* average transcription length.
-
-```python
-def print_dataset_stats(dataset):
-    """Print basic statistics about *dataset*."""
-```
 
 ## harvest\_backbone\_features
 
@@ -449,6 +435,7 @@ Key options:
 * `align_reg_m` – mass regularisation term for unbalanced OT.
 * `align_k` – pseudo-label this many least-moved descriptors.
 * `n_aligned` – number of pre-aligned samples for warm start.
+* `k_external_words` – number of external words to use in HTRDataset.
 * `ensemble_size` – how many projectors to train in parallel.
 * `agree_threshold` – votes required before pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
