@@ -43,34 +43,6 @@ def _assert_grad_finite(model: nn.Module, name: str):
         for p in model.parameters()
     ), f"Gradient explosion in {name}"
 
-
-class _Tee:
-    """Write to multiple streams simultaneously."""
-
-    def __init__(self, *streams):
-        self.streams = streams
-
-    def write(self, data):
-        for s in self.streams:
-            s.write(data)
-
-    def flush(self):
-        for s in self.streams:
-            s.flush()
-
-
-@contextmanager
-def tee_output(path: str = "results.txt"):
-    """Duplicate stdout to *path* while the context is active."""
-
-    original = sys.stdout
-    with open(path, "w") as f:
-        sys.stdout = _Tee(original, f)
-        try:
-            yield
-        finally:
-            sys.stdout = original
-
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
 # --------------------------------------------------------------------------- #
@@ -486,6 +458,5 @@ if __name__ == "__main__":
         for _ in range(cfg.ensemble_size)
     ]
 
-    with tee_output("results.txt"):
-        alternating_refinement(dataset, backbone, projectors)
+    alternating_refinement(dataset, backbone, projectors)
 

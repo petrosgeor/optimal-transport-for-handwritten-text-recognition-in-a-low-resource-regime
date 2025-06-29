@@ -1,38 +1,34 @@
-# Ignore everything in htr_base/data except htr_base/data/GW/
-htr_base/data/*
-!htr_base/data/GW/
-!htr_base/data/GW/**
-
-# Explicitly ignore IAM directory even if the above covers it (redundant but safe)
-htr_base/data/IAM/
-
-# Ignore saved models directory
-htr_base/saved_models/
+# General ignores
+__pycache__/
+**/__pycache__/
+.env
+*.xml
+*.json
+*.sh
 instructions.txt
 results.txt
 pretraining_results.txt
+
+# Data and models
+htr_base/data/*
+!htr_base/data/GW/
+!htr_base/data/GW/**
+htr_base/data/IAM/
+htr_base/saved_models/
+htr_base/saved_models/pretrained_backbone.pt
+
+# Test-related ignores
 tests/figures/
-# tests/figures/
 tests/test_projloss.py
 tests/test.py
 tests/dataset_value_range_test.py
-# Ignore all __pycache__ directories
-__pycache__/
-**/__pycache__/
-htr_base/saved_models/pretrained_backbone.pt
-# Ignore all Markdown files EXCEPT README.md
+
+# Project-specific directories
+google_drive_upload/
+overview/
+
+# Markdown files (except specific ones)
 *.md
 !README.md
 !AGENTS.md
-
-# Ignore all XML files
-*.xml
-
-# Ignore all JSON files
-*.json
-
-# Ignore all Shell scripts
-*.sh
-
-# Ignore google drive upload directory
-google_drive_upload/
+!GEMINI.md

@@ -136,8 +136,7 @@ stdout to that file.
 
 
 The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten
-random samples are decoded using greedy and beam search (`beam5:`). To log all
-output into a file wrap the call in `tee_output('pretraining_results.txt')`:
+random samples are decoded using greedy and beam search (`beam5:`).
 
 ```python
 from alignment import pretraining
@@ -420,17 +419,7 @@ def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
 * `projector_kwargs`: keyword arguments for `train_projector`.
 * `align_kwargs`: parameters for `align_more_instances`.
 
-## tee\_output
 
-Also in `alignment/alignment_trainer.py`. This context manager duplicates
-`stdout` to a file while it is active, recreating the file on each run.
-
-```python
-from alignment.alignment_trainer import tee_output
-
-with tee_output("results.txt"):
-    alternating_refinement(dataset, backbone, projectors)
-```
 
 ## alignment/config.yaml
 
