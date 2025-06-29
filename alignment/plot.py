@@ -177,7 +177,7 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
     save_path : str
         Path where the PNG figure will be saved.
     """
-    cfg = OmegaConf.load(Path(__file__).with_name("config.yaml"))
+    cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "trainer_config.yaml")
     arch_cfg = SimpleNamespace(**cfg["architecture"])
     c2i, _ = load_vocab()
     backbone = HTRNet(arch_cfg, nclasses=len(c2i) + 1)

@@ -13,6 +13,7 @@ from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.utils.vocab import load_vocab
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_trainer import refine_visual_backbone, cfg
+from omegaconf import OmegaConf
 from types import SimpleNamespace
 
 
@@ -31,7 +32,6 @@ def test_train_val_subset():
 
 def test_maybe_load_backbone():
     from types import SimpleNamespace
-    from omegaconf import OmegaConf
     from alignment.alignment_trainer import maybe_load_backbone
     from alignment.alignment_trainer import cfg as base_cfg
     from htr_base.models import HTRNet
@@ -42,8 +42,9 @@ def test_maybe_load_backbone():
     local_cfg.pretrained_backbone_path = "htr_base/saved_models/pretrained_backbone.pt"
     local_cfg.device = "cpu"
 
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
     c2i, _ = load_vocab()
-    arch = SimpleNamespace(**local_cfg["architecture"])
+    arch = SimpleNamespace(**pre_cfg["architecture"])
     backbone = HTRNet(arch, nclasses=len(c2i) + 1)
 
     before = {k: p.clone() for k, p in backbone.state_dict().items()}
@@ -70,7 +71,8 @@ def test_refine_backbone_with_pretraining(tmp_path):
     pre_ds = PretrainingHTRDataset(str(list_file), fixed_size=(64, 256), base_path=str(pre_dir))
 
     c2i, _ = load_vocab()
-    arch = SimpleNamespace(**cfg.architecture)
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    arch = SimpleNamespace(**pre_cfg["architecture"])
     net = HTRNet(arch, nclasses=len(c2i) + 1)
 
     refine_visual_backbone(ds, net, num_epochs=1, batch_size=2, lr=1e-4,
@@ -91,7 +93,8 @@ def test_otaligner_shapes():
     ds.aligned[0] = 0
 
     c2i, _ = load_vocab()
-    arch = SimpleNamespace(**cfg.architecture)
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    arch = SimpleNamespace(**pre_cfg["architecture"])
     arch.feat_dim = 32
     arch.phoc_levels = None
     backbone = HTRNet(arch, nclasses=len(c2i) + 1)

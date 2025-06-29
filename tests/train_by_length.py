@@ -27,7 +27,7 @@ from omegaconf import OmegaConf
 #   dataset_base_folder_name – dataset folder containing processed words.
 #   figure_output_dir/filename – where to write diagnostic figures.
 # ------------------------------------------------------------------
-cfg = OmegaConf.load(Path(__file__).resolve().parents[1] / "alignment" / "config.yaml")
+cfg = OmegaConf.load(Path(__file__).resolve().parents[1] / "alignment" / "alignment_configs" / "trainer_config.yaml")
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 
 MAX_LENGTH = 4

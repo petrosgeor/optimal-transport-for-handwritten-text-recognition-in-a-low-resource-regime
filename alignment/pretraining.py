@@ -89,7 +89,7 @@ PRETRAINING_CONFIG = {
     "results_file": False,
 }
 # Architecture configuration for the pretraining backbone
-# Loaded from alignment/config.yaml to stay consistent with other scripts
+# Loaded from alignment/alignment_configs/pretraining_config.yaml to stay consistent with other scripts
 ARCHITECTURE_CONFIG = yaml_cfg["architecture"]
 
 def main(config: dict | None = None) -> Path:
@@ -113,7 +113,7 @@ def main(config: dict | None = None) -> Path:
     device = config["device"]
     gpu_id = config.pop("gpu_id", None)
     if gpu_id is not None:
-        print("[Pretraining] 'gpu_id' in config is ignored; set it in alignment/config.yaml")
+        print("[Pretraining] 'gpu_id' in config is ignored; set it in alignment/alignment_configs/trainer_config.yaml")
     use_augmentations = config.get("use_augmentations", True)
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
