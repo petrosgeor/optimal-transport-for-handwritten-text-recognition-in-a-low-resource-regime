@@ -83,6 +83,7 @@ from alignment.ctc_utils import (
     beam_search_ctc_decode,
 )
 from alignment.losses import _ctc_loss_fn
+from alignment.eval import compute_cer
 
 # ---------------------------------------------------------------------
 # Optional loading of a pretrained backbone before fine-tuning.
@@ -274,12 +275,14 @@ def refine_visual_model(dataset: HTRDataset,
     )
     # Build vocabulary
     c2i, i2c = load_vocab()
-    # Test loader
-    test_set = HTRDataset(dataset.basefolder, subset="test",
-                          fixed_size=dataset.fixed_size, transforms=None,
-                          config=dataset.config)
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False,
-                             num_workers=0, pin_memory=(device.type == "cuda"))
+    # Dataset used for periodic evaluation
+    test_set = HTRDataset(
+        dataset.basefolder,
+        subset="test",
+        fixed_size=dataset.fixed_size,
+        transforms=None,
+        config=dataset.config,
+    )
     # Optimiser & scheduler
     opt = optim.AdamW(backbone.parameters(), lr=lr, weight_decay=1e-4)
     sched = lr_scheduler.StepLR(opt, step_size=150, gamma=0.5)
@@ -408,7 +411,13 @@ def refine_visual_model(dataset: HTRDataset,
         )
         if (epoch + 1) % 20 == 0 or epoch == num_epochs:
             k_eval = eval_k if eval_k is not None else max_length
-            cer = _evaluate_cer(backbone, test_loader, i2c, device, k=k_eval)
+            cer = compute_cer(
+                test_set,
+                backbone,
+                batch_size=batch_size,
+                device=device,
+                k=k_eval,
+            )
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
     print("[Refine] finished.")
 if __name__ == "__main__":
