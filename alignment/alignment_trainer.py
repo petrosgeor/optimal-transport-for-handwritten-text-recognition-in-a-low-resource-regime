@@ -1,446 +1,47 @@
-from __future__ import annotations
-import os
-import sys
-from pathlib import Path
-from typing import Dict, Tuple, List
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from itertools import cycle
-from torch.utils.data import DataLoader, TensorDataset
-root = Path(__file__).resolve().parents[1]
-if str(root) not in sys.path:
-    sys.path.insert(0, str(root))
-from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
-from htr_base.models import HTRNet, Projector
-from alignment.losses import ProjectionLoss
-from alignment.ctc_utils import encode_for_ctc
-from alignment.losses import _ctc_loss_fn
-from alignment.alignment_utilities import (
-    align_more_instances,
-    harvest_backbone_features,
-    print_dataset_stats
+"""Backwards-compatible imports for training utilities."""
+
+from alignment.training import (
+    maybe_load_backbone,
+    refine_visual_backbone,
+    train_projector,
+    alternating_refinement,
+    cfg,
 )
-from alignment.plot import (
-    plot_tsne_embeddings,
-    plot_projector_tsne
-)
-from htr_base.utils.metrics import word_silhouette_score
-from htr_base.utils.transforms import aug_transforms
-from htr_base.utils.vocab import load_vocab
-from omegaconf import OmegaConf
 
-from contextlib import contextmanager
+from alignment.features import harvest_backbone_features, print_dataset_stats
+from alignment.ot_utils import align_more_instances
+from alignment.plot import plot_tsne_embeddings, plot_projector_tsne
 
-
-def _assert_finite(t: torch.Tensor, where: str):
-    assert torch.isfinite(t).all(), f"Non-finite values in {where}"
-
-def _assert_grad_finite(model: nn.Module, name: str):
-    assert all(
-        p.grad is None or torch.isfinite(p.grad).all()
-        for p in model.parameters()
-    ), f"Gradient explosion in {name}"
-
-# --------------------------------------------------------------------------- #
-#                           Hyperparameter defaults                            #
-# --------------------------------------------------------------------------- #
-# Functions read defaults from the YAML configuration loaded at import time.
-cfg_file = Path(__file__).with_name("config.yaml")
-cfg = OmegaConf.load(cfg_file)
-
-# Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
-os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
-if str(cfg.device).startswith("cuda"):
-    cfg.device = f"cuda:{cfg.gpu_id}"
-
-
-def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
-    """Load pretrained backbone weights if ``cfg.load_pretrained_backbone``."""
-    if getattr(cfg, "load_pretrained_backbone", False):
-        path = cfg.pretrained_backbone_path
-        state = torch.load(path, map_location=cfg.device)
-        backbone.load_state_dict(state)
-        print(f"[Init] loaded pretrained backbone from {path}")
-
-# --------------------------------------------------------------------------- #
-#                            Main refinement routine                          #
-# --------------------------------------------------------------------------- #
-def refine_visual_backbone(
-    dataset: HTRDataset,
-    backbone: HTRNet,
-    num_epochs: int = cfg.refine_epochs,
-    *,
-    batch_size: int = cfg.refine_batch_size,
-    lr: float = cfg.refine_lr,
-    main_weight: float = cfg.refine_main_weight,
-    aux_weight: float = cfg.refine_aux_weight,
-    pretrain_ds: PretrainingHTRDataset | None = None,
-    syn_batch_ratio: float = cfg.syn_batch_ratio,
-) -> None:
-    """Fine‑tune *backbone* only on words already aligned to external words."""
-    print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
-    device = next(backbone.parameters()).device
-    backbone.train().to(device)
-    # Build CTC mapping once using the fixed vocabulary.
-    c2i, _ = load_vocab()
-    assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned),         "Dataset alignment flags vector is malformed."
-
-    aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
-    subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
-
-    if len(aligned_indices) == 0 and (pretrain_ds is None or syn_batch_ratio <= 0):
-        print("[Refine] no pre-aligned samples found – aborting.")
-        return
-
-    syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
-    gt_bs = batch_size - syn_bs
-
-    if pretrain_ds is not None and syn_bs > 0 and gt_bs > 0:
-        gt_loader = DataLoader(
-            subset,
-            batch_size=gt_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pretrain_loader = DataLoader(
-            pretrain_ds,
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pre_iter = cycle(pretrain_loader)
-        pretrain_only = False
-    elif pretrain_ds is not None and syn_bs > 0 and gt_bs <= 0:
-        gt_loader = DataLoader(
-            pretrain_ds,
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pre_iter = None
-        pretrain_only = True
-    else:
-        gt_loader = DataLoader(
-            subset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pre_iter = None
-        pretrain_only = False
-
-    optimizer = optim.AdamW(backbone.parameters(), lr=lr)
-    for epoch in range(1, num_epochs + 1):
-        epoch_loss: float = 0.0
-        effective_batches = 0
-        for batch in gt_loader:
-            if pretrain_only:
-                imgs, trans = batch
-                words = list(trans)
-            else:
-                imgs, _, aligned = batch
-                words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
-
-            imgs = imgs.to(device)
-
-            if pre_iter is not None:
-                imgs_syn, trans_syn = next(pre_iter)
-                imgs = torch.cat([imgs, imgs_syn.to(device)], dim=0)
-                words.extend(list(trans_syn))
-
-            _assert_finite(imgs, "images")
-
-            out = backbone(imgs, return_feats=False)
-            if not isinstance(out, (tuple, list)) or len(out) < 2:
-                raise RuntimeError("Expected network.forward() → (main, aux, …)")
-            main_logits, aux_logits = out[:2]
-
-            T, K, _ = main_logits.shape
-            assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
-
-            targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
-
-            inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
-            loss = main_weight * loss_main + aux_weight * loss_aux
-            _assert_finite(loss, "loss")
-
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            _assert_grad_finite(backbone, "backbone")
-            optimizer.step()
-            epoch_loss += loss.item()
-            effective_batches += 1
-        # if effective_batches:
-        #     avg_loss = epoch_loss / effective_batches
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        # else:
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
-    backbone.eval()
-    if len(aligned_indices) > 1:
-        with torch.no_grad():
-            feats, _ = harvest_backbone_features(subset, backbone, device=device)
-        words = [dataset.external_words[dataset.aligned[i].item()] for i in aligned_indices.tolist()]
-        score = word_silhouette_score(feats, words)
-        print(f"[Refine] silhouette score: {score:.4f}")
-    print("[Refine] finished.")
-
-# File: alignment/alignment_trainer.py
-
-
-def train_projector(  # pylint: disable=too-many-arguments
-    dataset: "HTRDataset",
-    backbone: "HTRNet",
-    projector: nn.Module | List[nn.Module],
-    num_epochs: int = cfg.projector_epochs,
-    batch_size: int = cfg.projector_batch_size,
-    lr: float = cfg.projector_lr,
-    num_workers: int = cfg.projector_workers,
-    weight_decay: float = cfg.projector_weight_decay,
-    device: torch.device | str = cfg.device,
-    plot_tsne: bool = cfg.plot_tsne,
-) -> None:
-    """
-    Freeze `backbone`, collect all image descriptors, and then train the
-    `projector` (or a list of projectors) using a combination of an
-    unsupervised Optimal Transport loss on all samples and a supervised MSE
-    loss on the subset of pre-aligned samples.
-    
-    All images are first forwarded through the frozen `backbone` **without
-    augmentation** to obtain a stable descriptor for every sample. These descriptors,
-    along with their alignment information, are cached in a temporary TensorDataset.
-    The `projector` is then optimised using this dataset.
-    """
-    # ---------------------------------------------------------------- setup
-    device = torch.device(device)
-    backbone = backbone.to(device).eval()          # freeze visual encoder
-    projs = projector if isinstance(projector, (list, tuple)) else [projector]
-    projs = [p.to(device).train() for p in projs]
-    
-    word_embs_cpu = dataset.external_word_embeddings
-    if word_embs_cpu is None:
-        raise RuntimeError("FATAL: dataset.external_word_embeddings is required but was not found.")
-        
-    # Target probability for each external word – use uniform if absent
-    # --- THIS BLOCK IS NOW FIXED ---
-    probs_attr = getattr(dataset, "external_word_probs", None)
-    if probs_attr is not None and len(probs_attr) > 0:
-        if isinstance(probs_attr, list):
-            word_probs_cpu = torch.tensor(probs_attr, dtype=torch.float)
-        else: # It's already a tensor
-            word_probs_cpu = probs_attr.float()
-    else:
-        v = word_embs_cpu.size(0)
-        print("Warning: `dataset.external_word_probs` not found or is empty. Using uniform distribution.")
-        word_probs_cpu = torch.full((v,), 1.0 / v)
-        
-    word_embs = word_embs_cpu.to(device)
-    word_probs = word_probs_cpu.to(device)
-
-    if plot_tsne:
-        plot_tsne_embeddings(
-            dataset,
-            backbone=backbone,
-            save_path='tests/figures/tsne_backbone.png',
-            device=device,
-        )
-
-    # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
-    # Augmentations are temporarily disabled inside ``harvest_backbone_features``
-    print("Harvesting image descriptors from the backbone...")
-    feats_all, aligned_all = harvest_backbone_features(
-        dataset,
-        backbone,
-        batch_size=64,
-        num_workers=num_workers,
-        device=device,
-    )
-    assert feats_all.shape[1] == backbone.output_dim, \
-        "Descriptor dimension mismatch after harvesting features."
-    
-    
-
-    # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
-    # This loader will shuffle the collected features for effective training.
-    proj_loader = DataLoader(
-        TensorDataset(feats_all, aligned_all),
-        batch_size=batch_size,
-        shuffle=True, # Shuffle is True here for training
-        pin_memory=(device.type == "cuda"),
-    )
-
-    # ---------------------------------------------------------------- 3. Optimiser + loss
-    criterion = ProjectionLoss().to(device)
-    print("Starting projector training...")
-    for idx, proj in enumerate(projs):
-        optimiser = optim.AdamW(proj.parameters(), lr=lr, weight_decay=weight_decay)
-
-        for epoch in range(1, num_epochs + 1):
-            running_loss = 0.0
-            for feats_cpu, align_cpu in proj_loader:
-                feats = feats_cpu.to(device)
-                align = align_cpu.to(device)
-                assert (0 <= align).all() and (align < len(dataset.external_words)).all(),                     "Alignment indices out of bounds."
-
-                assert torch.isfinite(feats).all(), \
-                    "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
-
-                pred = proj(feats)
-                loss = criterion.forward(pred, word_embs, align, word_probs)
-
-                assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
-
-                loss.backward()
-                grad_ok = all(
-                    torch.isfinite(p.grad).all()
-                    for p in proj.parameters()
-                    if p.grad is not None
-                )
-                assert grad_ok, 'gradient explosion in projector - contains NaN/Inf'
-
-                torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0)
-
-                optimiser.step()
-                optimiser.zero_grad(set_to_none=True)
-                running_loss += loss.item()
-            for p in proj.parameters():
-                assert torch.isfinite(p).all(), "Parameter blow-up detected in projector."
-
-        proj.eval()
-        with torch.no_grad():
-            proj_vecs = proj(feats_all.to(device)).cpu()
-
-        if plot_tsne:
-            plot_projector_tsne(
-                proj_vecs,
-                dataset,
-                save_path=f'tests/figures/tsne_projections_{idx}.png'
-            )
-
-    print("[Projector] training complete ✔")
-
-
-
-def alternating_refinement(
-    dataset: HTRDataset,
-    backbone: HTRNet,
-    projectors: List[nn.Module],
-    *,
-    rounds: int = cfg.alt_rounds,
-    backbone_epochs: int = cfg.refine_epochs,
-    projector_epochs: int = cfg.projector_epochs,
-    refine_kwargs: dict | None = None,
-    projector_kwargs: dict | None = None,
-    align_kwargs: dict | None = None,
-) -> None:
-    """Alternately train ``backbone`` and one or more projectors with OT alignment."""
-
-    maybe_load_backbone(backbone, cfg)
-
-    print_dataset_stats(dataset)
-    assert isinstance(projectors, (list, tuple)) and len(projectors) > 0, \
-        "Projectors must be a non-empty list or tuple."
-
-    if refine_kwargs is None:
-        refine_kwargs = {}
-    if projector_kwargs is None:
-        projector_kwargs = {}
-    if align_kwargs is None:
-        align_kwargs = {}
-    align_kwargs.setdefault("batch_size", cfg.align_batch_size)
-    align_kwargs.setdefault("device", cfg.align_device)
-    align_kwargs.setdefault("reg", cfg.align_reg)
-    align_kwargs.setdefault("unbalanced", cfg.align_unbalanced)
-    align_kwargs.setdefault("reg_m", cfg.align_reg_m)
-    align_kwargs.setdefault("k", cfg.align_k)
-    align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
-
-    while (dataset.aligned == -1).any():
-        for r in range(rounds):
-            print(f"[Round {r + 1}/{rounds}] Refining backbone...")
-            if backbone_epochs > 0:
-                refine_visual_backbone(
-                    dataset,
-                    backbone,
-                    num_epochs=backbone_epochs,
-                    **refine_kwargs,
-                )
-
-            for param in backbone.parameters():
-                param.requires_grad_(False)
-            for proj in projectors:
-                for param in proj.parameters():
-                    param.requires_grad_(True)
-            
-            # Verify that exactly one module family has requires_grad=True
-            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
-            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
-                   (backbone_trainable > 0 and projectors_trainable == 0), \
-                   "Exactly one module family (backbone or projectors) should be trainable."
-
-            print(f"[Round {r + 1}/{rounds}] Training projector...")
-            if projector_epochs > 0:
-                _probs_backup = None
-                if isinstance(getattr(dataset, "external_word_probs", None), list):
-                    _probs_backup = dataset.external_word_probs
-                    dataset.external_word_probs = torch.tensor(
-                        _probs_backup, dtype=torch.float
-                    )
-
-                train_projector(
-                    dataset,
-                    backbone,
-                    projectors,
-                    num_epochs=projector_epochs,
-                    **projector_kwargs,
-                )
-
-                if _probs_backup is not None:
-                    dataset.external_word_probs = _probs_backup
-
-            for param in backbone.parameters():
-                param.requires_grad_(True)
-            for proj in projectors:
-                for param in proj.parameters():
-                    param.requires_grad_(False)
-
-            # Verify that exactly one module family has requires_grad=True
-            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
-            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
-                   (backbone_trainable > 0 and projectors_trainable == 0), \
-                   "Exactly one module family (backbone or projectors) should be trainable."
-
-        print("[Cycle] Aligning more instances...")
-        assert (dataset.aligned != -1).sum() > 0, \
-            "Cannot align more instances with zero seeds."
-        align_more_instances(dataset, backbone, projectors, **align_kwargs)
-
+__all__ = [
+    "maybe_load_backbone",
+    "refine_visual_backbone",
+    "train_projector",
+    "alternating_refinement",
+    "harvest_backbone_features",
+    "print_dataset_stats",
+    "align_more_instances",
+    "plot_tsne_embeddings",
+    "plot_projector_tsne",
+    "cfg",
+]
 
 if __name__ == "__main__":
-    """Run a *tiny* end‑to‑end refinement cycle to verify code execution."""
     from types import SimpleNamespace
+    from pathlib import Path
+    from htr_base.utils.htr_dataset import HTRDataset
+    from htr_base.models import HTRNet, Projector
+    from htr_base.utils.transforms import aug_transforms
 
-    # ── 1. Dataset with 200 external words and a handful of alignments ─────
     proj_root = Path(__file__).resolve().parents[1]
     gw_folder = proj_root / "htr_base" / "data" / "GW" / "processed_words"
     if not gw_folder.exists():
         raise RuntimeError(
-            "GW processed dataset not found – run the dataset preparation step "
-            "before executing this dummy test."
+            "GW processed dataset not found – run the dataset preparation step before executing this dummy test."
         )
 
     class DummyCfg:
-        k_external_words = 200   # top‑200 most frequent English words
-        n_aligned = cfg.n_aligned   # how many images to mark as aligned (≈ training signal)
+        k_external_words = 200
+        n_aligned = cfg.n_aligned
 
     dataset = HTRDataset(
         str(gw_folder),
@@ -453,10 +54,7 @@ if __name__ == "__main__":
     arch = SimpleNamespace(**cfg["architecture"])
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
     maybe_load_backbone(backbone, cfg)
-    projectors = [
-        Projector(arch.feat_dim, dataset.word_emb_dim)
-        for _ in range(cfg.ensemble_size)
-    ]
+    projectors = [Projector(arch.feat_dim, dataset.word_emb_dim) for _ in range(cfg.ensemble_size)]
 
     alternating_refinement(dataset, backbone, projectors)
 

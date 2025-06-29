@@ -6,7 +6,7 @@ File: README.md
 This repository contains a minimal implementation for handwritten text recognition using PyTorch. The code is structured around a backbone network with a CTC head, data loading utilities and simple training scripts.
 
 The `htr_base` directory acts mainly as a collection of helper utilities and network components.
-Most of the logic for alignment and model training lives in the `alignment` directory.
+Most of the logic for alignment and model training lives in the `alignment` directory. Training helpers are organised under `alignment/training`.
 
 ## HTRNet
 
@@ -193,10 +193,10 @@ Returns a list of decoded strings, one for each element in the batch.
 
 ## align\_more\_instances
 
-Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.  Internally it now instantiates an :class:`OTAligner`:
+Located in `alignment/ot_utils.py`. This routine automatically assigns dataset images to external words via optimal transport.  Internally it now instantiates an :class:`OTAligner`:
 
 ```python
-from alignment.alignment_utilities import OTAligner
+from alignment.ot_utils import OTAligner
 
 aligner = OTAligner(dataset, backbone, projectors, batch_size=512)
 plan, projections, moved = aligner.align()
@@ -234,7 +234,7 @@ Returns the OT transport plan, the projected descriptors after OT and the distan
 
 ## select\_uncertain\_instances
 
-Located in `alignment/alignment_utilities.py`. Given either a distance matrix or a transport plan, this helper returns the indices of the most uncertain dataset instances.
+Located in `alignment/ot_utils.py`. Given either a distance matrix or a transport plan, this helper returns the indices of the most uncertain dataset instances.
 
 ```python
 def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metric="gap"):
@@ -304,7 +304,7 @@ def plot_pretrained_backbone_tsne(dataset, n_samples, save_path):
 
 ## print_dataset_stats
 
-Located in `alignment/alignment_utilities.py`. Given an `HTRDataset` instance,
+Located in `alignment/features.py`. Given an `HTRDataset` instance,
 this helper prints useful information such as:
 
 * total number of samples and how many are already aligned,
@@ -320,7 +320,7 @@ def print_dataset_stats(dataset):
 
 ## harvest\_backbone\_features
 
-Also in `alignment/alignment_utilities.py`. This routine harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
+Also in `alignment/features.py`. This routine harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
 
 ```python
 def harvest_backbone_features(dataset, backbone, *, batch_size=512,
@@ -338,7 +338,7 @@ Dataset augmentations are disabled while features are harvested.
 
 ## refine\_visual\_backbone
 
-Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
+Defined in `alignment/training/backbone.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
 
 ```python
 def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
@@ -361,7 +361,7 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 
 ## train\_projector
 
-Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
+Located in `alignment/training/projector.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
 
 ```python
 def train_projector(dataset, backbone, projector, num_epochs=150,
@@ -384,7 +384,7 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 
 ## maybe_load_backbone
 
-Also in `alignment/alignment_trainer.py`. This helper loads pretrained weights for a backbone if configured.
+Located in `alignment/training/backbone.py`. This helper loads pretrained weights for a backbone if configured.
 
 ```python
 def maybe_load_backbone(backbone, cfg):
@@ -398,7 +398,7 @@ def maybe_load_backbone(backbone, cfg):
 
 ## alternating\_refinement
 
-Also in `alignment/alignment_trainer.py`. This helper repeatedly refines the
+Located in `alignment/training/cycle.py`. This helper repeatedly refines the
 visual backbone and projector while progressively aligning more dataset
 instances using Optimal Transport.
 

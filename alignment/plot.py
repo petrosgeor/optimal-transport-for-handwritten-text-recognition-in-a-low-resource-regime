@@ -16,7 +16,7 @@ from types import SimpleNamespace
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
-from alignment.alignment_utilities import harvest_backbone_features
+from alignment.features import harvest_backbone_features
 
 cfg = OmegaConf.load("alignment/config.yaml")
 
