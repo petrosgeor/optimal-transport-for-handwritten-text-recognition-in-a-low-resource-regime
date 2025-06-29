@@ -112,7 +112,7 @@ def test_otaligner_shapes():
     arch.feat_dim = 32
     arch.phoc_levels = None
     backbone = HTRNet(arch, nclasses=len(c2i) + 1)
-    projector = Projector(arch.feat_dim, ds.word_emb_dim)
+    projector = Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)
 
     from alignment.alignment_utilities import OTAligner
 
@@ -162,7 +162,7 @@ def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
 
     arch = SimpleNamespace(**local_cfg["architecture"])
     net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
-    proj = [Projector(arch.feat_dim, ds.word_emb_dim)]
+    proj = [Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)]
 
     from alignment.alignment_trainer import alternating_refinement
 
@@ -177,4 +177,19 @@ def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
     )
 
     assert used.get("length", 0) == 1
+
+
+def test_projector_dropout_behavior():
+    proj = Projector(8, 4, dropout=0.5)
+    x = torch.ones(2, 8)
+
+    proj.train()
+    out1 = proj(x)
+    out2 = proj(x)
+    assert not torch.allclose(out1, out2)
+
+    proj.eval()
+    out3 = proj(x)
+    out4 = proj(x)
+    assert torch.allclose(out3, out4)
 

@@ -456,7 +456,7 @@ if __name__ == "__main__":
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
     maybe_load_backbone(backbone, cfg)
     projectors = [
-        Projector(arch.feat_dim, dataset.word_emb_dim)
+        Projector(arch.feat_dim, dataset.word_emb_dim, dropout=0.2)
         for _ in range(cfg.ensemble_size)
     ]
 
