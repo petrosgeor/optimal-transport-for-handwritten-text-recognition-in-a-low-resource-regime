@@ -125,14 +125,14 @@ The helper `refine_visual_model` in `tests/train_by_length.py` can mix ground‑
 
 ## pretraining.py
 
-`alignment/pretraining.py` trains a small backbone on an image list. All
-options are stored in the `PRETRAINING_CONFIG` dictionary.  Modify this
-dictionary or pass your own configuration to `pretraining.main` to control
-the list file and whether output should be written to
-`pretraining_results.txt`. GPU selection is configured only in
-`alignment/alignment_configs/trainer_config.yaml`. When `results_file` is `True` the script also
-evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
-stdout to that file.
+`alignment/pretraining.py` trains a small backbone on an image list. Most
+hyperparameters are read from `alignment/alignment_configs/pretraining_config.yaml`
+so runs are reproducible. You may still pass a dictionary to `pretraining.main`
+to override any entry. The YAML configuration controls the dataset sizes,
+batch size, learning rate, augmentations and whether the backbone is saved.
+GPU selection is configured only in `alignment/alignment_configs/trainer_config.yaml`.
+When `results_file` is `True` the script also evaluates CER on a 10k-sample test
+subset every ten epochs and duplicates all stdout to that file.
 
 
 The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten
@@ -436,7 +436,10 @@ Configuration files for the alignment workflow live under
   projector training and overall alignment. It can optionally load a pretrained
   backbone via `load_pretrained_backbone` and `pretrained_backbone_path`.
 * `pretraining_config.yaml` – architecture and pretraining options used by
-  `pretraining.py`.
+  `pretraining.py`. Besides the network architecture it defines the dataset
+  sizes, batch size, learning rate, augmentation toggle and whether the trained
+  backbone should be saved. These values are loaded by `pretraining.py` at
+  import time.
 
 The following keys from `trainer_config.yaml` are loaded at import time:
 
