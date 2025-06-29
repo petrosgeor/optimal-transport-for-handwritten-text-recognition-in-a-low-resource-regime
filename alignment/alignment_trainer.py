@@ -19,8 +19,9 @@ from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 from alignment.alignment_utilities import (
     align_more_instances,
-    harvest_backbone_features
+    harvest_backbone_features,
 )
+from alignment.eval import compute_cer
 from alignment.plot import (
     plot_tsne_embeddings,
     plot_projector_tsne
@@ -444,6 +445,13 @@ def alternating_refinement(
             "Cannot align more instances with zero seeds."
         # Perform Optimal Transport alignment to pseudo-label more instances
         align_more_instances(dataset, backbone, projectors, **align_kwargs)
+        compute_cer(
+            dataset,
+            backbone,
+            batch_size=cfg.eval_batch_size,
+            device=cfg.device,
+        )
+
 
 
 if __name__ == "__main__":

@@ -121,7 +121,7 @@ It exposes:
 
 `__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
 
-The helper `refine_visual_model` in `tests/train_by_length.py` can mix ground‑truth words with this dataset via the `syn_batch_ratio` parameter. Setting `syn_batch_ratio=0` disables synthetic samples, while `syn_batch_ratio=1` trains purely on the pretraining dataset.
+The helper `refine_visual_model` in `tests/train_by_length.py` can mix ground‑truth words with this dataset via the `syn_batch_ratio` parameter. Setting `syn_batch_ratio=0` disables synthetic samples, while `syn_batch_ratio=1` trains purely on the pretraining dataset. During training it periodically calls `compute_cer` on a separate `HTRDataset` instantiated with ``subset='test'``.
 
 ## pretraining.py
 
@@ -449,6 +449,8 @@ def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
   When `trainer_config.yaml` defines a `synthetic_dataset` section,
   `alternating_refinement` will instantiate a `PretrainingHTRDataset` using those
   values and pass it as `pretrain_ds` to `refine_visual_backbone`.
+  After each alignment cycle the routine calls `compute_cer` on the dataset
+  using `eval_batch_size` from the configuration and prints the score.
 
 
 
@@ -489,6 +491,7 @@ The following keys from `trainer_config.yaml` are loaded at import time:
 * `align_unbalanced` – use unbalanced Optimal Transport.
 * `align_reg_m` – mass regularisation term for unbalanced OT.
 * `align_k` – pseudo-label this many least-moved descriptors.
+* `eval_batch_size` – mini-batch size used for CER evaluation cycles.
 * `n_aligned` – number of pre-aligned samples for warm start.
 * `k_external_words` – number of external words to use in HTRDataset.
 * `ensemble_size` – how many projectors to train in parallel.
@@ -508,6 +511,7 @@ The following keys from `trainer_config.yaml` are loaded at import time:
 
 * **CER** – accumulates character error rate over multiple predictions.
 * **WER** – accumulates word error rate; supports tokeniser and space modes.
+* **compute_cer(dataset, model)** – evaluate a model on a dataset and print CER.
 * **predicted\_char\_distribution(logits)** – average probability of each character excluding the CTC blank.
 * **wasserstein\_L2(p, q)** – L2 distance between two distributions.
 * **word\_silhouette\_score(features, words)** – returns the average silhouette coefficient over backbone descriptors using ground-truth words as cluster labels; higher values mean descriptors of the same word form tighter, better-separated clusters.

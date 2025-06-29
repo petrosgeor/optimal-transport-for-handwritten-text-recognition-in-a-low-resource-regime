@@ -180,6 +180,49 @@ def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
     assert used.get("length", 0) == 1
 
 
+def test_compute_cer_prints(capsys):
+    base = Path("htr_base/data/GW/processed_words")
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))
+    subset = torch.utils.data.Subset(ds, list(range(2)))
+
+    c2i, _ = load_vocab()
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    arch = SimpleNamespace(**pre_cfg["architecture"])
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+
+    from alignment.eval import compute_cer
+
+    score = compute_cer(subset, net, batch_size=2, device="cpu")
+    captured = capsys.readouterr()
+    assert "CER:" in captured.out
+    assert isinstance(score, float)
+
+
+def test_refine_visual_model_uses_test_split(monkeypatch):
+    base = Path("htr_base/data/GW/processed_words")
+    class DummyCfg:
+        k_external_words = 0
+        n_aligned = 1
+
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256), config=DummyCfg())
+    c2i, _ = load_vocab()
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    arch = SimpleNamespace(**pre_cfg["architecture"])
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+
+    called = {}
+
+    def fake_compute_cer(dataset, *args, **kwargs):
+        called["subset"] = getattr(dataset, "subset", None)
+        return 0.0
+
+    monkeypatch.setattr("tests.train_by_length.compute_cer", fake_compute_cer)
+
+    from tests.train_by_length import refine_visual_model
+
+    refine_visual_model(ds, net, num_epochs=1, batch_size=2, lr=1e-4, syn_batch_ratio=None, pretrain_ds=None)
+
+    assert called.get("subset") == "test"
 def test_projector_dropout_behavior():
     proj = Projector(8, 4, dropout=0.5)
     x = torch.ones(2, 8)
