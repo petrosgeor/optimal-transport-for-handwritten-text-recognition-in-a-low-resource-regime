@@ -29,6 +29,7 @@ from alignment.plot import (
 from htr_base.utils.metrics import word_silhouette_score
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
+from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 
 def _assert_finite(t: torch.Tensor, where: str):
@@ -46,6 +47,11 @@ def _assert_grad_finite(model: nn.Module, name: str):
 # Functions read defaults from the YAML configuration loaded at import time.
 cfg_file = Path(__file__).parent / "alignment_configs" / "trainer_config.yaml"
 cfg = OmegaConf.load(cfg_file)
+
+# PHOC configuration defaults
+PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
+ENABLE_PHOC = bool(cfg.get("enable_phoc", False))
+PHOC_LEVELS = tuple(cfg.get("phoc_levels", (1, 2, 3, 4)))
 
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
@@ -75,6 +81,9 @@ def refine_visual_backbone(
     aux_weight: float = cfg.refine_aux_weight,
     pretrain_ds: PretrainingHTRDataset | None = None,
     syn_batch_ratio: float = cfg.syn_batch_ratio,
+    phoc_weight: float = cfg.phoc_loss_weight,
+    enable_phoc: bool = cfg.enable_phoc,
+    phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
 ) -> None:
     """Fine‑tune *backbone* only on words already aligned to external words."""
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
@@ -141,10 +150,12 @@ def refine_visual_backbone(
             _assert_finite(imgs, "images")
 
             # Forward pass through the backbone
-            out = backbone(imgs, return_feats=False)
+            need_feats = enable_phoc and backbone.phoc_head is not None
+            out = backbone(imgs, return_feats=need_feats)
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
             main_logits, aux_logits = out[:2]
+            phoc_logits = out[-1] if need_feats else None
 
             T, K, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
@@ -156,8 +167,15 @@ def refine_visual_backbone(
             # Compute CTC losses for main and auxiliary heads
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+            loss_phoc = torch.tensor(0.0, device=device)
+            if enable_phoc and phoc_logits is not None:
+                phoc_targets = build_phoc_description(words, c2i, levels=phoc_levels)
+                phoc_targets = phoc_targets.float().to(device)
+                loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
             # Combine losses with configured weights
-            loss = main_weight * loss_main + aux_weight * loss_aux
+            loss = (main_weight * loss_main +
+                    aux_weight * loss_aux +
+                    phoc_weight * loss_phoc)
             _assert_finite(loss, "loss")
 
             # Optimization step
@@ -464,7 +482,7 @@ if __name__ == "__main__":
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
     maybe_load_backbone(backbone, cfg)
     projectors = [
-        Projector(arch.feat_dim, dataset.word_emb_dim)
+        Projector(arch.feat_dim, dataset.word_emb_dim, dropout=0.2)
         for _ in range(cfg.ensemble_size)
     ]
 

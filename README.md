@@ -348,7 +348,9 @@ Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone o
 ```python
 def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
                            lr=1e-4, main_weight=1.0, aux_weight=0.1,
-                           pretrain_ds=None, syn_batch_ratio=0.0):
+                           pretrain_ds=None, syn_batch_ratio=0.0,
+                           phoc_weight=0.1, enable_phoc=False,
+                           phoc_levels=(1, 2, 3, 4)):
     """Fine‑tune *backbone* only on words already aligned to external words."""
 ```
 
@@ -364,6 +366,9 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
   Ground‑truth batches are mixed with synthetic ones using `cycle(pretrain_loader)`
   according to `syn_batch_ratio`. If no aligned samples are available the routine
   falls back to training solely on the synthetic dataset.
+* `phoc_weight`: scaling factor for the optional PHOC loss.
+* `enable_phoc`: whether to compute the PHOC loss during refinement.
+* `phoc_levels`: tuple of pyramid levels passed to `build_phoc_description`.
 * External words are automatically wrapped with spaces before encoding so that
   no persistent changes are made to `dataset.external_words`.
 
@@ -389,6 +394,21 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `weight_decay`: weight decay for the optimiser.
 * `device`: computation device for training.
 * `plot_tsne`: whether to generate t-SNE plots of backbone and projector outputs.
+
+## Projector
+
+Located in `htr_base/models.py`, the `Projector` class is a simple MLP used to
+map backbone descriptors to the word embedding space. Its constructor now
+accepts a `dropout` argument controlling `nn.Dropout` layers inserted after the
+first two activations:
+
+```python
+Projector(input_dim, output_dim, dropout=0.2)
+```
+
+When generating pseudo labels (e.g. inside `align_more_instances`), the
+projector must run in evaluation mode via `proj.eval()` so that dropout is
+disabled.
 
 ## maybe_load_backbone
 
@@ -498,6 +518,14 @@ The following keys from `trainer_config.yaml` are loaded at import time:
 * **_ctc_loss_fn(logits, targets, inp_lens, tgt_lens)** – wrapper around PyTorch's CTC loss with log-softmax and zero-infinity handling.
 * **build_phoc_description(words, c2i, levels=(1,2,3,4))** – convert a list of words into binary PHOC descriptors. The descriptor size is ``len(c2i) × Σlevels`` and index ``0`` is reserved for the CTC blank.
 * **load_vocab()** – fetch the `c2i` and `i2c` dictionaries from `htr_base/saved_models`, calling `create_vocab()` if the pickles are missing.
+
+Example usage:
+```python
+from htr_base.utils import build_phoc_description
+words = ["hello", "world"]
+c2i, _ = load_vocab()
+phoc = build_phoc_description(words, c2i)
+```
 
 ## load_vocab
 

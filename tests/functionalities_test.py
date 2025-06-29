@@ -13,6 +13,7 @@ from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.utils.vocab import load_vocab
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_trainer import refine_visual_backbone, cfg
+from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 from types import SimpleNamespace
 
@@ -112,7 +113,7 @@ def test_otaligner_shapes():
     arch.feat_dim = 32
     arch.phoc_levels = None
     backbone = HTRNet(arch, nclasses=len(c2i) + 1)
-    projector = Projector(arch.feat_dim, ds.word_emb_dim)
+    projector = Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)
 
     from alignment.alignment_utilities import OTAligner
 
@@ -162,7 +163,7 @@ def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
 
     arch = SimpleNamespace(**local_cfg["architecture"])
     net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
-    proj = [Projector(arch.feat_dim, ds.word_emb_dim)]
+    proj = [Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)]
 
     from alignment.alignment_trainer import alternating_refinement
 
@@ -222,4 +223,56 @@ def test_refine_visual_model_uses_test_split(monkeypatch):
     refine_visual_model(ds, net, num_epochs=1, batch_size=2, lr=1e-4, syn_batch_ratio=None, pretrain_ds=None)
 
     assert called.get("subset") == "test"
+def test_projector_dropout_behavior():
+    proj = Projector(8, 4, dropout=0.5)
+    x = torch.ones(2, 8)
+
+    proj.train()
+    out1 = proj(x)
+    out2 = proj(x)
+    assert not torch.allclose(out1, out2)
+
+    proj.eval()
+    out3 = proj(x)
+    out4 = proj(x)
+    assert torch.allclose(out3, out4)
+
+
+def test_build_phoc_description_basic():
+    c2i, _ = load_vocab()
+    words = ["hello", "world"]
+    phoc = build_phoc_description(words, c2i, levels=[1, 2])
+    assert phoc.shape == (2, len(c2i) * 3)
+    assert phoc.dtype == torch.bool
+
+
+def test_refine_backbone_with_phoc(tmp_path):
+    base = Path("htr_base/data/GW/processed_words")
+
+    class DummyCfg:
+        k_external_words = 0
+        n_aligned = 0
+
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256), config=DummyCfg())
+    ds.external_words = [ds.transcriptions[0].strip()]
+    ds.aligned[0] = 0
+    ds.word_emb_dim = 8
+    ds.external_word_embeddings = torch.zeros(len(ds.external_words), ds.word_emb_dim)
+
+    c2i, _ = load_vocab()
+    arch = SimpleNamespace(**cfg["architecture"])
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+
+    refine_visual_backbone(
+        ds,
+        net,
+        num_epochs=1,
+        batch_size=2,
+        lr=1e-4,
+        enable_phoc=True,
+        phoc_levels=tuple(arch.phoc_levels),
+        phoc_weight=0.1,
+    )
+
+    assert not net.training
 
