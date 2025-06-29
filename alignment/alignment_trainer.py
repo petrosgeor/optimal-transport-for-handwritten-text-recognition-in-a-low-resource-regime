@@ -30,9 +30,6 @@ from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from omegaconf import OmegaConf
 
-from contextlib import contextmanager
-
-
 def _assert_finite(t: torch.Tensor, where: str):
     assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
@@ -472,7 +469,7 @@ if __name__ == "__main__":
 
     dataset = HTRDataset(
         str(gw_folder),
-        subset="all",
+        subset="train_val",
         fixed_size=(64, 256),
         transforms=aug_transforms,
         config=DummyCfg(),
