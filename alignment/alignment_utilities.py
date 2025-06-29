@@ -76,7 +76,11 @@ def harvest_backbone_features(
     with torch.no_grad():
         for imgs, _txt, aligned in loader:
             imgs = imgs.to(device)
-            feats = backbone(imgs, return_feats=True)[-1]
+            output = backbone(imgs, return_feats=True)
+            if backbone.phoc_head is not None:
+                feats = output[-2]
+            else:
+                feats = output[-1]
             if feats.dim() != 2:
                 raise RuntimeError(
                     f"Expected (B, feat_dim) descriptors, got {feats.shape}"

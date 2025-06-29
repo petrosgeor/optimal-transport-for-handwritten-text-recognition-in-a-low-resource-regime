@@ -11,7 +11,7 @@ from itertools import cycle
 from torch.utils.data import DataLoader, TensorDataset
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
-    sys.path.insert(0, str(root))
+    sys.sys.path.insert(0, str(root))
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
@@ -19,8 +19,7 @@ from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 from alignment.alignment_utilities import (
     align_more_instances,
-    harvest_backbone_features,
-    print_dataset_stats
+    harvest_backbone_features
 )
 from alignment.plot import (
     plot_tsne_embeddings,
@@ -94,10 +93,13 @@ def refine_visual_backbone(
         print("[Refine] no pre-aligned samples found – aborting.")
         return
 
+    # Determine batch sizes for ground truth (gt) and synthetic (syn) data
     syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
     gt_bs = batch_size - syn_bs
 
+    # Setup DataLoaders based on whether synthetic data is used
     if pretrain_ds is not None and syn_bs > 0 and gt_bs > 0:
+        # Mixed training: both ground truth and synthetic samples
         gt_loader = DataLoader(
             subset,
             batch_size=gt_bs,
@@ -115,8 +117,9 @@ def refine_visual_backbone(
         pre_iter = cycle(pretrain_loader)
         pretrain_only = False
     elif pretrain_ds is not None and syn_bs > 0 and gt_bs <= 0:
+        # Purely synthetic training (e.g., when no aligned GT samples are available)
         gt_loader = DataLoader(
-            pretrain_ds,
+            pretrain_ds, # Use pretrain_ds as the main loader
             batch_size=syn_bs,
             shuffle=True,
             num_workers=2,
@@ -125,6 +128,7 @@ def refine_visual_backbone(
         pre_iter = None
         pretrain_only = True
     else:
+        # Purely ground truth training (no synthetic data or ratio is zero)
         gt_loader = DataLoader(
             subset,
             batch_size=batch_size,
@@ -136,26 +140,31 @@ def refine_visual_backbone(
         pretrain_only = False
 
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
+    # Training loop for backbone refinement
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
         for batch in gt_loader:
+            # Prepare batch: combine ground truth and synthetic data if applicable
             if pretrain_only:
                 imgs, trans = batch
                 words = list(trans)
             else:
                 imgs, _, aligned = batch
+                # Use external words for aligned samples
                 words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
 
             imgs = imgs.to(device)
 
             if pre_iter is not None:
+                # Fetch synthetic batch and concatenate
                 imgs_syn, trans_syn = next(pre_iter)
                 imgs = torch.cat([imgs, imgs_syn.to(device)], dim=0)
                 words.extend(list(trans_syn))
 
             _assert_finite(imgs, "images")
 
+            # Forward pass through the backbone
             out = backbone(imgs, return_feats=False)
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
@@ -164,14 +173,18 @@ def refine_visual_backbone(
             T, K, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
+            # Encode transcriptions for CTC loss
             targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
 
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
+            # Compute CTC losses for main and auxiliary heads
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+            # Combine losses with configured weights
             loss = main_weight * loss_main + aux_weight * loss_aux
             _assert_finite(loss, "loss")
 
+            # Optimization step
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             _assert_grad_finite(backbone, "backbone")
@@ -184,6 +197,7 @@ def refine_visual_backbone(
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     backbone.eval()
+    # Evaluate silhouette score if enough aligned samples exist
     if len(aligned_indices) > 1:
         with torch.no_grad():
             feats, _ = harvest_backbone_features(subset, backbone, device=device)
@@ -253,7 +267,7 @@ def train_projector(  # pylint: disable=too-many-arguments
         )
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
-    # Augmentations are temporarily disabled inside ``harvest_backbone_features``
+    # Augmentations are temporarily disabled inside ``harvest_backbone_features`` to get stable descriptors.
     print("Harvesting image descriptors from the backbone...")
     feats_all, aligned_all = harvest_backbone_features(
         dataset,
@@ -262,11 +276,9 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers=num_workers,
         device=device,
     )
-    assert feats_all.shape[1] == backbone.output_dim, \
+    assert feats_all.shape[1] == backbone.feat_dim, \
         "Descriptor dimension mismatch after harvesting features."
     
-    
-
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
     proj_loader = DataLoader(
@@ -279,24 +291,29 @@ def train_projector(  # pylint: disable=too-many-arguments
     # ---------------------------------------------------------------- 3. Optimiser + loss
     criterion = ProjectionLoss().to(device)
     print("Starting projector training...")
+    # Iterate over each projector in the ensemble
     for idx, proj in enumerate(projs):
         optimiser = optim.AdamW(proj.parameters(), lr=lr, weight_decay=weight_decay)
 
+        # Training loop for the current projector
         for epoch in range(1, num_epochs + 1):
             running_loss = 0.0
             for feats_cpu, align_cpu in proj_loader:
                 feats = feats_cpu.to(device)
                 align = align_cpu.to(device)
-                assert (0 <= align).all() and (align < len(dataset.external_words)).all(),                     "Alignment indices out of bounds."
+                
 
                 assert torch.isfinite(feats).all(), \
                     "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
 
+                # Forward pass through the projector
                 pred = proj(feats)
+                # Compute the projection loss
                 loss = criterion.forward(pred, word_embs, align, word_probs)
 
                 assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
 
+                # Backpropagation and optimization
                 loss.backward()
                 grad_ok = all(
                     torch.isfinite(p.grad).all()
@@ -310,9 +327,11 @@ def train_projector(  # pylint: disable=too-many-arguments
                 optimiser.step()
                 optimiser.zero_grad(set_to_none=True)
                 running_loss += loss.item()
+            # Check for parameter stability after each epoch
             for p in proj.parameters():
                 assert torch.isfinite(p).all(), "Parameter blow-up detected in projector."
 
+        # Set projector to evaluation mode and generate t-SNE plot if enabled
         proj.eval()
         with torch.no_grad():
             proj_vecs = proj(feats_all.to(device)).cpu()
@@ -344,7 +363,7 @@ def alternating_refinement(
 
     maybe_load_backbone(backbone, cfg)
 
-    print_dataset_stats(dataset)
+    
     assert isinstance(projectors, (list, tuple)) and len(projectors) > 0, \
         "Projectors must be a non-empty list or tuple."
 
@@ -354,6 +373,7 @@ def alternating_refinement(
         projector_kwargs = {}
     if align_kwargs is None:
         align_kwargs = {}
+    # Set default alignment arguments from config
     align_kwargs.setdefault("batch_size", cfg.align_batch_size)
     align_kwargs.setdefault("device", cfg.align_device)
     align_kwargs.setdefault("reg", cfg.align_reg)
@@ -362,10 +382,12 @@ def alternating_refinement(
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
 
+    # Main loop: continue as long as there are unaligned instances
     while (dataset.aligned == -1).any():
         for r in range(rounds):
             print(f"[Round {r + 1}/{rounds}] Refining backbone...")
             if backbone_epochs > 0:
+                # Refine the visual backbone
                 refine_visual_backbone(
                     dataset,
                     backbone,
@@ -373,6 +395,7 @@ def alternating_refinement(
                     **refine_kwargs,
                 )
 
+            # Freeze backbone and unfreeze projectors for training
             for param in backbone.parameters():
                 param.requires_grad_(False)
             for proj in projectors:
@@ -388,6 +411,7 @@ def alternating_refinement(
 
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
+                # Temporarily handle external_word_probs format for projector training
                 _probs_backup = None
                 if isinstance(getattr(dataset, "external_word_probs", None), list):
                     _probs_backup = dataset.external_word_probs
@@ -395,6 +419,7 @@ def alternating_refinement(
                         _probs_backup, dtype=torch.float
                     )
 
+                # Train the projector(s)
                 train_projector(
                     dataset,
                     backbone,
@@ -403,9 +428,11 @@ def alternating_refinement(
                     **projector_kwargs,
                 )
 
+                # Restore original external_word_probs format if it was changed
                 if _probs_backup is not None:
                     dataset.external_word_probs = _probs_backup
 
+            # Unfreeze backbone and freeze projectors for next round or alignment
             for param in backbone.parameters():
                 param.requires_grad_(True)
             for proj in projectors:
@@ -422,6 +449,7 @@ def alternating_refinement(
         print("[Cycle] Aligning more instances...")
         assert (dataset.aligned != -1).sum() > 0, \
             "Cannot align more instances with zero seeds."
+        # Perform Optimal Transport alignment to pseudo-label more instances
         align_more_instances(dataset, backbone, projectors, **align_kwargs)
 
 
@@ -439,7 +467,7 @@ if __name__ == "__main__":
         )
 
     class DummyCfg:
-        k_external_words = 200   # top‑200 most frequent English words
+        k_external_words = cfg.k_external_words
         n_aligned = cfg.n_aligned   # how many images to mark as aligned (≈ training signal)
 
     dataset = HTRDataset(

@@ -1,4 +1,10 @@
 from __future__ import annotations
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message="kenlm python bindings are not installed.*"
+)
+
 import torch
 from typing import List, Dict, Tuple, Callable
 import math
@@ -163,6 +169,7 @@ def beam_search_ctc_decode(
 
     decoder = build_ctcdecoder(
         labels=vocab_list,
+        language_model=None
     )
 
     # Convert logits to numpy array for pyctcdecode

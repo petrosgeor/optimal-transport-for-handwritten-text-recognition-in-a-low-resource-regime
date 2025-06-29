@@ -44,9 +44,10 @@ align_k: 200                  # pseudo-label this many least-moved descriptors
 # Dataset parameters
 # ----------------------------------------------------------------------
 n_aligned: 300               # number of pre-aligned samples for warm start
+k_external_words: 200        # number of external words to use in HTRDataset
 ensemble_size: 3             # how many projectors to train in parallel
 agree_threshold: 1           # votes required when pseudo-labelling
-prior_weight: 6            # weight of the Wasserstein prior loss
+prior_weight: 6            # strength of the Wasserstein prior loss
 
 # ----------------------------------------------------------------------
 # Pretraining PHOC
