@@ -13,6 +13,7 @@ from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.utils.vocab import load_vocab
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_trainer import refine_visual_backbone, cfg
+from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 from types import SimpleNamespace
 
@@ -192,4 +193,43 @@ def test_projector_dropout_behavior():
     out3 = proj(x)
     out4 = proj(x)
     assert torch.allclose(out3, out4)
+
+
+def test_build_phoc_description_basic():
+    c2i, _ = load_vocab()
+    words = ["hello", "world"]
+    phoc = build_phoc_description(words, c2i, levels=[1, 2])
+    assert phoc.shape == (2, len(c2i) * 3)
+    assert phoc.dtype == torch.bool
+
+
+def test_refine_backbone_with_phoc(tmp_path):
+    base = Path("htr_base/data/GW/processed_words")
+
+    class DummyCfg:
+        k_external_words = 0
+        n_aligned = 0
+
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256), config=DummyCfg())
+    ds.external_words = [ds.transcriptions[0].strip()]
+    ds.aligned[0] = 0
+    ds.word_emb_dim = 8
+    ds.external_word_embeddings = torch.zeros(len(ds.external_words), ds.word_emb_dim)
+
+    c2i, _ = load_vocab()
+    arch = SimpleNamespace(**cfg["architecture"])
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+
+    refine_visual_backbone(
+        ds,
+        net,
+        num_epochs=1,
+        batch_size=2,
+        lr=1e-4,
+        enable_phoc=True,
+        phoc_levels=tuple(arch.phoc_levels),
+        phoc_weight=0.1,
+    )
+
+    assert not net.training
 
