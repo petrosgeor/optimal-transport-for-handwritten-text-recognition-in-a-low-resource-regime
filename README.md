@@ -191,6 +191,26 @@ def greedy_ctc_decode(logits, i2c, blank_id=0, time_first=True):
 
 Returns a list of decoded strings, one for each element in the batch.
 
+## beam_search_ctc_decode
+
+Uses `pyctcdecode` to perform beam-search decoding of CTC logits. The
+internal logger from `pyctcdecode` is silenced so that missing kenlm
+bindings do not emit warnings.
+
+```python
+def beam_search_ctc_decode(logits, i2c, *, beam_width=10, blank_id=0,
+                           time_first=True):
+    """Beam-search decoding with optional language model."""
+```
+
+* `logits`: tensor shaped `(T, B, C)` or `(B, T, C)`.
+* `i2c`: mapping from class index to character (excluding the blank).
+* `beam_width`: number of prefixes kept after each time step.
+* `blank_id`: index used for the CTC blank symbol.
+* `time_first`: set `True` if the tensor is `(T, B, C)`.
+
+Returns one decoded string per batch element.
+
 ## align\_more\_instances
 
 Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.  Internally it now instantiates an :class:`OTAligner`:
