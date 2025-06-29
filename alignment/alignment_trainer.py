@@ -46,7 +46,7 @@ def _assert_grad_finite(model: nn.Module, name: str):
 #                           Hyperparameter defaults                            #
 # --------------------------------------------------------------------------- #
 # Functions read defaults from the YAML configuration loaded at import time.
-cfg_file = Path(__file__).with_name("config.yaml")
+cfg_file = Path(__file__).parent / "alignment_configs" / "trainer_config.yaml"
 cfg = OmegaConf.load(cfg_file)
 
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index

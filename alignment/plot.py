@@ -18,7 +18,7 @@ from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
 from alignment.alignment_utilities import harvest_backbone_features
 
-cfg = OmegaConf.load("alignment/config.yaml")
+cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 
 
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:

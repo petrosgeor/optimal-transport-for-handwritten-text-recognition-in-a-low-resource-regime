@@ -38,7 +38,7 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
 
-yaml_cfg = OmegaConf.load(Path(__file__).with_name("config.yaml"))
+yaml_cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml")
 GPU_ID = int(yaml_cfg.get("gpu_id", 0))
 DEVICE = str(yaml_cfg.get("device", "cuda"))
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
@@ -215,9 +215,11 @@ def main(config: dict | None = None) -> Path:
             net.train()
         def _evaluate_cer(loader):
             """Return CER on *loader* and print the value."""
+            if len(loader.dataset) == 0:
+                print("[Eval] Test set is empty, skipping CER evaluation.")
+                return float('nan')
             net.eval()
             metric = CER()
-            assert metric.total_len > 0, "empty eval loader"
             with torch.no_grad():
                 for imgs, trans in loader:
                     imgs = imgs.to(device)

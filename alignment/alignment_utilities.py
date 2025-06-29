@@ -14,7 +14,7 @@ from sklearn.manifold import TSNE
 from scipy.spatial import distance
 from omegaconf import OmegaConf
 
-cfg = OmegaConf.load("alignment/config.yaml")
+cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
