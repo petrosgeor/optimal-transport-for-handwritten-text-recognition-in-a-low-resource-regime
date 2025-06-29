@@ -390,6 +390,21 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `device`: computation device for training.
 * `plot_tsne`: whether to generate t-SNE plots of backbone and projector outputs.
 
+## Projector
+
+Located in `htr_base/models.py`, the `Projector` class is a simple MLP used to
+map backbone descriptors to the word embedding space. Its constructor now
+accepts a `dropout` argument controlling `nn.Dropout` layers inserted after the
+first two activations:
+
+```python
+Projector(input_dim, output_dim, dropout=0.2)
+```
+
+When generating pseudo labels (e.g. inside `align_more_instances`), the
+projector must run in evaluation mode via `proj.eval()` so that dropout is
+disabled.
+
 ## maybe_load_backbone
 
 Also in `alignment/alignment_trainer.py`. This helper loads pretrained weights for a backbone if configured.

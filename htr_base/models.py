@@ -7,7 +7,7 @@ import torch.nn.functional as F
 #                            ─────  MLP Projector  ─────                       #
 ###############################################################################
 class Projector(nn.Module):
-    def __init__(self, input_dim: int, output_dim: int) -> None:
+    def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.2) -> None:
         super(Projector, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -15,8 +15,10 @@ class Projector(nn.Module):
         self.sequential = nn.Sequential(
             nn.Linear(self.input_dim, self.input_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(self.input_dim, self.input_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(self.input_dim, self.output_dim)
         )
 
