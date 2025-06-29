@@ -36,7 +36,7 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training
-gpu_id: 2                   # which CUDA device index to use
+gpu_id: 0                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
@@ -56,16 +56,25 @@ align_k: 200                  # pseudo-label this many least-moved descriptors
 # ----------------------------------------------------------------------
 # Dataset parameters
 # ----------------------------------------------------------------------
-n_aligned: 300               # number of pre-aligned samples for warm start
-k_external_words: 200        # number of external words to use in HTRDataset
-ensemble_size: 3             # how many projectors to train in parallel
-agree_threshold: 1           # votes required when pseudo-labelling
-prior_weight: 6            # strength of the Wasserstein prior loss
+dataset:
+  basefolder: 'htr_base/data/GW/processed_words'
+  subset: 'train_val'
+  fixed_size: [64, 256]
+  n_aligned: 300
+  k_external_words: 200
+  word_emb_dim: 512
+  two_views: false
+
+n_aligned: 300
+k_external_words: 200
+ensemble_size: 3
+agree_threshold: 1
+prior_weight: 6
 
 # ----------------------------------------------------------------------
 # Optional pretrained backbone
 # ----------------------------------------------------------------------
-load_pretrained_backbone: true   # load weights for the backbone at startup
+load_pretrained_backbone: true
 pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
 
 # ----------------------------------------------------------------------
@@ -73,6 +82,8 @@ pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
 # ----------------------------------------------------------------------
 synthetic_dataset:
   list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
-  base_path: null
-  n_random: 0
+  base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px"
+  n_random: 7000
   fixed_size: [64, 256]
+  preload_images: true
+  random_seed: 0

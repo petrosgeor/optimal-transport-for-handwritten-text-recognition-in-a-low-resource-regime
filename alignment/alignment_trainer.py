@@ -11,7 +11,7 @@ from itertools import cycle
 from torch.utils.data import DataLoader, TensorDataset
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
-    sys.sys.path.insert(0, str(root))
+    sys.path.insert(0, str(root))
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss
@@ -434,23 +434,22 @@ if __name__ == "__main__":
 
     # ── 1. Dataset with 200 external words and a handful of alignments ─────
     proj_root = Path(__file__).resolve().parents[1]
-    gw_folder = proj_root / "htr_base" / "data" / "GW" / "processed_words"
-    if not gw_folder.exists():
+    
+    ds_cfg = cfg.dataset
+    basefolder = proj_root / ds_cfg.basefolder
+    if not basefolder.exists():
         raise RuntimeError(
-            "GW processed dataset not found – run the dataset preparation step "
+            f"Dataset folder {basefolder} not found – run the dataset preparation step "
             "before executing this dummy test."
         )
 
-    class DummyCfg:
-        k_external_words = cfg.k_external_words
-        n_aligned = cfg.n_aligned   # how many images to mark as aligned (≈ training signal)
-
     dataset = HTRDataset(
-        str(gw_folder),
-        subset="train_val",
-        fixed_size=(64, 256),
+        basefolder=str(basefolder),
+        subset=ds_cfg.subset,
+        fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
-        config=DummyCfg(),
+        config=ds_cfg,
+        two_views=ds_cfg.two_views,
     )
 
     arch = SimpleNamespace(**cfg["architecture"])
@@ -470,6 +469,8 @@ if __name__ == "__main__":
             base_path=syn_cfg.base_path,
             n_random=syn_cfg.n_random,
             fixed_size=tuple(syn_cfg.fixed_size),
+            preload_images=syn_cfg.get("preload_images", False),
+            random_seed=syn_cfg.get("random_seed", 0),
         )
 
     alternating_refinement(
