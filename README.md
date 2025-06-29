@@ -131,8 +131,7 @@ so runs are reproducible. You may still pass a dictionary to `pretraining.main`
 to override any entry. The YAML configuration controls the dataset sizes,
 batch size, learning rate, augmentations and whether the backbone is saved.
 GPU selection is configured only in `alignment/alignment_configs/trainer_config.yaml`.
-When `results_file` is `True` the script also evaluates CER on a 10k-sample test
-subset every ten epochs and duplicates all stdout to that file.
+The script evaluates CER on a 10k-sample test subset every ten epochs.
 
 
 The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten

@@ -7,7 +7,6 @@ __pycache__/
 *.sh
 instructions.txt
 results.txt
-pretraining_results.txt
 
 # Data and models
 htr_base/data/*

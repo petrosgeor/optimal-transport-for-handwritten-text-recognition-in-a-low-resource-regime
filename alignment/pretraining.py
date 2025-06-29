@@ -3,7 +3,7 @@ from __future__ import annotations
 import os, sys, random, pickle
 from pathlib import Path
 from types import SimpleNamespace
-from contextlib import contextmanager, nullcontext
+
 import torch
 
 def _assert_finite(t: torch.Tensor, name: str):
@@ -51,26 +51,6 @@ ENABLE_CONTR = bool(yaml_cfg.get("contrastive_enable", False))
 CONTR_W      = float(yaml_cfg.get("contrastive_weight", 0.0))
 CONTR_TAU    = float(yaml_cfg.get("contrastive_tau", 0.07))
 CONTR_TTXT   = float(yaml_cfg.get("contrastive_text_T", 1.0))
-class _Tee:
-    """Write to multiple streams simultaneously."""
-    def __init__(self, *streams):
-        self.streams = streams
-    def write(self, data):
-        for s in self.streams:
-            s.write(data)
-    def flush(self):
-        for s in self.streams:
-            s.flush()
-@contextmanager
-def tee_output(path: str = "pretraining_results.txt"):
-    """Duplicate stdout to *path* while the context is active."""
-    original = sys.stdout
-    with open(path, "w") as f:
-        sys.stdout = _Tee(original, f)
-        try:
-            yield
-        finally:
-            sys.stdout = original
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
     "list_file": yaml_cfg.get("list_file", "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"),
@@ -87,7 +67,6 @@ PRETRAINING_CONFIG = {
     "aux_loss_weight": float(yaml_cfg.get("aux_loss_weight", 0.1)),
     "save_path": yaml_cfg.get("save_path", "htr_base/saved_models/pretrained_backbone.pt"),
     "save_backbone": bool(yaml_cfg.get("save_backbone", True)),
-    "results_file": bool(yaml_cfg.get("results_file", False)),
 }
 # Architecture configuration for the pretraining backbone
 # Loaded from alignment/alignment_configs/pretraining_config.yaml to stay consistent with other scripts
@@ -98,7 +77,6 @@ def main(config: dict | None = None) -> Path:
     if config is None:
         config = {}
     config = {**PRETRAINING_CONFIG, **config}
-    results_file = config.pop("results_file", False)
     # Extract parameters from config
     list_file = config["list_file"]
     assert Path(list_file).is_file(), "list_file not found"
@@ -120,118 +98,116 @@ def main(config: dict | None = None) -> Path:
     aux_weight = config.get("aux_loss_weight", 0.1)
     save_path = config.get("save_path", "htr_base/saved_models/pretrained_backbone.pt")
     save_backbone = config.get("save_backbone", False)
-    ctx = tee_output("pretraining_results.txt") if results_file else nullcontext()
-    with ctx:
-        print(f"[Pretraining] Starting with config:")
-        print(f"  list_file: {list_file}")
-        print(f"  train_set_size: {n_random}")
-        print(f"  epochs: {num_epochs}")
-        print(f"  batch_size: {batch_size}")
-        print(f"  learning_rate: {lr}")
-        print(f"  device: {device}")
-        print(f"  augmentations: {use_augmentations}")
-        print(f"  save_backbone: {save_backbone}")
-        print(f"  gpu_id: {GPU_ID}")
-        if base_path is None:
-            base_path = str(Path(list_file).parent)
-        # Create training dataset with optional augmentations
-        transforms = aug_transforms if use_augmentations else None
-        train_set = PretrainingHTRDataset(
-            list_file,
-            fixed_size=fixed_size,
-            base_path=base_path,
-            transforms=transforms,
-            n_random=n_random,
-            preload_images=True,
-            random_seed=0,
-        )
-        assert len(train_set) > 0, "training dataset is empty"
-        assert train_set.fixed_size == fixed_size, "train_set fixed_size mismatch"
-        # Separate test set without augmentations
-        test_set = PretrainingHTRDataset(
-            list_file,
-            fixed_size=fixed_size,
-            base_path=base_path,
-            transforms=None,
-            n_random=config.get("test_set_size", 10000),
-            preload_images=True,
-            random_seed=1,
-        )
-        assert test_set.fixed_size == fixed_size, "test_set fixed_size mismatch"
-        print(f"[Pretraining] Dataset size: {len(train_set)}")
-        print(f"[Pretraining] Test set size: {len(test_set)}")
-        save_dir = Path(save_path).parent
-        c2i_path = save_dir / "c2i.pkl"
-        i2c_path = save_dir / "i2c.pkl"
+    print(f"[Pretraining] Starting with config:")
+    print(f"  list_file: {list_file}")
+    print(f"  train_set_size: {n_random}")
+    print(f"  epochs: {num_epochs}")
+    print(f"  batch_size: {batch_size}")
+    print(f"  learning_rate: {lr}")
+    print(f"  device: {device}")
+    print(f"  augmentations: {use_augmentations}")
+    print(f"  save_backbone: {save_backbone}")
+    print(f"  gpu_id: {GPU_ID}")
+    if base_path is None:
+        base_path = str(Path(list_file).parent)
+    # Create training dataset with optional augmentations
+    transforms = aug_transforms if use_augmentations else None
+    train_set = PretrainingHTRDataset(
+        list_file,
+        fixed_size=fixed_size,
+        base_path=base_path,
+        transforms=transforms,
+        n_random=n_random,
+        preload_images=True,
+        random_seed=0,
+    )
+    assert len(train_set) > 0, "training dataset is empty"
+    assert train_set.fixed_size == fixed_size, "train_set fixed_size mismatch"
+    # Separate test set without augmentations
+    test_set = PretrainingHTRDataset(
+        list_file,
+        fixed_size=fixed_size,
+        base_path=base_path,
+        transforms=None,
+        n_random=config.get("test_set_size", 10000),
+        preload_images=True,
+        random_seed=1,
+    )
+    assert test_set.fixed_size == fixed_size, "test_set fixed_size mismatch"
+    print(f"[Pretraining] Dataset size: {len(train_set)}")
+    print(f"[Pretraining] Test set size: {len(test_set)}")
+    save_dir = Path(save_path).parent
+    c2i_path = save_dir / "c2i.pkl"
+    i2c_path = save_dir / "i2c.pkl"
 
-        # Use the fixed vocabulary for training
-        c2i, i2c = load_vocab()
-        
-        assert 0 not in c2i.values(), "blank index 0 found in c2i values"
+    # Use the fixed vocabulary for training
+    c2i, i2c = load_vocab()
 
-        # Optionally (re-)save the dictionaries next to the backbone weights
-        if save_backbone:
-            save_dir.mkdir(parents=True, exist_ok=True)
+    assert 0 not in c2i.values(), "blank index 0 found in c2i values"
+
+    # Optionally (re-)save the dictionaries next to the backbone weights
+    if save_backbone:
+        save_dir.mkdir(parents=True, exist_ok=True)
 
 
-        nclasses = len(c2i) + 1
-        assert (len(c2i) + 1) == nclasses, "nclasses mismatch with vocab size"
-        print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
-        arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
-        net = HTRNet(arch, nclasses=nclasses).to(device).train()
-        # if Path(save_path).exists():
-        #     print(f"[Pretraining] Loading checkpoint from {save_path}")
-        #     state = torch.load(save_path, map_location=device)
-        #     net.load_state_dict(state)
-        # Print number of parameters
-        n_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
-        print(f"[Pretraining] Network parameters: {n_params:,}")
-        # Create data loader and optimizer
-        train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
-        test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
-        opt = optim.Adam(net.parameters(), lr=lr)
-        sched = lr_scheduler.StepLR(opt, step_size=1500, gamma=0.5)
-        contr_loss_fn = SoftContrastiveLoss(CONTR_TAU, CONTR_TTXT).to(device)
-        print(f"[Pretraining] Starting training...")
-        print(f"[Pretraining] PHOC loss enabled: {ENABLE_PHOC}")
-        print(f"[Pretraining] Contrastive loss enabled: {ENABLE_CONTR}")
-        def _decode_random_samples(ds):
-            """Print predictions for up to ten random samples from *ds*."""
-            net.eval()
-            with torch.no_grad():
-                assert len(ds) > 0, "empty dataset for random samples"
-                # 1) pick up to 10 random indices
-                indices = random.sample(range(len(ds)), min(10, len(ds)))
-                # 2) load all (image, gt) pairs and stack into a batch
-                imgs, gts = zip(*(ds[i] for i in indices))
-                batch = torch.stack(imgs, dim=0).to(device)   # shape: (B, C, H, W)
-                # 3) forward-pass the whole batch at once
-                logits = net(batch, return_feats=False)[0]   # shape: (T, B, C)
-                # 4) decode the entire batch with greedy and beam search
-                greedy_preds = greedy_ctc_decode(logits, i2c)               # List[str], len=B
-                beam_preds   = beam_search_ctc_decode(logits, i2c, beam_width=5)
-                # 5) print GT vs. predictions
-                for gt, gr, bm in zip(gts, greedy_preds, beam_preds):
-                    print(f"GT: '{gt.strip()}' | greedy: '{gr}' | beam5: '{bm}'")
-            net.train()
-        def _evaluate_cer(loader):
-            """Return CER on *loader* and print the value."""
-            if len(loader.dataset) == 0:
-                print("[Eval] Test set is empty, skipping CER evaluation.")
-                return float('nan')
-            net.eval()
-            metric = CER()
-            with torch.no_grad():
-                for imgs, trans in loader:
-                    imgs = imgs.to(device)
-                    logits = net(imgs, return_feats=False)[0]
-                    preds = greedy_ctc_decode(logits, i2c)
-                    for p, t in zip(preds, trans):
-                        metric.update(p.strip(), t.strip())
-            net.train()
-            score = metric.score()
-            print(f"[Eval] CER: {score:.4f}")
-            return score
+    nclasses = len(c2i) + 1
+    assert (len(c2i) + 1) == nclasses, "nclasses mismatch with vocab size"
+    print(f"[Pretraining] Vocabulary size: {nclasses} (including blank)")
+    arch = SimpleNamespace(**ARCHITECTURE_CONFIG)
+    net = HTRNet(arch, nclasses=nclasses).to(device).train()
+    # if Path(save_path).exists():
+    #     print(f"[Pretraining] Loading checkpoint from {save_path}")
+    #     state = torch.load(save_path, map_location=device)
+    #     net.load_state_dict(state)
+    # Print number of parameters
+    n_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
+    print(f"[Pretraining] Network parameters: {n_params:,}")
+    # Create data loader and optimizer
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
+    opt = optim.Adam(net.parameters(), lr=lr)
+    sched = lr_scheduler.StepLR(opt, step_size=1500, gamma=0.5)
+    contr_loss_fn = SoftContrastiveLoss(CONTR_TAU, CONTR_TTXT).to(device)
+    print(f"[Pretraining] Starting training...")
+    print(f"[Pretraining] PHOC loss enabled: {ENABLE_PHOC}")
+    print(f"[Pretraining] Contrastive loss enabled: {ENABLE_CONTR}")
+    def _decode_random_samples(ds):
+        """Print predictions for up to ten random samples from *ds*."""
+        net.eval()
+        with torch.no_grad():
+            assert len(ds) > 0, "empty dataset for random samples"
+            # 1) pick up to 10 random indices
+            indices = random.sample(range(len(ds)), min(10, len(ds)))
+            # 2) load all (image, gt) pairs and stack into a batch
+            imgs, gts = zip(*(ds[i] for i in indices))
+            batch = torch.stack(imgs, dim=0).to(device)   # shape: (B, C, H, W)
+            # 3) forward-pass the whole batch at once
+            logits = net(batch, return_feats=False)[0]   # shape: (T, B, C)
+            # 4) decode the entire batch with greedy and beam search
+            greedy_preds = greedy_ctc_decode(logits, i2c)               # List[str], len=B
+            beam_preds   = beam_search_ctc_decode(logits, i2c, beam_width=5)
+            # 5) print GT vs. predictions
+            for gt, gr, bm in zip(gts, greedy_preds, beam_preds):
+                print(f"GT: '{gt.strip()}' | greedy: '{gr}' | beam5: '{bm}'")
+        net.train()
+    def _evaluate_cer(loader):
+        """Return CER on *loader* and print the value."""
+        if len(loader.dataset) == 0:
+            print("[Eval] Test set is empty, skipping CER evaluation.")
+            return float('nan')
+        net.eval()
+        metric = CER()
+        with torch.no_grad():
+            for imgs, trans in loader:
+                imgs = imgs.to(device)
+                logits = net(imgs, return_feats=False)[0]
+                preds = greedy_ctc_decode(logits, i2c)
+                for p, t in zip(preds, trans):
+                    metric.update(p.strip(), t.strip())
+        net.train()
+        score = metric.score()
+        print(f"[Eval] CER: {score:.4f}")
+        return score
         # Training loop
         for epoch in range(num_epochs):
             epoch_loss = 0.0
