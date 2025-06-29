@@ -29,7 +29,11 @@ Then you **must add it** to the appropriate section of `README.md`, along with a
 
 Whenever you **introduce or modify** any functionality:
 
-* Create or update a **minimal working test** that exercises its **core behavior**.
+* Whenever a **function** or **class** is created or modified, the agent should **automatically write a corresponding test**. This test should be placed in a **new file inside the `tests/` directory**, and it must **import the relevant function or class**.
+* The agent should then:
+    1. **Write example usage** of the function or class.
+    2. **Use assertions and print statements** to verify the behavior.
+    3. If anything looks suspicious or unexpected, the agent should **revisit the original code** and investigate. He edits the function or class he created again and goes through the same process until it works as expected. He then deletes the test file he made and puts the test code he just written inside the `tests/functionalities_test.py`, inside a function which will work with pytest.
 * Use the `pytest` framework exclusively.
 * Always add or update tests in the file:
   `tests/functionalities_test.py`.
