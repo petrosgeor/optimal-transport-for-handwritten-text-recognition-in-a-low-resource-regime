@@ -13,6 +13,7 @@ from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.utils.vocab import load_vocab
 from htr_base.models import HTRNet, Projector
 from alignment.alignment_trainer import refine_visual_backbone, cfg
+from alignment.losses import ProjectionLoss
 from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 from types import SimpleNamespace
@@ -275,4 +276,15 @@ def test_refine_backbone_with_phoc(tmp_path):
     )
 
     assert not net.training
+
+
+def test_projection_loss_weight():
+    d = torch.tensor([[0.0, 0.0], [1.0, 1.0]])
+    e = torch.tensor([[0.0, 0.0], [2.0, 2.0]])
+    a = torch.tensor([-1, 1])
+    p = torch.tensor([0.5, 0.5])
+
+    loss_default = ProjectionLoss()(d, e, a, p)
+    loss_weighted = ProjectionLoss(supervised_weight=2.0)(d, e, a, p)
+    assert loss_weighted > loss_default
 
