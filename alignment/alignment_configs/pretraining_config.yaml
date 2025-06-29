@@ -33,3 +33,25 @@ contrastive_text_T: 1.0     # T_txt – softness in edit‑distance space
 # ----------------------------------------------------------------------
 load_pretrained_backbone: false   # load weights for the backbone at startup
 pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
+
+# ----------------------------------------------------------------------
+# Pretraining hyperparameters
+# ----------------------------------------------------------------------
+# Dataset and training parameters are now configured here so that
+# ``pretraining.py`` and other scripts use the same values.
+device: cuda           # target device
+gpu_id: 0              # CUDA device index
+list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
+train_set_size: 30000  # number of random training images
+test_set_size: 10000   # number of random test images
+batch_size: 128
+num_epochs: 10000
+learning_rate: 1e-3
+fixed_size: [64, 256]
+base_path: null        # defaults to list_file directory if null
+use_augmentations: true
+main_loss_weight: 1.0
+aux_loss_weight: 0.1
+save_path: "htr_base/saved_models/pretrained_backbone.pt"
+save_backbone: true
+results_file: false

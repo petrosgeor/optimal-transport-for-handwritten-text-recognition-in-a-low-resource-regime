@@ -30,6 +30,14 @@ def test_train_val_subset():
     assert img_train.shape == img_tv.shape
 
 
+def test_pretraining_yaml_loaded():
+    yaml_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    from alignment import pretraining
+    assert pretraining.PRETRAINING_CONFIG["batch_size"] == yaml_cfg["batch_size"]
+    assert pretraining.PRETRAINING_CONFIG["train_set_size"] == yaml_cfg["train_set_size"]
+    assert pretraining.PRETRAINING_CONFIG["use_augmentations"] == yaml_cfg["use_augmentations"]
+
+
 def test_maybe_load_backbone():
     from types import SimpleNamespace
     from alignment.alignment_trainer import maybe_load_backbone

@@ -73,20 +73,21 @@ def tee_output(path: str = "pretraining_results.txt"):
             sys.stdout = original
 # Default pretraining configuration
 PRETRAINING_CONFIG = {
-    "list_file": "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
-    "n_random": 30000,
-    "num_epochs": 10000,
-    "batch_size": 128,
-    "learning_rate": 1e-3,
-    "base_path": None,
-    "fixed_size": (64, 256),
+    "list_file": yaml_cfg.get("list_file", "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"),
+    "train_set_size": int(yaml_cfg.get("train_set_size", 30000)),
+    "test_set_size": int(yaml_cfg.get("test_set_size", 10000)),
+    "num_epochs": int(yaml_cfg.get("num_epochs", 10000)),
+    "batch_size": int(yaml_cfg.get("batch_size", 128)),
+    "learning_rate": float(yaml_cfg.get("learning_rate", 1e-3)),
+    "base_path": yaml_cfg.get("base_path", None),
+    "fixed_size": tuple(yaml_cfg.get("fixed_size", (64, 256))),
     "device": DEVICE,
-    "use_augmentations": True,
-    "main_loss_weight": 1.0,
-    "aux_loss_weight": 0.1,
-    "save_path": "htr_base/saved_models/pretrained_backbone.pt",
-    "save_backbone": True,
-    "results_file": False,
+    "use_augmentations": bool(yaml_cfg.get("use_augmentations", True)),
+    "main_loss_weight": float(yaml_cfg.get("main_loss_weight", 1.0)),
+    "aux_loss_weight": float(yaml_cfg.get("aux_loss_weight", 0.1)),
+    "save_path": yaml_cfg.get("save_path", "htr_base/saved_models/pretrained_backbone.pt"),
+    "save_backbone": bool(yaml_cfg.get("save_backbone", True)),
+    "results_file": bool(yaml_cfg.get("results_file", False)),
 }
 # Architecture configuration for the pretraining backbone
 # Loaded from alignment/alignment_configs/pretraining_config.yaml to stay consistent with other scripts
@@ -101,7 +102,7 @@ def main(config: dict | None = None) -> Path:
     # Extract parameters from config
     list_file = config["list_file"]
     assert Path(list_file).is_file(), "list_file not found"
-    n_random = config.get("n_random", None)
+    n_random = config.get("train_set_size", config.get("n_random", None))
     num_epochs = config["num_epochs"]
     batch_size = config["batch_size"]
     assert batch_size > 0 and batch_size <= 1024, "batch_size must be between 1 and 1024"
@@ -123,7 +124,7 @@ def main(config: dict | None = None) -> Path:
     with ctx:
         print(f"[Pretraining] Starting with config:")
         print(f"  list_file: {list_file}")
-        print(f"  n_random: {n_random}")
+        print(f"  train_set_size: {n_random}")
         print(f"  epochs: {num_epochs}")
         print(f"  batch_size: {batch_size}")
         print(f"  learning_rate: {lr}")
@@ -152,7 +153,7 @@ def main(config: dict | None = None) -> Path:
             fixed_size=fixed_size,
             base_path=base_path,
             transforms=None,
-            n_random=10000,
+            n_random=config.get("test_set_size", 10000),
             preload_images=True,
             random_seed=1,
         )
