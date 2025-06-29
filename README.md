@@ -10,7 +10,7 @@ Most of the logic for alignment and model training lives in the `alignment` dire
 
 ## HTRNet
 
-`htr_base/models.py` defines the main neural network used throughout the codebase. `HTRNet` is composed of a CNN backbone followed by different CTC heads. The architecture is configurable through a YAML file or a small namespace object. All alignment scripts read these parameters from `alignment/config.yaml`.
+`htr_base/models.py` defines the main neural network used throughout the codebase. `HTRNet` is composed of a CNN backbone followed by different CTC heads. The architecture is configurable through a YAML file or a small namespace object. All alignment scripts read these parameters from `alignment/alignment_configs/pretraining_config.yaml`.
 
 Key features:
 
@@ -130,7 +130,7 @@ options are stored in the `PRETRAINING_CONFIG` dictionary.  Modify this
 dictionary or pass your own configuration to `pretraining.main` to control
 the list file and whether output should be written to
 `pretraining_results.txt`. GPU selection is configured only in
-`alignment/config.yaml`. When `results_file` is `True` the script also
+`alignment/alignment_configs/trainer_config.yaml`. When `results_file` is `True` the script also
 evaluates CER on a 10k-sample test subset every ten epochs and duplicates all
 stdout to that file.
 
@@ -141,15 +141,15 @@ random samples are decoded using greedy and beam search (`beam5:`).
 ```python
 from alignment import pretraining
 
-cfg = {"base_path": "/data/images"}  # GPU selection is set in alignment/config.yaml
+cfg = {"base_path": "/data/images"}  # GPU selection is set in alignment/alignment_configs/trainer_config.yaml
 pretraining.main(cfg)
 ```
 
-* **PHOC optional loss** – Set `enable_phoc: true` in `alignment/config.yaml` to let *pretraining.py* build PHOC targets on-the-fly (`build_phoc_description`) and optimise an extra BCE-with-logits term weighted by `phoc_loss_weight`. The PHOC head is enabled automatically when `feat_dim` and `phoc_levels` are present in the architecture config.
+* **PHOC optional loss** – Set `enable_phoc: true` in `alignment/alignment_configs/pretraining_config.yaml` to let *pretraining.py* build PHOC targets on-the-fly (`build_phoc_description`) and optimise an extra BCE-with-logits term weighted by `phoc_loss_weight`. The PHOC head is enabled automatically when `feat_dim` and `phoc_levels` are present in the architecture config.
 
 > **Pretraining optional losses**
 > You can now activate a *soft contrastive* objective that encourages global image descriptors to respect lexical similarity.
-> Add the following keys to `alignment/config.yaml`:
+> Add the following keys to `alignment/alignment_configs/pretraining_config.yaml`:
 >
 > ```yaml
 > contrastive_enable: true        # turn on
@@ -355,7 +355,7 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 
 * `dataset`: training dataset with alignment information.
 * `backbone`: network to refine.
-* `num_epochs`: number of optimisation epochs (default from `refine_epochs` in `alignment/config.yaml`).
+* `num_epochs`: number of optimisation epochs (default from `refine_epochs` in `alignment/alignment_configs/trainer_config.yaml`).
 * `batch_size`: mini-batch size.
 * `lr`: learning rate.
 * `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
@@ -382,7 +382,7 @@ def train_projector(dataset, backbone, projector, num_epochs=150,
 * `projector`: learnable mapping to the embedding space. Can be a list for
   ensemble training.
 * `num_epochs`, `batch_size`, `lr`: training hyperparameters. The default value
-  for `num_epochs` comes from `projector_epochs` in `alignment/config.yaml`.
+  for `num_epochs` comes from `projector_epochs` in `alignment/alignment_configs/trainer_config.yaml`.
 * `num_workers`: data loading workers during descriptor harvesting.
 * `weight_decay`: weight decay for the optimiser.
 * `device`: computation device for training.
@@ -427,11 +427,18 @@ def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
 
 
 
-## alignment/config.yaml
+## alignment/alignment_configs
 
-Additional hyperparameters for the alignment workflow are stored in
-`alignment/config.yaml`. These defaults are loaded at import time.
-Key options:
+Configuration files for the alignment workflow live under
+`alignment/alignment_configs/`.
+
+* `trainer_config.yaml` – hyperparameters for backbone refinement,
+  projector training and overall alignment. It can optionally load a pretrained
+  backbone via `load_pretrained_backbone` and `pretrained_backbone_path`.
+* `pretraining_config.yaml` – architecture and pretraining options used by
+  `pretraining.py`.
+
+The following keys from `trainer_config.yaml` are loaded at import time:
 
 * `refine_batch_size` – mini-batch size for backbone fine-tuning.
 * `refine_lr` – learning rate used during backbone refinement.
@@ -446,7 +453,7 @@ Key options:
 * `projector_weight_decay` – weight decay for the projector optimiser.
 * `plot_tsne` – save t-SNE plots during projector training.
 * `device` – compute device (`cpu` or `cuda`).
-* `gpu_id` – CUDA device index (set only in `alignment/config.yaml`).
+* `gpu_id` – CUDA device index (set only in `trainer_config.yaml`).
 * `alt_rounds` – backbone/projector cycles per alternating pass.
 * `align_batch_size` – mini-batch size for alignment descriptor caching.
 * `align_device` – device used for the alignment step.
@@ -461,9 +468,10 @@ Key options:
 * `prior_weight` – strength of the Wasserstein prior loss.
 * `load_pretrained_backbone` – whether to load backbone weights from disk.
 * `pretrained_backbone_path` – path to the pretrained backbone checkpoint.
-* `architecture` – dictionary defining the HTRNet backbone parameters:
-  `cnn_cfg`, `head_type`, `rnn_type`, `rnn_layers`, `rnn_hidden_size`,
-  `flattening`, `stn`, `feat_dim`, `feat_pool` and `phoc_levels`.
+* `architecture` – dictionary defining the HTRNet backbone parameters (see
+  `pretraining_config.yaml`): `cnn_cfg`, `head_type`, `rnn_type`,
+  `rnn_layers`, `rnn_hidden_size`, `flattening`, `stn`, `feat_dim`,
+  `feat_pool` and `phoc_levels`.
 
 
 ## Utilities / Metrics
