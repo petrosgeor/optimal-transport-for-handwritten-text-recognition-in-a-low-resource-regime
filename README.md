@@ -410,6 +410,19 @@ When generating pseudo labels (e.g. inside `align_more_instances`), the
 projector must run in evaluation mode via `proj.eval()` so that dropout is
 disabled.
 
+## ProjectionLoss
+
+Located in `alignment/losses.py`, this loss combines Optimal Transport with a
+supervised distance term for descriptors that have known word alignments.
+
+```python
+ProjectionLoss(reg=0.1, unbalanced=False, reg_m=1.0,
+               supervised_weight=1.0, **kwargs)
+```
+
+`supervised_weight` scales the MSE distance between aligned descriptors and
+their corresponding word embeddings.
+
 ## maybe_load_backbone
 
 Also in `alignment/alignment_trainer.py`. This helper loads pretrained weights for a backbone if configured.
@@ -497,6 +510,7 @@ The following keys from `trainer_config.yaml` are loaded at import time:
 * `ensemble_size` – how many projectors to train in parallel.
 * `agree_threshold` – votes required before pseudo-labelling.
 * `prior_weight` – strength of the Wasserstein prior loss.
+* `supervised_weight` – scale of the supervised term in `ProjectionLoss`.
 * `load_pretrained_backbone` – whether to load backbone weights from disk.
 * `pretrained_backbone_path` – path to the pretrained backbone checkpoint.
 * `synthetic_dataset` – dictionary with `list_file`, `base_path`, `n_random` and

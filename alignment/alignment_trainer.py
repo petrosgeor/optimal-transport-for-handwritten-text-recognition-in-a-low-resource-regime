@@ -52,6 +52,7 @@ cfg = OmegaConf.load(cfg_file)
 PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
 ENABLE_PHOC = bool(cfg.get("enable_phoc", False))
 PHOC_LEVELS = tuple(cfg.get("phoc_levels", (1, 2, 3, 4)))
+SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
 
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
@@ -283,7 +284,7 @@ def train_projector(  # pylint: disable=too-many-arguments
     )
 
     # ---------------------------------------------------------------- 3. Optimiser + loss
-    criterion = ProjectionLoss().to(device)
+    criterion = ProjectionLoss(supervised_weight=SUPERVISED_WEIGHT).to(device)
     print("Starting projector training...")
     # Iterate over each projector in the ensemble
     for idx, proj in enumerate(projs):

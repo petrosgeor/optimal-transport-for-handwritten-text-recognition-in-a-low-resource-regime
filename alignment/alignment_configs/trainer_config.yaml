@@ -76,6 +76,7 @@ k_external_words: 200
 ensemble_size: 3
 agree_threshold: 1
 prior_weight: 6
+supervised_weight: 1.0
 
 # ----------------------------------------------------------------------
 # Optional pretrained backbone

@@ -39,6 +39,8 @@ class ProjectionLoss(torch.nn.Module):
         ``reg_m`` parameter that can be passed through ``sinkhorn_kwargs``);
         otherwise use the balanced formulation ``ot.sinkhorn2``.
         Default = ``False`` (balanced).
+    supervised_weight : float, optional
+        Scale for the supervised descriptor distance term.  Default = 1.0.
     sinkhorn_kwargs : dict, optional
         Extra keyword arguments forwarded to the solver (e.g. max_iter, tol,
         log, reg_m for the unbalanced case).
@@ -61,11 +63,20 @@ class ProjectionLoss(torch.nn.Module):
     loss : torch.Tensor
         Scalar loss = OT loss + supervised alignment loss.
     """
-    def __init__(self, reg: float = 0.1, *, unbalanced: bool = False, reg_m: float = 1.0, **sinkhorn_kwargs):
+    def __init__(
+        self,
+        reg: float = 0.1,
+        *,
+        unbalanced: bool = False,
+        reg_m: float = 1.0,
+        supervised_weight: float = 1.0,
+        **sinkhorn_kwargs,
+    ):
         super().__init__()
         self.reg = reg
         self.unbalanced = unbalanced
         self.reg_m = reg_m
+        self.supervised_weight = supervised_weight
         self.sinkhorn_kwargs = sinkhorn_kwargs
 
         if self.unbalanced:
@@ -126,7 +137,7 @@ class ProjectionLoss(torch.nn.Module):
             aligned_descriptors = descriptors[aligned_indices]
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
             distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
-        return ot_loss + 100*distance_loss
+        return ot_loss + self.supervised_weight * distance_loss
 
 # ------------------------------------------------------------------
 # Soft Contrastive / InfoNCE with continuous positives (Euclidean)
