@@ -6,12 +6,12 @@ refine_lr: 1e-4             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
 refine_epochs: 30           # epochs used for backbone refinement
-syn_batch_ratio: 0.0        # fraction of each batch drawn from PretrainingHTRDataset
+syn_batch_ratio: 0.5        # fraction of each batch drawn from PretrainingHTRDataset
 
 # optional PHOC training
 enable_phoc: true        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # descriptor levels
-phoc_loss_weight: 0.5     # scaling factor
+phoc_loss_weight: 0.1     # scaling factor
 
 # Default HTRNet architecture
 architecture:

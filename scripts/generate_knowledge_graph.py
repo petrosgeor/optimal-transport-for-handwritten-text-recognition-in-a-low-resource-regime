@@ -18,6 +18,7 @@ def parse_module(path: Path):
     signatures = {}
     attributes = {}
     methods = {}
+    locations = {}
 
     for node in tree.body:
         if isinstance(node, ast.Import):
@@ -28,6 +29,7 @@ def parse_module(path: Path):
                 imports.append(node.module)
         elif isinstance(node, ast.ClassDef):
             classes.append(node.name)
+            locations[node.name] = {"file_path": str(path), "lineno": node.lineno}
             docstrings[node.name] = ast.get_docstring(node)
             
             bases = []
@@ -48,6 +50,7 @@ def parse_module(path: Path):
                     methods[node.name].append(method_name)
                     
                     full_method_name = f"{node.name}.{method_name}"
+                    locations[full_method_name] = {"file_path": str(path), "lineno": class_node.lineno}
                     docstrings[full_method_name] = ast.get_docstring(class_node)
 
                     # Signature
@@ -92,6 +95,7 @@ def parse_module(path: Path):
 
         elif isinstance(node, ast.FunctionDef):
             functions.append(node.name)
+            locations[node.name] = {"file_path": str(path), "lineno": node.lineno}
             docstrings[node.name] = ast.get_docstring(node)
             
             # Extract signature
@@ -125,11 +129,12 @@ def parse_module(path: Path):
         "signatures": signatures,
         "attributes": attributes,
         "methods": methods,
+        "locations": locations,
     }
 
 
 def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml", json_path="overview/knowledge_graph.json"):
-    schema_version = "1.2"
+    schema_version = "1.3"
     schema = {
         "node_types": {
             "module": "Represents a Python module (.py file).",
@@ -146,6 +151,10 @@ def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml",
             "has_method": "Source class contains target method.",
             "has_attr": "Source class has target attribute.",
             "instance_of": "Source attribute is an instance of target class."
+        },
+        "node_attributes": {
+            "file_path": "The absolute path to the file where the node is defined.",
+            "lineno": "The line number where the node is defined."
         }
     }
 
@@ -168,7 +177,8 @@ def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml",
         for cls in info["classes"]:
             class_node_id = f"{info['module']}.{cls}"
             doc = info["docstrings"].get(cls)
-            G.add_node(class_node_id, type="class", doc=doc or "")
+            loc = info["locations"].get(cls)
+            G.add_node(class_node_id, type="class", doc=doc or "", **loc)
             
             if cls in info["methods"]:
                 for method in info["methods"][cls]:
@@ -176,13 +186,15 @@ def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml",
                     full_method_name = f"{cls}.{method}"
                     doc = info["docstrings"].get(full_method_name)
                     sig = info["signatures"].get(full_method_name)
-                    G.add_node(method_node_id, type="method", doc=doc or "", signature=sig)
+                    loc = info["locations"].get(full_method_name)
+                    G.add_node(method_node_id, type="method", doc=doc or "", signature=sig, **loc)
                     G.add_edge(class_node_id, method_node_id, type="has_method")
 
         for fn in info["functions"]:
             doc = info["docstrings"].get(fn)
             sig = info["signatures"].get(fn)
-            G.add_node(f"{info['module']}.{fn}", type="function", doc=doc or "", signature=sig)
+            loc = info["locations"].get(fn)
+            G.add_node(f"{info['module']}.{fn}", type="function", doc=doc or "", signature=sig, **loc)
 
     # add attribute nodes and has_attr edges
     for info in modules.values():

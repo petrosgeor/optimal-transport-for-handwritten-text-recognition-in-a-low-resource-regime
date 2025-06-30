@@ -2,6 +2,17 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from omegaconf import OmegaConf
+
+# --------------------------------------------------------------------------- #
+#                           Hyperparameter defaults                            #
+# --------------------------------------------------------------------------- #
+# Functions read defaults from the YAML configuration loaded at import time.
+
+cfg_file = Path(__file__).parent / "alignment_configs" / "trainer_config.yaml"
+cfg = OmegaConf.load(cfg_file)
+os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
+
 from typing import Dict, Tuple, List
 import torch
 import torch.nn as nn
@@ -41,12 +52,6 @@ def _assert_grad_finite(model: nn.Module, name: str):
         for p in model.parameters()
     ), f"Gradient explosion in {name}"
 
-# --------------------------------------------------------------------------- #
-#                           Hyperparameter defaults                            #
-# --------------------------------------------------------------------------- #
-# Functions read defaults from the YAML configuration loaded at import time.
-cfg_file = Path(__file__).parent / "alignment_configs" / "trainer_config.yaml"
-cfg = OmegaConf.load(cfg_file)
 
 # PHOC configuration defaults
 PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
@@ -57,14 +62,16 @@ SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if str(cfg.device).startswith("cuda"):
-    cfg.device = f"cuda:{cfg.gpu_id}"
+    cfg.device = "cuda:0"
 
 
 def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
     """Load pretrained backbone weights if ``cfg.load_pretrained_backbone``."""
     if getattr(cfg, "load_pretrained_backbone", False):
         path = cfg.pretrained_backbone_path
-        state = torch.load(path, map_location=cfg.device)
+        # Load to CPU first, then the model will be moved to the correct
+        # device later in the training pipeline.
+        state = torch.load(path, map_location='cpu')
         backbone.load_state_dict(state)
         print(f"[Init] loaded pretrained backbone from {path}")
 

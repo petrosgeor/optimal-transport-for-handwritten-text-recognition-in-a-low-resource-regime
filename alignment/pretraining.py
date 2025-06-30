@@ -3,6 +3,12 @@ from __future__ import annotations
 import os, sys, random, pickle
 from pathlib import Path
 from types import SimpleNamespace
+from omegaconf import OmegaConf
+
+# Set CUDA devices before importing torch
+_cfg_file = Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml"
+_cfg = OmegaConf.load(_cfg_file)
+os.environ["CUDA_VISIBLE_DEVICES"] = str(_cfg.gpu_id)
 
 import torch
 
@@ -209,79 +215,79 @@ def main(config: dict | None = None) -> Path:
         print(f"[Eval] CER: {score:.4f}")
         return score
         # Training loop
-        for epoch in range(num_epochs):
-            epoch_loss = 0.0
-            num_batches = 0
-            phoc_epoch_loss = 0.0
-            running_contr = 0.0
-            for imgs, txts in train_loader:
-                imgs = imgs.to(device)
-                out = net(imgs)
-                main_logits, aux_logits, features = out[:3]
-                assert features.dim() == 2 and features.size(1) == arch.feat_dim, "features tensor has wrong dimensions or feature size"
-                for name, tens in {"main_logits":main_logits, "aux_logits":aux_logits, "features":features}.items(): _assert_finite(tens, name)
+    for epoch in range(num_epochs):
+        epoch_loss = 0.0
+        num_batches = 0
+        phoc_epoch_loss = 0.0
+        running_contr = 0.0
+        for imgs, txts in train_loader:
+            imgs = imgs.to(device)
+            out = net(imgs)
+            main_logits, aux_logits, features = out[:3]
+            assert features.dim() == 2 and features.size(1) == arch.feat_dim, "features tensor has wrong dimensions or feature size"
+            for name, tens in {"main_logits":main_logits, "aux_logits":aux_logits, "features":features}.items(): _assert_finite(tens, name)
 
-                # Prepare CTC targets
-                targets, lengths = encode_for_ctc(list(txts), c2i)
-                assert targets.max() < nclasses, "target contains index out of nclasses range"
-                inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
+            # Prepare CTC targets
+            targets, lengths = encode_for_ctc(list(txts), c2i)
+            assert targets.max() < nclasses, "target contains index out of nclasses range"
+            inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
 
-                # Compute losses
-                loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
-                loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
+            # Compute losses
+            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
+            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
 
-                loss_contr = torch.tensor(0.0, device=device)
-                if ENABLE_CONTR:
-                    loss_contr = contr_loss_fn(features, list(txts))
-                    assert loss_contr >= 0 and torch.isfinite(loss_contr), "Contrastive loss is negative or non-finite"
+            loss_contr = torch.tensor(0.0, device=device)
+            if ENABLE_CONTR:
+                loss_contr = contr_loss_fn(features, list(txts))
+                assert loss_contr >= 0 and torch.isfinite(loss_contr), "Contrastive loss is negative or non-finite"
 
-                if ENABLE_PHOC:
-                    phoc_logits = out[-1]
-                    phoc_targets = build_phoc_description(list(txts), c2i, levels=PHOC_LEVELS).float().to(device)
-                    assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
-                    loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
-                    assert not torch.isnan(loss_phoc), "PHOC loss is NaN"
-                else:
-                    loss_phoc = torch.tensor(0.0, device=device)
+            if ENABLE_PHOC:
+                phoc_logits = out[-1]
+                phoc_targets = build_phoc_description(list(txts), c2i, levels=PHOC_LEVELS).float().to(device)
+                assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
+                loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+                assert not torch.isnan(loss_phoc), "PHOC loss is NaN"
+            else:
+                loss_phoc = torch.tensor(0.0, device=device)
 
-                total_loss = (main_weight * loss_main +
-                              aux_weight  * loss_aux  +
-                              PHOC_W      * loss_phoc +
-                              CONTR_W     * loss_contr)
-                _assert_finite(total_loss, "total_loss")
-                # Optimization step
-                total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(net.parameters(), 5.0); _check_grad_finite(net)
-                opt.step()
-                opt.zero_grad(set_to_none=True)
-                epoch_loss += total_loss.item()
-                phoc_epoch_loss += loss_phoc.item()
-                running_contr += loss_contr.item()
-                num_batches += 1
-            avg_loss = epoch_loss / max(1, num_batches)
-            avg_phoc_loss = phoc_epoch_loss / max(1, num_batches)
-            avg_contr_loss = running_contr / max(1, num_batches)
-            sched.step()
-            # Print progress every 20 epochs or on last epoch
-            if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
-                lr_val = sched.get_last_lr()[0]
-                import math
-                assert lr_val > 0 and math.isfinite(lr_val), "learning rate underflow or became non-finite"
-                msg = f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}"
-                if ENABLE_PHOC:
-                    msg += f" - PHOC: {avg_phoc_loss:.4f}"
-                if ENABLE_CONTR:
-                    msg += f" - Contr: {avg_contr_loss:.4f}"
-                msg += f" - lr: {lr_val:.2e}"
-                print(msg)
-                _evaluate_cer(test_loader)
-                _decode_random_samples(test_set)
-                if save_backbone:
-                    # Save the trained model and vocabulary
-                    save_dir = Path(save_path).parent
-                    save_dir.mkdir(parents=True, exist_ok=True); assert os.access(save_dir, os.W_OK), "save_dir is not writable"
-                    torch.save(net.state_dict(), save_path)
-                    print(f"[Pretraining] Model saved to: {save_path}")
-        return Path(save_path)
+            total_loss = (main_weight * loss_main +
+                            aux_weight  * loss_aux  +
+                            PHOC_W      * loss_phoc +
+                            CONTR_W     * loss_contr)
+            _assert_finite(total_loss, "total_loss")
+            # Optimization step
+            total_loss.backward()
+            torch.nn.utils.clip_grad_norm_(net.parameters(), 5.0); _check_grad_finite(net)
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+            epoch_loss += total_loss.item()
+            phoc_epoch_loss += loss_phoc.item()
+            running_contr += loss_contr.item()
+            num_batches += 1
+        avg_loss = epoch_loss / max(1, num_batches)
+        avg_phoc_loss = phoc_epoch_loss / max(1, num_batches)
+        avg_contr_loss = running_contr / max(1, num_batches)
+        sched.step()
+        # Print progress every 20 epochs or on last epoch
+        if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
+            lr_val = sched.get_last_lr()[0]
+            import math
+            assert lr_val > 0 and math.isfinite(lr_val), "learning rate underflow or became non-finite"
+            msg = f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}"
+            if ENABLE_PHOC:
+                msg += f" - PHOC: {avg_phoc_loss:.4f}"
+            if ENABLE_CONTR:
+                msg += f" - Contr: {avg_contr_loss:.4f}"
+            msg += f" - lr: {lr_val:.2e}"
+            print(msg)
+            _evaluate_cer(test_loader)
+            _decode_random_samples(test_set)
+            if save_backbone:
+                # Save the trained model and vocabulary
+                save_dir = Path(save_path).parent
+                save_dir.mkdir(parents=True, exist_ok=True); assert os.access(save_dir, os.W_OK), "save_dir is not writable"
+                torch.save(net.state_dict(), save_path)
+                print(f"[Pretraining] Model saved to: {save_path}")
+    return Path(save_path)
 if __name__ == '__main__':
     main()
