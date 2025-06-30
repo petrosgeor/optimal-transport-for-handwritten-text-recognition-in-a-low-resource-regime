@@ -255,7 +255,7 @@ def main(config: dict | None = None) -> Path:
 
             loss_contr = torch.tensor(0.0, device=device)
             if ENABLE_CONTR:
-                loss_contr = contr_loss_fn(features, list(txts))
+                loss_contr = contr_loss_fn(features, targets, lengths)
                 assert loss_contr >= 0 and torch.isfinite(loss_contr), "Contrastive loss is negative or non-finite"
 
             if ENABLE_PHOC:

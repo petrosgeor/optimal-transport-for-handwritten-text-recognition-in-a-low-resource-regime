@@ -10,22 +10,21 @@ syn_batch_ratio: 0.5        # fraction of each batch drawn from PretrainingHTRDa
 
 # optional PHOC training
 enable_phoc: true        # turn PHOC loss on/off
-phoc_levels: [1, 2, 3, 4] # descriptor levels
-phoc_loss_weight: 0.1     # scaling factor
+phoc_levels: [1, 2, 3, 4] # descriptor levels for PHOC (Pyramidal Histogram of Characters)
+phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 
-# Default HTRNet architecture
+# Default HTRNet architecture configuration
 architecture:
-  cnn_cfg: [[2, 64], "M", [3, 128], "M", [2, 256]]
-  head_type: both
-  rnn_type: gru
-  rnn_layers: 3
-  rnn_hidden_size: 256
-  flattening: maxpool
-  stn: false
-  feat_dim: 512
-  feat_pool: attn
-  phoc_levels: [1, 2, 3, 4]
-
+  cnn_cfg: [[2, 64], "M", [3, 128], "M", [2, 256]] # Configuration for the Convolutional Neural Network (CNN) layers
+  head_type: both           # Type of head for the HTRNet (e.g., 'both' for CTC and attention)
+  rnn_type: gru             # Type of Recurrent Neural Network (RNN) to use (e.g., 'gru', 'lstm')
+  rnn_layers: 3             # Number of RNN layers
+  rnn_hidden_size: 256      # Hidden size of the RNN layers
+  flattening: maxpool       # Method to flatten the CNN output (e.g., 'maxpool', 'avgpool')
+  stn: false                # Enable or disable Spatial Transformer Network (STN)
+  feat_dim: 512             # Dimension of the extracted features
+  feat_pool: attn           # Feature pooling method (e.g., 'attn' for attention pooling)
+  phoc_levels: [1, 2, 3, 4] # PHOC levels used in the architecture
 
 # ----------------------------------------------------------------------
 # Projector training
@@ -40,8 +39,8 @@ plot_tsne: true              # save t-SNE plots during projector training
 # ----------------------------------------------------------------------
 # Compute device
 # ----------------------------------------------------------------------
-device: cuda                # target device for training
-gpu_id: 0                   # which CUDA device index to use
+device: cuda                # target device for training (e.g., 'cuda', 'cpu')
+gpu_id: 3                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
@@ -53,8 +52,8 @@ alt_rounds: 4               # number of backbone/projector cycles per pass
 # ----------------------------------------------------------------------
 align_batch_size: 64       # mini-batch size when harvesting descriptors
 align_device: cuda           # device used during alignment post-processing
-align_reg: 0.1              # entropic regularisation for Sinkhorn
-align_unbalanced: false     # use unbalanced OT formulation
+align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
+align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 eval_batch_size: 64         # mini-batch size during CER evaluation
@@ -63,34 +62,34 @@ eval_batch_size: 64         # mini-batch size during CER evaluation
 # Dataset parameters
 # ----------------------------------------------------------------------
 dataset:
-  basefolder: 'htr_base/data/GW/processed_words'
-  subset: 'train_val'
-  fixed_size: [64, 256]
-  n_aligned: 300
-  k_external_words: 200
-  word_emb_dim: 512
-  two_views: false
+  basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
+  subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
+  fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
+  n_aligned: 300            # Number of initially aligned instances
+  k_external_words: 200     # Number of external words to consider
+  word_emb_dim: 512         # Dimension of word embeddings
+  two_views: false          # Enable or disable two-view training
 
-n_aligned: 50
-k_external_words: 200
-ensemble_size: 3
-agree_threshold: 1
-prior_weight: 6
-supervised_weight: 1.0
+n_aligned: 50               # Number of aligned instances (re-defined, check for redundancy)
+k_external_words: 200       # Number of external words (re-defined, check for redundancy)
+ensemble_size: 3            # Size of the projector ensemble
+agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
+prior_weight: 6             # Weight for prior distribution in alignment
+supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------
 # Optional pretrained backbone
 # ----------------------------------------------------------------------
-load_pretrained_backbone: true
-pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
+load_pretrained_backbone: true # Load weights for the backbone at startup
+pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt" # Path to the pretrained backbone model
 
 # ----------------------------------------------------------------------
 # Synthetic dataset parameters
 # ----------------------------------------------------------------------
 synthetic_dataset:
-  list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
-  base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px"
-  n_random: 7000
-  fixed_size: [64, 256]
-  preload_images: true
-  random_seed: 0
+  list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt" # Path to the list file for synthetic dataset
+  base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px" # Base path for synthetic dataset images
+  n_random: 7000            # Number of random samples to use from the synthetic dataset
+  fixed_size: [64, 256]     # Fixed size for synthetic images [height, width]
+  preload_images: true      # Preload images into memory for faster access
+  random_seed: 0            # Random seed for reproducibility

@@ -53,6 +53,17 @@ def encode_for_ctc(
     return targets, lengths
 
 
+def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[list[int]]:
+    """Convert flattened CTC targets to a list of lists."""
+    out = []
+    i = 0
+    for length in lengths:
+        out.append(targets[i : i + length].tolist())
+        i += length
+    return out
+
+
+
 
 def greedy_ctc_decode(
     logits: torch.Tensor,

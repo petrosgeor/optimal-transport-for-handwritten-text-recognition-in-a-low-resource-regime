@@ -2,7 +2,8 @@ import torch
 import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
 from geomloss.samples_loss import SamplesLoss
-
+from rapidfuzz import process, distance
+import numpy as np
 
 def _ctc_loss_fn(
     logits: torch.Tensor,
@@ -142,6 +143,9 @@ class ProjectionLoss(torch.nn.Module):
 # ------------------------------------------------------------------
 # Soft Contrastive / InfoNCE with continuous positives (Euclidean)
 # ------------------------------------------------------------------
+from .ctc_utils import _unflatten_targets
+
+
 class SoftContrastiveLoss(torch.nn.Module):
     """
     InfoNCE‑style loss that pulls together image descriptors whose
@@ -159,30 +163,35 @@ class SoftContrastiveLoss(torch.nn.Module):
         self.T_txt = T_txt
         self.eps   = eps
 
-    def forward(self, feats: torch.Tensor, transcripts: list[str]) -> torch.Tensor:
+    def forward(self, feats: torch.Tensor, targets: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
         """
         feats        : (B, D) float tensor (output of HTRNet, 3ʳᵈ element)
-        transcripts  : list of B padded strings (" word ")
+        targets      : (sum(L),) int tensor of encoded labels
+        lengths      : (B,) int tensor of label lengths
         """
+        B = len(lengths)
+        if B < 2:
+            return torch.tensor(0.0, device=feats.device, dtype=feats.dtype)
+
         # ---- 1. pairwise Euclidean distances in descriptor space ----
         dists = torch.cdist(feats, feats, p=2)        # (B, B)
         sim_img = torch.exp(-dists / self.tau)        # convert to similarity
 
-        # ---- 2. edit‑distance matrix on CPU (small batches) ----------
-        import editdistance
+        # ---- 2. edit-distance matrix (vectorized) --------------------
         with torch.no_grad():
-            B = len(transcripts)
-            edit = torch.zeros(B, B, dtype=torch.float32, device=feats.device)
-            for i in range(B):
-                for j in range(i + 1, B):
-                    e = editdistance.eval(transcripts[i].strip(),
-                                           transcripts[j].strip())
-                    edit[i, j] = edit[j, i] = float(e)
+            # Convert flattened targets to list of lists
+            unflattened_targets = _unflatten_targets(targets, lengths)
+            # Use rapidfuzz for fast, parallelized pairwise edit distance.
+            edit_np = process.cdist(
+                unflattened_targets, unflattened_targets,
+                scorer=distance.Levenshtein.distance, workers=-1
+            ).astype(np.float32)
+            edit = torch.from_numpy(edit_np).to(device=feats.device)
         sim_txt = torch.exp(-edit / self.T_txt)       # soft positives
 
         # ---- 3. InfoNCE objective ------------------------------------
         # exclude diagonal (self‑similarity) from both sums
-        eye = torch.eye(sim_img.size(0), device=feats.device)
+        eye = torch.eye(B, device=feats.device)
         sim_img = sim_img * (1 - eye)
         sim_txt = sim_txt * (1 - eye)
 

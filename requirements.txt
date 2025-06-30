@@ -12,6 +12,7 @@ scipy==1.13.1
 torch==2.0.1
 tqdm==4.64.0
 matplotlib==3.7.5
+rapidfuzz
 pyctcdecode
 pytest
 wordfreq

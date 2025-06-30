@@ -174,6 +174,21 @@ def encode_for_ctc(transcriptions, c2i, device=None):
 
 Returns `targets` (concatenated label indices) and `lengths` (original length of each transcription).
 
+## _unflatten_targets
+
+Defined in `alignment/ctc_utils.py`. This helper converts a flattened CTC target tensor and a corresponding lengths tensor into a list of lists of integers.
+
+```python
+def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[list[int]]:
+    """Convert flattened CTC targets to a list of lists."""
+```
+
+* `targets`: A 1D tensor of concatenated label indices.
+* `lengths`: A 1D tensor specifying the length of each sequence in the batch.
+
+Returns a list of lists, where each inner list is a sequence of integer labels.
+
+
 ## greedy\_ctc\_decode
 
 Also in `alignment/ctc_utils.py`. This performs a simple best‑path decoding of CTC logits.

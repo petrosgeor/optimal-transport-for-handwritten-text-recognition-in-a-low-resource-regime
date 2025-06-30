@@ -24,157 +24,33 @@
   },
   "nodes": [
     {
-      "id": "alignment.alignment_trainer",
+      "id": "alignment.pretraining",
       "type": "module",
       "doc": ""
     },
     {
-      "id": "alignment.alignment_trainer._assert_finite",
+      "id": "alignment.pretraining._assert_finite",
       "type": "function",
-      "doc": "",
-      "signature": "(t: torch.Tensor, where: str)",
-      "file_path": "alignment/alignment_trainer.py",
-      "lineno": 45
+      "doc": "Check ``t`` for ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor produced during training.\n    name (str): Label used in the raised assertion message.\n\nReturns:\n    None",
+      "signature": "(t: torch.Tensor, name: str)",
+      "file_path": "alignment/pretraining.py",
+      "lineno": 15
     },
     {
-      "id": "alignment.alignment_trainer._assert_grad_finite",
+      "id": "alignment.pretraining._check_grad_finite",
       "type": "function",
-      "doc": "",
-      "signature": "(model: nn.Module, name: str)",
-      "file_path": "alignment/alignment_trainer.py",
-      "lineno": 48
+      "doc": "Ensure all gradients in ``model`` are finite.\n\nArgs:\n    model (torch.nn.Module): Model to validate after ``backward``.\n\nReturns:\n    None",
+      "signature": "(model: torch.nn.Module)",
+      "file_path": "alignment/pretraining.py",
+      "lineno": 27
     },
     {
-      "id": "alignment.alignment_trainer.maybe_load_backbone",
+      "id": "alignment.pretraining.main",
       "type": "function",
-      "doc": "Load pretrained backbone weights if ``cfg.load_pretrained_backbone``.",
-      "signature": "(backbone: HTRNet, cfg)",
-      "file_path": "alignment/alignment_trainer.py",
-      "lineno": 67
-    },
-    {
-      "id": "alignment.alignment_trainer.refine_visual_backbone",
-      "type": "function",
-      "doc": "Fine\u2011tune *backbone* only on words already aligned to external words.",
-      "signature": "(dataset: HTRDataset, backbone: HTRNet, num_epochs: int)",
-      "file_path": "alignment/alignment_trainer.py",
-      "lineno": 80
-    },
-    {
-      "id": "alignment.alignment_trainer.train_projector",
-      "type": "function",
-      "doc": "Freeze `backbone`, collect all image descriptors, and then train the\n`projector` (or a list of projectors) using a combination of an\nunsupervised Optimal Transport loss on all samples and a supervised MSE\nloss on the subset of pre-aligned samples.\n\nAll images are first forwarded through the frozen `backbone` **without\naugmentation** to obtain a stable descriptor for every sample. These descriptors,\nalong with their alignment information, are cached in a temporary TensorDataset.\nThe `projector` is then optimised using this dataset.",
-      "signature": "(dataset: 'HTRDataset', backbone: 'HTRNet', projector: nn.Module | List[nn.Module], num_epochs: int, batch_size: int, lr: float, num_workers: int, weight_decay: float, device: torch.device | str, plot_tsne: bool)",
-      "file_path": "alignment/alignment_trainer.py",
-      "lineno": 206
-    },
-    {
-      "id": "alignment.alignment_trainer.alternating_refinement",
-      "type": "function",
-      "doc": "Alternately train ``backbone`` and one or more projectors with OT alignment.",
-      "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: List[nn.Module])",
-      "file_path": "alignment/alignment_trainer.py",
-      "lineno": 344
-    },
-    {
-      "id": "alignment.alignment_utilities",
-      "type": "module",
-      "doc": "Utility functions for aligning dataset instances to external words."
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner",
-      "type": "class",
-      "doc": "Helper class implementing the OT pseudo-labelling routine.",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 212
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner.__init__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 215
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner._calculate_ot",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, proj_feats: torch.Tensor)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 261
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner._get_projector_outputs",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 288
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner._select_candidates",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, counts: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor, aligned_all: torch.Tensor)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 349
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner._update_dataset",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 377
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner._log_results",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor, moved_dist: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 384
-    },
-    {
-      "id": "alignment.alignment_utilities.OTAligner.align",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 442
-    },
-    {
-      "id": "alignment.alignment_utilities.harvest_backbone_features",
-      "type": "function",
-      "doc": "Return image descriptors and alignment info for the whole dataset.\n\nDataset augmentations are temporarily disabled while collecting\ndescriptors. The backbone is run in evaluation mode on ``device``.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset providing images and alignment information.\nbackbone : HTRNet\n    Visual encoder used to extract per-image descriptors.\nbatch_size : int, optional\n    Mini-batch size when forwarding the dataset.\nnum_workers : int, optional\n    Worker processes used by the ``DataLoader``.\ndevice : torch.device | str, optional\n    Device on which the backbone runs.\n\nReturns\n-------\ntorch.Tensor\n    Tensor of descriptors with shape ``(N, D)`` where ``N`` is the\n    dataset size.\ntorch.Tensor\n    Alignment tensor of shape ``(N,)`` copied from the dataset.",
-      "signature": "(dataset: HTRDataset, backbone: HTRNet)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 24
-    },
-    {
-      "id": "alignment.alignment_utilities.calculate_ot_projections",
-      "type": "function",
-      "doc": "Compute OT projections of ``X`` onto ``Y``.\n\nParameters\n----------\npa : np.ndarray\n    Source distribution over ``X`` of shape ``(N,)``.\nX : np.ndarray\n    Source features of shape ``(N, D)``.\npb : np.ndarray\n    Target distribution over ``Y`` of shape ``(M,)``.\nY : np.ndarray\n    Target features of shape ``(M, D)``.\nreg : float, optional\n    Entropic regularisation.\nunbalanced : bool, optional\n    Use unbalanced OT formulation if ``True``.\nreg_m : float, optional\n    Unbalanced mass regularisation.\nsinkhorn_kwargs : dict, optional\n    Additional arguments for the OT solver.\n\nReturns\n-------\nprojections : np.ndarray\n    ``X`` projected in the space of ``Y`` (``(N, D)``).\nplan : np.ndarray\n    Optimal transport plan of shape ``(N, M)``.",
-      "signature": "(pa: np.ndarray, X: np.ndarray, pb: np.ndarray, Y: np.ndarray, reg: float)",
-      "file_path": "alignment/alignment_utilities.py",
+      "doc": "Train a small HTRNet on the given image list using dictionary configuration.",
+      "signature": "(config: dict | None)",
+      "file_path": "alignment/pretraining.py",
       "lineno": 98
-    },
-    {
-      "id": "alignment.alignment_utilities.select_uncertain_instances",
-      "type": "function",
-      "doc": "Return indices of the ``m`` most uncertain instances.\n\nParameters\n----------\nm : int\n    Number of indices to return.\ntransport_plan : np.ndarray, optional\n    OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.\ndist_matrix : np.ndarray, optional\n    Pre-computed pairwise distances ``(N, V)``. Required for\n    ``metric='gap'``.\nmetric : str, optional\n    Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.\n\nReturns\n-------\nnp.ndarray\n    Array of ``m`` indices sorted by decreasing uncertainty.",
-      "signature": "(m: int)",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 157
-    },
-    {
-      "id": "alignment.alignment_utilities.align_more_instances",
-      "type": "function",
-      "doc": "Wrapper over :class:`OTAligner` for backward compatibility.",
-      "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])",
-      "file_path": "alignment/alignment_utilities.py",
-      "lineno": 469
     },
     {
       "id": "alignment.losses",
@@ -186,7 +62,7 @@
       "type": "class",
       "doc": "Entropic\u2011regularised optimal\u2011transport projection loss with optional\nunbalanced formulation.\n\nParameters\n----------\nreg : float, optional\n    Entropic regularisation strength passed to ``ot.sinkhorn2`` or\n    ``ot.unbalanced.sinkhorn_unbalanced2``.  Default = 0.1.\nunbalanced : bool, optional\n    If ``True`` use the unbalanced OT formulation\n    ``ot.unbalanced.sinkhorn_unbalanced2`` (requires an additional\n    ``reg_m`` parameter that can be passed through ``sinkhorn_kwargs``);\n    otherwise use the balanced formulation ``ot.sinkhorn2``.\n    Default = ``False`` (balanced).\nsupervised_weight : float, optional\n    Scale for the supervised descriptor distance term.  Default = 1.0.\nsinkhorn_kwargs : dict, optional\n    Extra keyword arguments forwarded to the solver (e.g. max_iter, tol,\n    log, reg_m for the unbalanced case).\n\nForward Inputs\n--------------\ndescriptors : torch.Tensor                # shape (N, d)\n    Source features extracted by the network.\nword_embeddings : torch.Tensor            # shape (M, d)\n    2\u2011D \u201cvocabulary\u201d embedding coordinates (target support).\naligned : torch.Tensor                    # shape (N,)\n    For each descriptor, the index of its aligned word in\n    ``word_embeddings`` (\u20121 if no alignment available).\ntgt_probs : torch.Tensor                  # shape (M,)\n    Marginal probabilities for the target distribution.  For the balanced\n    version it will be renormalised to sum to 1.\n\nReturns\n-------\nloss : torch.Tensor\n    Scalar loss = OT loss + supervised alignment loss.",
       "file_path": "alignment/losses.py",
-      "lineno": 26
+      "lineno": 27
     },
     {
       "id": "alignment.losses.ProjectionLoss.__init__",
@@ -194,7 +70,7 @@
       "doc": "",
       "signature": "(self, reg: float)",
       "file_path": "alignment/losses.py",
-      "lineno": 66
+      "lineno": 67
     },
     {
       "id": "alignment.losses.ProjectionLoss.forward",
@@ -202,14 +78,14 @@
       "doc": "",
       "signature": "(self, descriptors: torch.Tensor, word_embeddings: torch.Tensor, aligned: torch.Tensor, tgt_probs: torch.Tensor)",
       "file_path": "alignment/losses.py",
-      "lineno": 91
+      "lineno": 92
     },
     {
       "id": "alignment.losses.SoftContrastiveLoss",
       "type": "class",
       "doc": "InfoNCE\u2011style loss that pulls together image descriptors whose\ntranscripts have small Levenshtein distance.\n\nParameters\n----------\ntau   : float  \u2013 temperature in image space (distance \u2192 similarity).\nT_txt : float  \u2013 temperature in transcript space (controls softness).\neps   : float  \u2013 numeric stability.",
       "file_path": "alignment/losses.py",
-      "lineno": 145
+      "lineno": 149
     },
     {
       "id": "alignment.losses.SoftContrastiveLoss.__init__",
@@ -217,15 +93,15 @@
       "doc": "",
       "signature": "(self, tau: float, T_txt: float, eps: float)",
       "file_path": "alignment/losses.py",
-      "lineno": 156
+      "lineno": 160
     },
     {
       "id": "alignment.losses.SoftContrastiveLoss.forward",
       "type": "method",
-      "doc": "feats        : (B, D) float tensor (output of HTRNet, 3\u02b3\u1d48 element)\ntranscripts  : list of B padded strings (\" word \")",
-      "signature": "(self, feats: torch.Tensor, transcripts: list[str])",
+      "doc": "feats        : (B, D) float tensor (output of HTRNet, 3\u02b3\u1d48 element)\ntargets      : (sum(L),) int tensor of encoded labels\nlengths      : (B,) int tensor of label lengths",
+      "signature": "(self, feats: torch.Tensor, targets: torch.Tensor, lengths: torch.Tensor)",
       "file_path": "alignment/losses.py",
-      "lineno": 162
+      "lineno": 166
     },
     {
       "id": "alignment.losses._ctc_loss_fn",
@@ -233,86 +109,7 @@
       "doc": "A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*.",
       "signature": "(logits: torch.Tensor, targets: torch.IntTensor, inp_lens: torch.IntTensor, tgt_lens: torch.IntTensor)",
       "file_path": "alignment/losses.py",
-      "lineno": 7
-    },
-    {
-      "id": "alignment.eval",
-      "type": "module",
-      "doc": "Evaluation helpers for alignment module."
-    },
-    {
-      "id": "alignment.eval._assert_finite",
-      "type": "function",
-      "doc": "",
-      "signature": "(t: torch.Tensor, where: str)",
-      "file_path": "alignment/eval.py",
-      "lineno": 11
-    },
-    {
-      "id": "alignment.eval.compute_cer",
-      "type": "function",
-      "doc": "Return character error rate on *dataset* using *model*.\n\nParameters\n----------\ndataset : Dataset\n    Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.\nmodel : torch.nn.Module\n    Network returning CTC logits (``(T,B,C)``).\nbatch_size : int, optional\n    Mini-batch size used during evaluation.\ndevice : str or torch.device, optional\n    Compute device for the forward pass.\ndecode : {'greedy', 'beam'}, optional\n    Decoding strategy for CTC outputs.\nbeam_width : int, optional\n    Beam width when ``decode='beam'``.\nk : int, optional\n    If given, also report CER for samples of length ``<= k`` and ``> k``.\n\nReturns\n-------\nfloat\n    Overall CER over the dataset.",
-      "signature": "(dataset: Dataset, model: torch.nn.Module)",
-      "file_path": "alignment/eval.py",
-      "lineno": 15
-    },
-    {
-      "id": "alignment.pretraining",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "alignment.pretraining._assert_finite",
-      "type": "function",
-      "doc": "",
-      "signature": "(t: torch.Tensor, name: str)",
-      "file_path": "alignment/pretraining.py",
-      "lineno": 15
-    },
-    {
-      "id": "alignment.pretraining._check_grad_finite",
-      "type": "function",
-      "doc": "",
-      "signature": "(model: torch.nn.Module)",
-      "file_path": "alignment/pretraining.py",
-      "lineno": 18
-    },
-    {
-      "id": "alignment.pretraining.main",
-      "type": "function",
-      "doc": "Train a small HTRNet on the given image list using dictionary configuration.",
-      "signature": "(config: dict | None)",
-      "file_path": "alignment/pretraining.py",
-      "lineno": 81
-    },
-    {
-      "id": "alignment.ctc_utils",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "alignment.ctc_utils.encode_for_ctc",
-      "type": "function",
-      "doc": "Convert a batch of raw string transcriptions to the (targets, lengths)\nformat expected by ``nn.CTCLoss``.\n\nParameters\n----------\ntranscriptions : list[str]\n    Each element is a single line/word **already wrapped with leading\n    and trailing spaces** (the dataset does that for you).\nc2i : dict[str, int]\n    Character-to-index mapping where **index 0 is reserved for CTC blank**\n    and every real character starts at 1.\ndevice : torch.device, optional\n    If given, the returned tensors are moved to this device.\n\nReturns\n-------\ntargets : torch.IntTensor   # shape = (total_chars,)\n    All label indices concatenated in batch order.\nlengths : torch.IntTensor   # shape = (batch,)\n    The original length (in characters) of every element in *transcriptions*.",
-      "signature": "(transcriptions: List[str], c2i: Dict[str, int], device: torch.device)",
-      "file_path": "alignment/ctc_utils.py",
-      "lineno": 18
-    },
-    {
-      "id": "alignment.ctc_utils.greedy_ctc_decode",
-      "type": "function",
-      "doc": "Greedy-decode a batch of CTC network outputs.\n\nParameters\n----------\nlogits : torch.Tensor\n    Tensor shaped either (T, B, C) if *time_first* is True\n    **or** (B, T, C) if *time_first* is False, where  \n    *T = time steps*, *B = batch size*, *C = n_classes*.\n    It can contain raw scores, logits, or probabilities \u2013\n    only the arg-max along *C* is used.\ni2c : dict[int, str]\n    Index-to-character mapping that complements the *c2i*\n    used during encoding. It must **not** contain the blank id.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to 0).\ntime_first : bool, optional\n    Set **True** if logits are (T, B, C); otherwise set False\n    for (B, T, C).\n\nReturns\n-------\nList[str]\n    One decoded string per element in the mini-batch.",
-      "signature": "(logits: torch.Tensor, i2c: Dict[int, str], blank_id: int, time_first: bool)",
-      "file_path": "alignment/ctc_utils.py",
-      "lineno": 57
-    },
-    {
-      "id": "alignment.ctc_utils.beam_search_ctc_decode",
-      "type": "function",
-      "doc": "Beam-search decoding for CTC outputs using pyctcdecode.\n\nParameters\n----------\nlogits : torch.Tensor\n    Network output \u2013 either ``(T, B, C)`` if *time_first* or ``(B, T, C)``.\ni2c : dict[int, str]\n    Index-to-character map **excluding** the blank id.\nbeam_width : int, optional\n    Number of prefixes kept after every time-step.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to ``0``).\ntime_first : bool, optional\n    ``True`` if *logits* are ``(T, B, C)``, else ``False`` for ``(B, T, C)``.\n\nReturns\n-------\nlist[str]\n    Best-scoring transcription for every element in the mini-batch.",
-      "signature": "(logits: torch.Tensor, i2c: Dict[int, str])",
-      "file_path": "alignment/ctc_utils.py",
-      "lineno": 123
+      "lineno": 8
     },
     {
       "id": "alignment.plot",
@@ -352,6 +149,217 @@
       "lineno": 168
     },
     {
+      "id": "alignment.alignment_trainer",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "alignment.alignment_trainer._assert_finite",
+      "type": "function",
+      "doc": "Assert that ``t`` contains no ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor to validate.\n    where (str): Human readable location used in the assertion message.\n\nReturns:\n    None",
+      "signature": "(t: torch.Tensor, where: str)",
+      "file_path": "alignment/alignment_trainer.py",
+      "lineno": 45
+    },
+    {
+      "id": "alignment.alignment_trainer._assert_grad_finite",
+      "type": "function",
+      "doc": "Ensure all gradients in ``model`` are finite.\n\nArgs:\n    model (nn.Module): Model whose parameters were backpropagated.\n    name (str): Identifier used in the error message.\n\nReturns:\n    None",
+      "signature": "(model: nn.Module, name: str)",
+      "file_path": "alignment/alignment_trainer.py",
+      "lineno": 57
+    },
+    {
+      "id": "alignment.alignment_trainer.maybe_load_backbone",
+      "type": "function",
+      "doc": "Load pretrained backbone weights if ``cfg.load_pretrained_backbone``.",
+      "signature": "(backbone: HTRNet, cfg)",
+      "file_path": "alignment/alignment_trainer.py",
+      "lineno": 85
+    },
+    {
+      "id": "alignment.alignment_trainer.refine_visual_backbone",
+      "type": "function",
+      "doc": "Fine-tunes the visual backbone of the HTR model.\n\nThis function focuses on training the `backbone` exclusively on words that have been\naligned with external word embeddings. It supports mixing in synthetic data and\nan optional PHOC loss to improve feature representation.\n\nArgs:\n    dataset: The HTRDataset containing the training data and alignment info.\n    backbone: The HTRNet model to be refined.\n    num_epochs: The number of epochs to train for.\n    batch_size: The size of each training batch.\n    lr: The learning rate for the AdamW optimizer.\n    main_weight: The weight for the main CTC loss.\n    aux_weight: The weight for the auxiliary CTC loss.\n    pretrain_ds: An optional dataset for synthetic pretraining.\n    syn_batch_ratio: The fraction of each batch to be sourced from `pretrain_ds`.\n    phoc_weight: The weight for the PHOC loss, if enabled.\n    enable_phoc: A flag to enable or disable the PHOC loss.\n    phoc_levels: A tuple specifying the levels for PHOC descriptors.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, num_epochs: int)",
+      "file_path": "alignment/alignment_trainer.py",
+      "lineno": 98
+    },
+    {
+      "id": "alignment.alignment_trainer.train_projector",
+      "type": "function",
+      "doc": "Trains a projector network to map backbone features to an embedding space.\n\nThis function freezes the `backbone`, harvests image descriptors for the entire\ndataset, and then trains the `projector` using a combination of an unsupervised\nOptimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.\nThe projector can be a single module or a list of modules for ensemble training.\n\nArgs:\n    dataset: The HTRDataset containing the data.\n    backbone: The HTRNet model (frozen) to extract features from.\n    projector: The projector network(s) to be trained.\n    num_epochs: The number of training epochs.\n    batch_size: The batch size for training the projector.\n    lr: The learning rate for the AdamW optimizer.\n    num_workers: The number of workers for the DataLoader.\n    weight_decay: The weight decay for the optimizer.\n    device: The device to run the training on.\n    plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.",
+      "signature": "(dataset: 'HTRDataset', backbone: 'HTRNet', projector: nn.Module | List[nn.Module], num_epochs: int, batch_size: int, lr: float, num_workers: int, weight_decay: float, device: torch.device | str, plot_tsne: bool)",
+      "file_path": "alignment/alignment_trainer.py",
+      "lineno": 244
+    },
+    {
+      "id": "alignment.alignment_trainer.alternating_refinement",
+      "type": "function",
+      "doc": "Performs an alternating training cycle between the backbone and projectors.\n\nThis function implements a semi-supervised learning strategy where the `backbone`\nand `projectors` are trained in alternation. In each round, the backbone is first\nrefined, then the projectors are trained. After a set number of rounds, more\ninstances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.\nThis cycle continues as long as there are unaligned instances in the dataset.\n\nArgs:\n    dataset: The HTRDataset to be used for training.\n    backbone: The HTRNet model.\n    projectors: A list of projector models.\n    rounds: The number of backbone/projector training cycles per alignment pass.\n    backbone_epochs: The number of epochs for each backbone refinement round.\n    projector_epochs: The number of epochs for each projector training round.\n    refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.\n    projector_kwargs: Additional keyword arguments for `train_projector`.\n    align_kwargs: Additional keyword arguments for `align_more_instances`.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: List[nn.Module])",
+      "file_path": "alignment/alignment_trainer.py",
+      "lineno": 391
+    },
+    {
+      "id": "alignment.alignment_utilities",
+      "type": "module",
+      "doc": "Utility functions for aligning dataset instances to external words."
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner",
+      "type": "class",
+      "doc": "Helper class implementing the OT pseudo-labelling routine.",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 212
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 215
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._calculate_ot",
+      "type": "method",
+      "doc": "Compute the OT projection of projector outputs onto word embeddings.\n\nArgs:\n    proj_feats (torch.Tensor): Projector features of shape ``(N, D)``.\n\nReturns:\n    tuple[torch.Tensor, np.ndarray]:\n        The projected features as a tensor and the OT plan as a NumPy array.",
+      "signature": "(self, proj_feats: torch.Tensor)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 261
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._get_projector_outputs",
+      "type": "method",
+      "doc": "Run projectors on all descriptors and compute OT projections.\n\nReturns:\n    dict: Dictionary containing the OT plan, mean projected features,\n    distance matrix, moved distances, nearest word indices and\n    the ``aligned`` vector from the dataset.",
+      "signature": "(self)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 297
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._select_candidates",
+      "type": "method",
+      "doc": "Choose which dataset indices to pseudo-label this round.\n\nArgs:\n    counts (torch.Tensor): Agreement counts from the projector ensemble.\n    dist_matrix (torch.Tensor): Pairwise distances to word embeddings.\n    plan (torch.Tensor): Optimal transport plan from OT alignment.\n    aligned_all (torch.Tensor): Current alignment vector ``(N,)``.\n\nReturns:\n    torch.Tensor: 1-D tensor of selected dataset indices.",
+      "signature": "(self, counts: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor, aligned_all: torch.Tensor)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 365
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._update_dataset",
+      "type": "method",
+      "doc": "Write newly aligned indices back into ``dataset.aligned``.\n\nArgs:\n    chosen (torch.Tensor): Dataset indices selected for labelling.\n    nearest_word (torch.Tensor): Predicted word indices for each sample.\n\nReturns:\n    None",
+      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 404
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._log_results",
+      "type": "method",
+      "doc": "Print alignment statistics for the current round.\n\nArgs:\n    chosen (torch.Tensor): Newly aligned dataset indices.\n    nearest_word (torch.Tensor): Predicted word ids for each sample.\n    moved_dist (torch.Tensor): Distances moved by descriptors during OT.\n    dist_matrix (torch.Tensor): Pairwise distances after projection.\n    plan (torch.Tensor): Optimal transport plan used for alignment.\n\nReturns:\n    None",
+      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor, moved_dist: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 420
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.align",
+      "type": "method",
+      "doc": "Perform one OT pseudo-labelling iteration.\n\nReturns:\n    tuple[torch.Tensor, torch.Tensor, torch.Tensor]:\n        Transport plan, mean projected features and per-sample moved distance.",
+      "signature": "(self)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 490
+    },
+    {
+      "id": "alignment.alignment_utilities.harvest_backbone_features",
+      "type": "function",
+      "doc": "Return image descriptors and alignment info for the whole dataset.\n\nDataset augmentations are temporarily disabled while collecting\ndescriptors. The backbone is run in evaluation mode on ``device``.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset providing images and alignment information.\nbackbone : HTRNet\n    Visual encoder used to extract per-image descriptors.\nbatch_size : int, optional\n    Mini-batch size when forwarding the dataset.\nnum_workers : int, optional\n    Worker processes used by the ``DataLoader``.\ndevice : torch.device | str, optional\n    Device on which the backbone runs.\n\nReturns\n-------\ntorch.Tensor\n    Tensor of descriptors with shape ``(N, D)`` where ``N`` is the\n    dataset size.\ntorch.Tensor\n    Alignment tensor of shape ``(N,)`` copied from the dataset.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 24
+    },
+    {
+      "id": "alignment.alignment_utilities.calculate_ot_projections",
+      "type": "function",
+      "doc": "Compute OT projections of ``X`` onto ``Y``.\n\nParameters\n----------\npa : np.ndarray\n    Source distribution over ``X`` of shape ``(N,)``.\nX : np.ndarray\n    Source features of shape ``(N, D)``.\npb : np.ndarray\n    Target distribution over ``Y`` of shape ``(M,)``.\nY : np.ndarray\n    Target features of shape ``(M, D)``.\nreg : float, optional\n    Entropic regularisation.\nunbalanced : bool, optional\n    Use unbalanced OT formulation if ``True``.\nreg_m : float, optional\n    Unbalanced mass regularisation.\nsinkhorn_kwargs : dict, optional\n    Additional arguments for the OT solver.\n\nReturns\n-------\nprojections : np.ndarray\n    ``X`` projected in the space of ``Y`` (``(N, D)``).\nplan : np.ndarray\n    Optimal transport plan of shape ``(N, M)``.",
+      "signature": "(pa: np.ndarray, X: np.ndarray, pb: np.ndarray, Y: np.ndarray, reg: float)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 98
+    },
+    {
+      "id": "alignment.alignment_utilities.select_uncertain_instances",
+      "type": "function",
+      "doc": "Return indices of the ``m`` most uncertain instances.\n\nParameters\n----------\nm : int\n    Number of indices to return.\ntransport_plan : np.ndarray, optional\n    OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.\ndist_matrix : np.ndarray, optional\n    Pre-computed pairwise distances ``(N, V)``. Required for\n    ``metric='gap'``.\nmetric : str, optional\n    Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.\n\nReturns\n-------\nnp.ndarray\n    Array of ``m`` indices sorted by decreasing uncertainty.",
+      "signature": "(m: int)",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 157
+    },
+    {
+      "id": "alignment.alignment_utilities.align_more_instances",
+      "type": "function",
+      "doc": "Wrapper over :class:`OTAligner` for backward compatibility.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])",
+      "file_path": "alignment/alignment_utilities.py",
+      "lineno": 523
+    },
+    {
+      "id": "alignment.ctc_utils",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "alignment.ctc_utils.encode_for_ctc",
+      "type": "function",
+      "doc": "Convert a batch of raw string transcriptions to the (targets, lengths)\nformat expected by ``nn.CTCLoss``.\n\nParameters\n----------\ntranscriptions : list[str]\n    Each element is a single line/word **already wrapped with leading\n    and trailing spaces** (the dataset does that for you).\nc2i : dict[str, int]\n    Character-to-index mapping where **index 0 is reserved for CTC blank**\n    and every real character starts at 1.\ndevice : torch.device, optional\n    If given, the returned tensors are moved to this device.\n\nReturns\n-------\ntargets : torch.IntTensor   # shape = (total_chars,)\n    All label indices concatenated in batch order.\nlengths : torch.IntTensor   # shape = (batch,)\n    The original length (in characters) of every element in *transcriptions*.",
+      "signature": "(transcriptions: List[str], c2i: Dict[str, int], device: torch.device)",
+      "file_path": "alignment/ctc_utils.py",
+      "lineno": 18
+    },
+    {
+      "id": "alignment.ctc_utils._unflatten_targets",
+      "type": "function",
+      "doc": "Convert flattened CTC targets to a list of lists.",
+      "signature": "(targets: torch.Tensor, lengths: torch.Tensor)",
+      "file_path": "alignment/ctc_utils.py",
+      "lineno": 56
+    },
+    {
+      "id": "alignment.ctc_utils.greedy_ctc_decode",
+      "type": "function",
+      "doc": "Greedy-decode a batch of CTC network outputs.\n\nParameters\n----------\nlogits : torch.Tensor\n    Tensor shaped either (T, B, C) if *time_first* is True\n    **or** (B, T, C) if *time_first* is False, where  \n    *T = time steps*, *B = batch size*, *C = n_classes*.\n    It can contain raw scores, logits, or probabilities \u2013\n    only the arg-max along *C* is used.\ni2c : dict[int, str]\n    Index-to-character mapping that complements the *c2i*\n    used during encoding. It must **not** contain the blank id.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to 0).\ntime_first : bool, optional\n    Set **True** if logits are (T, B, C); otherwise set False\n    for (B, T, C).\n\nReturns\n-------\nList[str]\n    One decoded string per element in the mini-batch.",
+      "signature": "(logits: torch.Tensor, i2c: Dict[int, str], blank_id: int, time_first: bool)",
+      "file_path": "alignment/ctc_utils.py",
+      "lineno": 68
+    },
+    {
+      "id": "alignment.ctc_utils.beam_search_ctc_decode",
+      "type": "function",
+      "doc": "Beam-search decoding for CTC outputs using pyctcdecode.\n\nParameters\n----------\nlogits : torch.Tensor\n    Network output \u2013 either ``(T, B, C)`` if *time_first* or ``(B, T, C)``.\ni2c : dict[int, str]\n    Index-to-character map **excluding** the blank id.\nbeam_width : int, optional\n    Number of prefixes kept after every time-step.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to ``0``).\ntime_first : bool, optional\n    ``True`` if *logits* are ``(T, B, C)``, else ``False`` for ``(B, T, C)``.\n\nReturns\n-------\nlist[str]\n    Best-scoring transcription for every element in the mini-batch.",
+      "signature": "(logits: torch.Tensor, i2c: Dict[int, str])",
+      "file_path": "alignment/ctc_utils.py",
+      "lineno": 134
+    },
+    {
+      "id": "alignment.eval",
+      "type": "module",
+      "doc": "Evaluation helpers for alignment module."
+    },
+    {
+      "id": "alignment.eval._assert_finite",
+      "type": "function",
+      "doc": "Raise an error if ``t`` contains ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor to check for numeric stability.\n    where (str): Description of the tensor's origin used in the message.\n\nReturns:\n    None",
+      "signature": "(t: torch.Tensor, where: str)",
+      "file_path": "alignment/eval.py",
+      "lineno": 11
+    },
+    {
+      "id": "alignment.eval.compute_cer",
+      "type": "function",
+      "doc": "Return character error rate on *dataset* using *model*.\n\nParameters\n----------\ndataset : Dataset\n    Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.\nmodel : torch.nn.Module\n    Network returning CTC logits (``(T,B,C)``).\nbatch_size : int, optional\n    Mini-batch size used during evaluation.\ndevice : str or torch.device, optional\n    Compute device for the forward pass.\ndecode : {'greedy', 'beam'}, optional\n    Decoding strategy for CTC outputs.\nbeam_width : int, optional\n    Beam width when ``decode='beam'``.\nk : int, optional\n    If given, also report CER for samples of length ``<= k`` and ``> k``.\n\nReturns\n-------\nfloat\n    Overall CER over the dataset.",
+      "signature": "(dataset: Dataset, model: torch.nn.Module)",
+      "file_path": "alignment/eval.py",
+      "lineno": 24
+    },
+    {
       "id": "htr_base.prepare_gw",
       "type": "module",
       "doc": "Usage example:\npython prepare_gw.py     --dataset_folder /path/to/GW     --output_path ./data/GW/processed_word     --level word\n\nOr for line-level processing:\npython prepare_gw.py     --dataset_folder /path/to/GW     --output_path ./data/GW/processed_line     --level line"
@@ -359,7 +367,7 @@
     {
       "id": "htr_base.prepare_gw.decide_split",
       "type": "function",
-      "doc": "",
+      "doc": "Map GW page id to train/val/test split.",
       "signature": "(page_id)",
       "file_path": "htr_base/prepare_gw.py",
       "lineno": 21
@@ -367,26 +375,31 @@
     {
       "id": "htr_base.prepare_gw.load_word_data",
       "type": "function",
-      "doc": "",
+      "doc": "Load word crops and labels from the GW dataset.",
       "signature": "(root, allowed_folds)",
       "file_path": "htr_base/prepare_gw.py",
-      "lineno": 31
+      "lineno": 32
     },
     {
       "id": "htr_base.prepare_gw.load_line_data",
       "type": "function",
-      "doc": "",
+      "doc": "Load line-level images and transcriptions from the GW dataset.",
       "signature": "(root, allowed_folds)",
       "file_path": "htr_base/prepare_gw.py",
-      "lineno": 54
+      "lineno": 56
     },
     {
       "id": "htr_base.prepare_gw.prepare",
       "type": "function",
-      "doc": "",
+      "doc": "Preprocess the dataset into train/val/test splits on disk.",
       "signature": "(args)",
       "file_path": "htr_base/prepare_gw.py",
-      "lineno": 73
+      "lineno": 76
+    },
+    {
+      "id": "htr_base.__init__",
+      "type": "module",
+      "doc": "Core HTR base package."
     },
     {
       "id": "htr_base.models",
@@ -601,11 +614,6 @@
       "lineno": 251
     },
     {
-      "id": "htr_base.__init__",
-      "type": "module",
-      "doc": "Core HTR base package."
-    },
-    {
       "id": "htr_base.utils.vocab",
       "type": "module",
       "doc": "Utility helpers for the fixed character vocabulary."
@@ -625,6 +633,137 @@
       "signature": "()",
       "file_path": "htr_base/utils/vocab.py",
       "lineno": 29
+    },
+    {
+      "id": "htr_base.utils.htr_dataset",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset",
+      "type": "class",
+      "doc": "",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 16
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.__init__",
+      "type": "method",
+      "doc": "Load handwritten text images and optional alignment info.\n\nArgs:\n    basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.\n    subset (str): Portion of the dataset to load.\n    fixed_size (tuple): ``(height, width)`` used to resize images.\n    transforms (list | None): Optional Albumentations pipeline.\n    character_classes (list | None): Characters making up the vocabulary.\n    config (Any): Optional configuration object with alignment params.\n    two_views (bool): Return two augmented views when ``True``.",
+      "signature": "(self, basefolder: str, subset: str, fixed_size: tuple, transforms: list, character_classes: list, config, two_views: bool)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 17
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.__getitem__",
+      "type": "method",
+      "doc": "Return one or two processed image tensors and its transcription.\n\nArgs:\n    index (int): Index of the sample to load.\n\nReturns:\n    tuple: ``(image, text, aligned_id)`` or ``((img1, img2), text, aligned_id)``\n    when ``two_views`` is enabled.",
+      "signature": "(self, index)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 117
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.__len__",
+      "type": "method",
+      "doc": "Return the number of items in the dataset.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 147
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset._filter_external_words",
+      "type": "method",
+      "doc": "Return words containing only known dataset characters.",
+      "signature": "(self, words: List[str])",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 150
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.letter_priors",
+      "type": "method",
+      "doc": "Return prior probabilities for ``a-z0-9``.\n\nIf ``transcriptions`` is ``None`` the distribution is computed from the\n``n_words`` most common English words provided by ``wordfreq``.\nOtherwise ``transcriptions`` are used directly.",
+      "signature": "(transcriptions: List[str])",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 156
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.find_word_embeddings",
+      "type": "method",
+      "doc": "Compute embeddings of words using pairwise Levenshtein distances.",
+      "signature": "(self, word_list, n_components: int)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 182
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.save_image",
+      "type": "method",
+      "doc": "Save the preprocessed image at *index* to *out_dir* and return its path.",
+      "signature": "(self, index: int, out_dir: str, filename: str)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 201
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.external_word_histogram",
+      "type": "method",
+      "doc": "Plot a histogram showing how many ground-truth transcriptions\nexactly match each external vocabulary word and save it under\n*tests/figures/* by default.\n\nParameters\n----------\nsave_dir : str | Path, default \"tests/figures\"\n    Directory where the PNG will be written.  Created if missing.\nfilename : str, default \"external_word_hist.png\"\n    Name of the output file inside *save_dir*.\ndpi : int, default 200\n    Resolution of the saved figure.\n\nNotes\n-----\n\u2022 The method **returns nothing**; its side-effect is a saved PNG.  \n\u2022 An exception is raised if the dataset was built without\n    ``external_words``.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 217
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "type": "class",
+      "doc": "Lightweight dataset for image-only pretraining.\n\nIf ``n_random`` is provided, ``random_seed`` ensures the same\nsubset of images is selected each time.  When ``preload_images``\nis ``True`` the raw images are cached in memory for faster\naccess.",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 279
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__init__",
+      "type": "method",
+      "doc": "Create a dataset from an image list for synthetic pretraining.\n\nArgs:\n    list_file (str): Path to a text file with relative image paths.\n    fixed_size (tuple): ``(height, width)`` for resizing.\n    base_path (str): Root directory prepended to each path in ``list_file``.\n    transforms (list | None): Optional Albumentations pipeline.\n    n_random (int | None): If given, keep only ``n_random`` entries.\n    random_seed (int): Seed controlling the random subset selection.\n    preload_images (bool): Load all images into memory on init.",
+      "signature": "(self, list_file: str, fixed_size: tuple, base_path: str, transforms: list, n_random: int, random_seed: int, preload_images: bool)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 288
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.process_paths",
+      "type": "method",
+      "doc": "Convert relative image paths to absolute ones and extract labels.\n\nArgs:\n    filtered_list (list[str]): Relative paths as read from ``list_file``.\n\nReturns:\n    tuple[list[str], list[str]]: Absolute paths and lowercase labels.",
+      "signature": "(self, filtered_list)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 329
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__len__",
+      "type": "method",
+      "doc": "Dataset length.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 348
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__getitem__",
+      "type": "method",
+      "doc": "Return a preprocessed image tensor and its transcription.",
+      "signature": "(self, index)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 352
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
+      "type": "method",
+      "doc": "Save the preprocessed image at *index* to *out_dir* and return its path.",
+      "signature": "(self, index: int, out_dir: str, filename: str)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 374
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.loaded_image_shapes",
+      "type": "method",
+      "doc": "Return the shapes of all preloaded images.\n\nRaises\n------\nRuntimeError\n    If ``preload_images`` was ``False`` when the dataset was built.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/htr_dataset.py",
+      "lineno": 393
     },
     {
       "id": "htr_base.utils.preprocessing",
@@ -648,6 +787,99 @@
       "lineno": 42
     },
     {
+      "id": "htr_base.utils.metrics",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "htr_base.utils.metrics.CER",
+      "type": "class",
+      "doc": "Accumulator for character error rate.",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 8
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.__init__",
+      "type": "method",
+      "doc": "Initialise counters to zero.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 11
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.update",
+      "type": "method",
+      "doc": "Accumulate edit distance for one prediction/target pair.",
+      "signature": "(self, prediction: str, target: str)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 16
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.score",
+      "type": "method",
+      "doc": "Return the current CER value.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 22
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.reset",
+      "type": "method",
+      "doc": "Reset accumulated statistics.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 26
+    },
+    {
+      "id": "htr_base.utils.metrics.WER",
+      "type": "class",
+      "doc": "Word error rate metric supporting two tokenisation modes.",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 33
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.__init__",
+      "type": "method",
+      "doc": "Create a WER accumulator.\n\nArgs:\n    mode (str): Either ``'tokenizer'`` or ``'space'`` controlling how words are split.",
+      "signature": "(self, mode: str)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 36
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.update",
+      "type": "method",
+      "doc": "Update WER statistics with a new prediction.",
+      "signature": "(self, prediction: str, target: str)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 50
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.score",
+      "type": "method",
+      "doc": "Return the current WER value.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 63
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.reset",
+      "type": "method",
+      "doc": "Reset the internal counters.",
+      "signature": "(self)",
+      "file_path": "htr_base/utils/metrics.py",
+      "lineno": 67
+    },
+    {
+      "id": "htr_base.utils.__init__",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "htr_base.utils.transforms",
+      "type": "module",
+      "doc": ""
+    },
+    {
       "id": "htr_base.utils.phoc",
       "type": "module",
       "doc": ""
@@ -661,228 +893,44 @@
       "lineno": 5
     },
     {
-      "id": "htr_base.utils.transforms",
-      "type": "module",
-      "doc": ""
+      "id": "alignment.losses.ProjectionLoss.reg",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.__init__",
-      "type": "module",
-      "doc": ""
+      "id": "alignment.losses.ProjectionLoss.unbalanced",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset",
-      "type": "module",
-      "doc": ""
+      "id": "alignment.losses.ProjectionLoss.reg_m",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset",
-      "type": "class",
-      "doc": "",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 16
+      "id": "alignment.losses.ProjectionLoss.supervised_weight",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.__init__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, basefolder: str, subset: str, fixed_size: tuple, transforms: list, character_classes: list, config, two_views: bool)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 17
+      "id": "alignment.losses.ProjectionLoss.sinkhorn_kwargs",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.__getitem__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, index)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 106
+      "id": "alignment.losses.ProjectionLoss.unbalanced_ot_loss",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.__len__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 127
+      "id": "alignment.losses.ProjectionLoss.balanced_ot_loss",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset._filter_external_words",
-      "type": "method",
-      "doc": "Return words containing only known dataset characters.",
-      "signature": "(self, words: List[str])",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 129
+      "id": "alignment.losses.SoftContrastiveLoss.tau",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.letter_priors",
-      "type": "method",
-      "doc": "Return prior probabilities for ``a-z0-9``.\n\nIf ``transcriptions`` is ``None`` the distribution is computed from the\n``n_words`` most common English words provided by ``wordfreq``.\nOtherwise ``transcriptions`` are used directly.",
-      "signature": "(transcriptions: List[str])",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 135
+      "id": "alignment.losses.SoftContrastiveLoss.T_txt",
+      "type": "attribute"
     },
     {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.find_word_embeddings",
-      "type": "method",
-      "doc": "Compute embeddings of words using pairwise Levenshtein distances.",
-      "signature": "(self, word_list, n_components: int)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 161
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.save_image",
-      "type": "method",
-      "doc": "Save the preprocessed image at *index* to *out_dir* and return its path.",
-      "signature": "(self, index: int, out_dir: str, filename: str)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 180
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.HTRDataset.external_word_histogram",
-      "type": "method",
-      "doc": "Plot a histogram showing how many ground-truth transcriptions\nexactly match each external vocabulary word and save it under\n*tests/figures/* by default.\n\nParameters\n----------\nsave_dir : str | Path, default \"tests/figures\"\n    Directory where the PNG will be written.  Created if missing.\nfilename : str, default \"external_word_hist.png\"\n    Name of the output file inside *save_dir*.\ndpi : int, default 200\n    Resolution of the saved figure.\n\nNotes\n-----\n\u2022 The method **returns nothing**; its side-effect is a saved PNG.  \n\u2022 An exception is raised if the dataset was built without\n    ``external_words``.",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 196
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
-      "type": "class",
-      "doc": "Lightweight dataset for image-only pretraining.\n\nIf ``n_random`` is provided, ``random_seed`` ensures the same\nsubset of images is selected each time.  When ``preload_images``\nis ``True`` the raw images are cached in memory for faster\naccess.",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 258
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__init__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, list_file: str, fixed_size: tuple, base_path: str, transforms: list, n_random: int, random_seed: int, preload_images: bool)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 267
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.process_paths",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, filtered_list)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 297
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__len__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 308
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__getitem__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, index)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 311
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
-      "type": "method",
-      "doc": "Save the preprocessed image at *index* to *out_dir* and return its path.",
-      "signature": "(self, index: int, out_dir: str, filename: str)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 332
-    },
-    {
-      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.loaded_image_shapes",
-      "type": "method",
-      "doc": "Return the shapes of all preloaded images.\n\nRaises\n------\nRuntimeError\n    If ``preload_images`` was ``False`` when the dataset was built.",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/htr_dataset.py",
-      "lineno": 351
-    },
-    {
-      "id": "htr_base.utils.metrics",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "htr_base.utils.metrics.CER",
-      "type": "class",
-      "doc": "",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 8
-    },
-    {
-      "id": "htr_base.utils.metrics.CER.__init__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 9
-    },
-    {
-      "id": "htr_base.utils.metrics.CER.update",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, prediction, target)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 13
-    },
-    {
-      "id": "htr_base.utils.metrics.CER.score",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 18
-    },
-    {
-      "id": "htr_base.utils.metrics.CER.reset",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 21
-    },
-    {
-      "id": "htr_base.utils.metrics.WER",
-      "type": "class",
-      "doc": "",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 27
-    },
-    {
-      "id": "htr_base.utils.metrics.WER.__init__",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, mode)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 28
-    },
-    {
-      "id": "htr_base.utils.metrics.WER.update",
-      "type": "method",
-      "doc": "",
-      "signature": "(self, prediction, target)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 37
-    },
-    {
-      "id": "htr_base.utils.metrics.WER.score",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 49
-    },
-    {
-      "id": "htr_base.utils.metrics.WER.reset",
-      "type": "method",
-      "doc": "",
-      "signature": "(self)",
-      "file_path": "htr_base/utils/metrics.py",
-      "lineno": 52
+      "id": "alignment.losses.SoftContrastiveLoss.eps",
+      "type": "attribute"
     },
     {
       "id": "alignment.alignment_utilities.OTAligner.dataset",
@@ -934,46 +982,6 @@
     },
     {
       "id": "alignment.alignment_utilities.OTAligner.word_embs",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.reg",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.unbalanced",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.reg_m",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.supervised_weight",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.sinkhorn_kwargs",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.unbalanced_ot_loss",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.ProjectionLoss.balanced_ot_loss",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.SoftContrastiveLoss.tau",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.SoftContrastiveLoss.T_txt",
-      "type": "attribute"
-    },
-    {
-      "id": "alignment.losses.SoftContrastiveLoss.eps",
       "type": "attribute"
     },
     {
@@ -1226,6 +1234,226 @@
   ],
   "edges": [
     {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.htr_dataset",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.models",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.transforms",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.metrics",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.vocab",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "alignment.ctc_utils",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "alignment.losses",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.phoc",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.vocab.load_vocab",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.metrics.CER",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.losses.SoftContrastiveLoss",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.ctc_utils.greedy_ctc_decode",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.ctc_utils.beam_search_ctc_decode",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.ctc_utils.encode_for_ctc",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.losses._ctc_loss_fn",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.eval._assert_finite",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.pretraining._check_grad_finite",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.models.HTRNet",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.phoc.build_phoc_description",
+      "type": "call"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.reg",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.unbalanced",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.reg_m",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.supervised_weight",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.sinkhorn_kwargs",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.unbalanced_ot_loss",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.balanced_ot_loss",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "torch.nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.tau",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.T_txt",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.eps",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "torch.nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss.forward",
+      "target": "alignment.ctc_utils._unflatten_targets",
+      "type": "call"
+    },
+    {
+      "source": "alignment.plot",
+      "target": "htr_base.utils.htr_dataset",
+      "type": "import"
+    },
+    {
+      "source": "alignment.plot",
+      "target": "htr_base.models",
+      "type": "import"
+    },
+    {
+      "source": "alignment.plot",
+      "target": "htr_base.utils.vocab",
+      "type": "import"
+    },
+    {
+      "source": "alignment.plot",
+      "target": "alignment.alignment_utilities",
+      "type": "import"
+    },
+    {
+      "source": "alignment.plot.plot_tsne_embeddings",
+      "target": "alignment.alignment_utilities.harvest_backbone_features",
+      "type": "call"
+    },
+    {
+      "source": "alignment.plot.plot_pretrained_backbone_tsne",
+      "target": "htr_base.utils.vocab.load_vocab",
+      "type": "call"
+    },
+    {
+      "source": "alignment.plot.plot_pretrained_backbone_tsne",
+      "target": "htr_base.models.HTRNet",
+      "type": "call"
+    },
+    {
       "source": "alignment.alignment_trainer",
       "target": "htr_base.utils.htr_dataset",
       "type": "import"
@@ -1277,7 +1505,7 @@
     },
     {
       "source": "alignment.alignment_trainer.refine_visual_backbone",
-      "target": "alignment.pretraining._assert_finite",
+      "target": "alignment.eval._assert_finite",
       "type": "call"
     },
     {
@@ -1476,86 +1704,6 @@
       "type": "call"
     },
     {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.__init__",
-      "type": "has_method"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.forward",
-      "type": "has_method"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.reg",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.unbalanced",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.reg_m",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.supervised_weight",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.sinkhorn_kwargs",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.unbalanced_ot_loss",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "alignment.losses.ProjectionLoss.balanced_ot_loss",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.ProjectionLoss",
-      "target": "torch.nn.Module",
-      "type": "inherit"
-    },
-    {
-      "source": "alignment.losses.SoftContrastiveLoss",
-      "target": "alignment.losses.SoftContrastiveLoss.__init__",
-      "type": "has_method"
-    },
-    {
-      "source": "alignment.losses.SoftContrastiveLoss",
-      "target": "alignment.losses.SoftContrastiveLoss.forward",
-      "type": "has_method"
-    },
-    {
-      "source": "alignment.losses.SoftContrastiveLoss",
-      "target": "alignment.losses.SoftContrastiveLoss.tau",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.SoftContrastiveLoss",
-      "target": "alignment.losses.SoftContrastiveLoss.T_txt",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.SoftContrastiveLoss",
-      "target": "alignment.losses.SoftContrastiveLoss.eps",
-      "type": "has_attr"
-    },
-    {
-      "source": "alignment.losses.SoftContrastiveLoss",
-      "target": "torch.nn.Module",
-      "type": "inherit"
-    },
-    {
       "source": "alignment.eval",
       "target": "htr_base.utils.metrics",
       "type": "import"
@@ -1577,7 +1725,7 @@
     },
     {
       "source": "alignment.eval.compute_cer",
-      "target": "alignment.pretraining._assert_finite",
+      "target": "alignment.eval._assert_finite",
       "type": "call"
     },
     {
@@ -1588,141 +1736,6 @@
     {
       "source": "alignment.eval.compute_cer",
       "target": "alignment.ctc_utils.greedy_ctc_decode",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.htr_dataset",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.models",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.transforms",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.metrics",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.vocab",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "alignment.ctc_utils",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "alignment.losses",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.phoc",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.vocab.load_vocab",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.metrics.CER",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.losses.SoftContrastiveLoss",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.ctc_utils.greedy_ctc_decode",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.ctc_utils.beam_search_ctc_decode",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.ctc_utils.encode_for_ctc",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.losses._ctc_loss_fn",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.pretraining._assert_finite",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.pretraining._check_grad_finite",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.models.HTRNet",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.phoc.build_phoc_description",
-      "type": "call"
-    },
-    {
-      "source": "alignment.plot",
-      "target": "htr_base.utils.htr_dataset",
-      "type": "import"
-    },
-    {
-      "source": "alignment.plot",
-      "target": "htr_base.models",
-      "type": "import"
-    },
-    {
-      "source": "alignment.plot",
-      "target": "htr_base.utils.vocab",
-      "type": "import"
-    },
-    {
-      "source": "alignment.plot",
-      "target": "alignment.alignment_utilities",
-      "type": "import"
-    },
-    {
-      "source": "alignment.plot.plot_tsne_embeddings",
-      "target": "alignment.alignment_utilities.harvest_backbone_features",
-      "type": "call"
-    },
-    {
-      "source": "alignment.plot.plot_pretrained_backbone_tsne",
-      "target": "htr_base.utils.vocab.load_vocab",
-      "type": "call"
-    },
-    {
-      "source": "alignment.plot.plot_pretrained_backbone_tsne",
-      "target": "htr_base.models.HTRNet",
       "type": "call"
     },
     {

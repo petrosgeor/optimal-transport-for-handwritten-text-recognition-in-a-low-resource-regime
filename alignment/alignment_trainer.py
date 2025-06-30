@@ -110,7 +110,27 @@ def refine_visual_backbone(
     enable_phoc: bool = cfg.enable_phoc,
     phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
 ) -> None:
-    """Fine‑tune *backbone* only on words already aligned to external words."""
+    """
+    Fine-tunes the visual backbone of the HTR model.
+
+    This function focuses on training the `backbone` exclusively on words that have been
+    aligned with external word embeddings. It supports mixing in synthetic data and
+    an optional PHOC loss to improve feature representation.
+
+    Args:
+        dataset: The HTRDataset containing the training data and alignment info.
+        backbone: The HTRNet model to be refined.
+        num_epochs: The number of epochs to train for.
+        batch_size: The size of each training batch.
+        lr: The learning rate for the AdamW optimizer.
+        main_weight: The weight for the main CTC loss.
+        aux_weight: The weight for the auxiliary CTC loss.
+        pretrain_ds: An optional dataset for synthetic pretraining.
+        syn_batch_ratio: The fraction of each batch to be sourced from `pretrain_ds`.
+        phoc_weight: The weight for the PHOC loss, if enabled.
+        enable_phoc: A flag to enable or disable the PHOC loss.
+        phoc_levels: A tuple specifying the levels for PHOC descriptors.
+    """
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
     device = next(backbone.parameters()).device
     backbone.train().to(device)
@@ -234,15 +254,24 @@ def train_projector(  # pylint: disable=too-many-arguments
     plot_tsne: bool = cfg.plot_tsne,
 ) -> None:
     """
-    Freeze `backbone`, collect all image descriptors, and then train the
-    `projector` (or a list of projectors) using a combination of an
-    unsupervised Optimal Transport loss on all samples and a supervised MSE
-    loss on the subset of pre-aligned samples.
-    
-    All images are first forwarded through the frozen `backbone` **without
-    augmentation** to obtain a stable descriptor for every sample. These descriptors,
-    along with their alignment information, are cached in a temporary TensorDataset.
-    The `projector` is then optimised using this dataset.
+    Trains a projector network to map backbone features to an embedding space.
+
+    This function freezes the `backbone`, harvests image descriptors for the entire
+    dataset, and then trains the `projector` using a combination of an unsupervised
+    Optimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.
+    The projector can be a single module or a list of modules for ensemble training.
+
+    Args:
+        dataset: The HTRDataset containing the data.
+        backbone: The HTRNet model (frozen) to extract features from.
+        projector: The projector network(s) to be trained.
+        num_epochs: The number of training epochs.
+        batch_size: The batch size for training the projector.
+        lr: The learning rate for the AdamW optimizer.
+        num_workers: The number of workers for the DataLoader.
+        weight_decay: The weight decay for the optimizer.
+        device: The device to run the training on.
+        plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.
     """
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
@@ -371,7 +400,26 @@ def alternating_refinement(
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
 ) -> None:
-    """Alternately train ``backbone`` and one or more projectors with OT alignment."""
+    """
+    Performs an alternating training cycle between the backbone and projectors.
+
+    This function implements a semi-supervised learning strategy where the `backbone`
+    and `projectors` are trained in alternation. In each round, the backbone is first
+    refined, then the projectors are trained. After a set number of rounds, more
+    instances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.
+    This cycle continues as long as there are unaligned instances in the dataset.
+
+    Args:
+        dataset: The HTRDataset to be used for training.
+        backbone: The HTRNet model.
+        projectors: A list of projector models.
+        rounds: The number of backbone/projector training cycles per alignment pass.
+        backbone_epochs: The number of epochs for each backbone refinement round.
+        projector_epochs: The number of epochs for each projector training round.
+        refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.
+        projector_kwargs: Additional keyword arguments for `train_projector`.
+        align_kwargs: Additional keyword arguments for `align_more_instances`.
+    """
 
     maybe_load_backbone(backbone, cfg)
 
