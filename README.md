@@ -358,7 +358,7 @@ Dataset augmentations are disabled while features are harvested.
 
 ## refine\_visual\_backbone
 
-Defined in `alignment/alignment_trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
+Defined in `alignment/trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
 
 ```python
 def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
@@ -389,7 +389,7 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 
 ## train\_projector
 
-Also in `alignment/alignment_trainer.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
+Also in `alignment/trainer.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
 
 ```python
 def train_projector(dataset, backbone, projector, num_epochs=150,
@@ -440,7 +440,7 @@ their corresponding word embeddings.
 
 ## maybe_load_backbone
 
-Also in `alignment/alignment_trainer.py`. This helper loads pretrained weights for a backbone if configured.
+Also in `alignment/trainer.py`. This helper loads pretrained weights for a backbone if configured.
 
 ```python
 def maybe_load_backbone(backbone, cfg):
@@ -454,7 +454,7 @@ def maybe_load_backbone(backbone, cfg):
 
 ## alternating\_refinement
 
-Also in `alignment/alignment_trainer.py`. This helper repeatedly refines the
+Also in `alignment/trainer.py`. This helper repeatedly refines the
 visual backbone and projector while progressively aligning more dataset
 instances using Optimal Transport.
 

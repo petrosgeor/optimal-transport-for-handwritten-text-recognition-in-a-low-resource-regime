@@ -238,7 +238,7 @@ def refine_visual_backbone(
     backbone.eval()
     print("[Refine] finished.")
 
-# File: alignment/alignment_trainer.py
+# File: alignment/trainer.py
 
 
 def train_projector(  # pylint: disable=too-many-arguments

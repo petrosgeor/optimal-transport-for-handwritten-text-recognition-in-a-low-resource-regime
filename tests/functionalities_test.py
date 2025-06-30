@@ -12,7 +12,7 @@ import torch
 from htr_base.utils.htr_dataset import PretrainingHTRDataset
 from htr_base.utils.vocab import load_vocab
 from htr_base.models import HTRNet, Projector
-from alignment.alignment_trainer import refine_visual_backbone, cfg
+from alignment.trainer import refine_visual_backbone, cfg
 from alignment.losses import ProjectionLoss
 from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
@@ -42,8 +42,8 @@ def test_pretraining_yaml_loaded():
 
 def test_maybe_load_backbone():
     from types import SimpleNamespace
-    from alignment.alignment_trainer import maybe_load_backbone
-    from alignment.alignment_trainer import cfg as base_cfg
+    from alignment.trainer import maybe_load_backbone
+    from alignment.trainer import cfg as base_cfg
     from htr_base.models import HTRNet
     from htr_base.utils.vocab import load_vocab
 
@@ -158,15 +158,15 @@ def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
     def fake_refine(*args, pretrain_ds=None, **kwargs):
         used["length"] = len(pretrain_ds) if pretrain_ds is not None else 0
 
-    monkeypatch.setattr("alignment.alignment_trainer.refine_visual_backbone", fake_refine)
-    monkeypatch.setattr("alignment.alignment_trainer.align_more_instances", lambda *a, **k: None)
-    monkeypatch.setattr("alignment.alignment_trainer.cfg", local_cfg)
+    monkeypatch.setattr("alignment.trainer.refine_visual_backbone", fake_refine)
+    monkeypatch.setattr("alignment.trainer.align_more_instances", lambda *a, **k: None)
+    monkeypatch.setattr("alignment.trainer.cfg", local_cfg)
 
     arch = SimpleNamespace(**local_cfg["architecture"])
     net = HTRNet(arch, nclasses=len(ds.character_classes) + 1)
     proj = [Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)]
 
-    from alignment.alignment_trainer import alternating_refinement
+    from alignment.trainer import alternating_refinement
 
     alternating_refinement(
         ds,
