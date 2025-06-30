@@ -288,3 +288,13 @@ def test_projection_loss_weight():
     loss_weighted = ProjectionLoss(supervised_weight=2.0)(d, e, a, p)
     assert loss_weighted > loss_default
 
+
+
+def test_generate_knowledge_graph(tmp_path):
+    from scripts.generate_knowledge_graph import build_repo_graph
+    graphml, json_path = build_repo_graph(["alignment", "htr_base"],
+                                           graphml_path=tmp_path/"kg.graphml",
+                                           json_path=tmp_path/"kg.json")
+    assert (tmp_path/"kg.graphml").exists()
+    assert (tmp_path/"kg.json").exists()
+
