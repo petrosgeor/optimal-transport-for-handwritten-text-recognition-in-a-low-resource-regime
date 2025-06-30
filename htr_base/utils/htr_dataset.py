@@ -23,6 +23,17 @@ class HTRDataset(Dataset):
         config=None,                            # Configuration object with optional parameters
         two_views: bool = False,                # Whether to return two views of each image
         ):
+        """Load handwritten text images and optional alignment info.
+
+        Args:
+            basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
+            subset (str): Portion of the dataset to load.
+            fixed_size (tuple): ``(height, width)`` used to resize images.
+            transforms (list | None): Optional Albumentations pipeline.
+            character_classes (list | None): Characters making up the vocabulary.
+            config (Any): Optional configuration object with alignment params.
+            two_views (bool): Return two augmented views when ``True``.
+        """
         self.basefolder = basefolder
         self.subset = subset
         self.fixed_size = fixed_size
@@ -104,6 +115,15 @@ class HTRDataset(Dataset):
                     else:
                         print(f'Warning: word {word} not found in external vocabulary')
     def __getitem__(self, index):
+        """Return one or two processed image tensors and its transcription.
+
+        Args:
+            index (int): Index of the sample to load.
+
+        Returns:
+            tuple: ``(image, text, aligned_id)`` or ``((img1, img2), text, aligned_id)``
+            when ``two_views`` is enabled.
+        """
         img_path = self.data[index][0]
         transcr1 = " " + self.data[index][1] + " "
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
@@ -125,6 +145,7 @@ class HTRDataset(Dataset):
             img_tensor = build_view(img)
             return img_tensor, transcr1, self.aligned[index]
     def __len__(self):
+        """Return the number of items in the dataset."""
         return len(self.data)
     def _filter_external_words(self, words: List[str]) -> List[str]:
         """Return words containing only known dataset characters."""
@@ -274,6 +295,17 @@ class PretrainingHTRDataset(Dataset):
         random_seed: int = 0,
         preload_images: bool = False,
     ):
+        """Create a dataset from an image list for synthetic pretraining.
+
+        Args:
+            list_file (str): Path to a text file with relative image paths.
+            fixed_size (tuple): ``(height, width)`` for resizing.
+            base_path (str): Root directory prepended to each path in ``list_file``.
+            transforms (list | None): Optional Albumentations pipeline.
+            n_random (int | None): If given, keep only ``n_random`` entries.
+            random_seed (int): Seed controlling the random subset selection.
+            preload_images (bool): Load all images into memory on init.
+        """
         self.fixed_size = fixed_size
         self.base_path = base_path
         self.transforms = transforms
@@ -295,6 +327,14 @@ class PretrainingHTRDataset(Dataset):
             self.images = [load_image(p) for p in self.img_paths]
 
     def process_paths(self, filtered_list):
+        """Convert relative image paths to absolute ones and extract labels.
+
+        Args:
+            filtered_list (list[str]): Relative paths as read from ``list_file``.
+
+        Returns:
+            tuple[list[str], list[str]]: Absolute paths and lowercase labels.
+        """
         full_paths = [
             os.path.normpath(os.path.join(self.base_path, p.lstrip('./')))
             for p in filtered_list
@@ -306,9 +346,11 @@ class PretrainingHTRDataset(Dataset):
         return full_paths, descriptions
 
     def __len__(self):
+        """Dataset length."""
         return len(self.img_paths)
 
     def __getitem__(self, index):
+        """Return a preprocessed image tensor and its transcription."""
         if hasattr(self, 'images'):
             img = self.images[index]
         else:

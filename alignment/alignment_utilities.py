@@ -259,6 +259,15 @@ class OTAligner:
 
     # ------------------------------------------------------------------
     def _calculate_ot(self, proj_feats: torch.Tensor) -> tuple[torch.Tensor, np.ndarray]:
+        """Compute the OT projection of projector outputs onto word embeddings.
+
+        Args:
+            proj_feats (torch.Tensor): Projector features of shape ``(N, D)``.
+
+        Returns:
+            tuple[torch.Tensor, np.ndarray]:
+                The projected features as a tensor and the OT plan as a NumPy array.
+        """
         N, V = proj_feats.size(0), self.word_embs.size(0)
         a = np.full((N,), 1.0 / N, dtype=np.float64)
         if getattr(self.dataset, "external_word_probs", None):
@@ -286,6 +295,13 @@ class OTAligner:
 
     # ------------------------------------------------------------------
     def _get_projector_outputs(self):
+        """Run projectors on all descriptors and compute OT projections.
+
+        Returns:
+            dict: Dictionary containing the OT plan, mean projected features,
+            distance matrix, moved distances, nearest word indices and
+            the ``aligned`` vector from the dataset.
+        """
         feats_all, aligned_all = harvest_backbone_features(
             self.dataset,
             self.backbone,
@@ -353,6 +369,17 @@ class OTAligner:
         plan: torch.Tensor,
         aligned_all: torch.Tensor,
     ) -> torch.Tensor:
+        """Choose which dataset indices to pseudo-label this round.
+
+        Args:
+            counts (torch.Tensor): Agreement counts from the projector ensemble.
+            dist_matrix (torch.Tensor): Pairwise distances to word embeddings.
+            plan (torch.Tensor): Optimal transport plan from OT alignment.
+            aligned_all (torch.Tensor): Current alignment vector ``(N,)``.
+
+        Returns:
+            torch.Tensor: 1-D tensor of selected dataset indices.
+        """
         assert self.k >= 0, "k must be non-negative"
         order_unc = select_uncertain_instances(
             m=len(self.dataset),
@@ -375,6 +402,15 @@ class OTAligner:
 
     # ------------------------------------------------------------------
     def _update_dataset(self, chosen: torch.Tensor, nearest_word: torch.Tensor) -> None:
+        """Write newly aligned indices back into ``dataset.aligned``.
+
+        Args:
+            chosen (torch.Tensor): Dataset indices selected for labelling.
+            nearest_word (torch.Tensor): Predicted word indices for each sample.
+
+        Returns:
+            None
+        """
         if chosen.numel() > 0:
             prev_vals = self.dataset.aligned[chosen]
             assert (prev_vals == -1).all(), "About to overwrite existing labels!"
@@ -389,6 +425,18 @@ class OTAligner:
         dist_matrix: torch.Tensor,
         plan: torch.Tensor,
     ) -> None:
+        """Print alignment statistics for the current round.
+
+        Args:
+            chosen (torch.Tensor): Newly aligned dataset indices.
+            nearest_word (torch.Tensor): Predicted word ids for each sample.
+            moved_dist (torch.Tensor): Distances moved by descriptors during OT.
+            dist_matrix (torch.Tensor): Pairwise distances after projection.
+            plan (torch.Tensor): Optimal transport plan used for alignment.
+
+        Returns:
+            None
+        """
         chosen_list = chosen.tolist()
         if self.k > 0 and chosen_list:
             correct_new = sum(
@@ -440,6 +488,12 @@ class OTAligner:
 
     # ------------------------------------------------------------------
     def align(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Perform one OT pseudo-labelling iteration.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                Transport plan, mean projected features and per-sample moved distance.
+        """
         out = self._get_projector_outputs()
 
         chosen = self._select_candidates(

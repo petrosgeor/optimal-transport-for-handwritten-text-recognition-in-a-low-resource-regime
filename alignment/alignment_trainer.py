@@ -42,10 +42,28 @@ from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 
-def _assert_finite(t: torch.Tensor, where: str):
+def _assert_finite(t: torch.Tensor, where: str) -> None:
+    """Assert that ``t`` contains no ``NaN`` or ``Inf`` values.
+
+    Args:
+        t (torch.Tensor): Tensor to validate.
+        where (str): Human readable location used in the assertion message.
+
+    Returns:
+        None
+    """
     assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
-def _assert_grad_finite(model: nn.Module, name: str):
+def _assert_grad_finite(model: nn.Module, name: str) -> None:
+    """Ensure all gradients in ``model`` are finite.
+
+    Args:
+        model (nn.Module): Model whose parameters were backpropagated.
+        name (str): Identifier used in the error message.
+
+    Returns:
+        None
+    """
     assert all(
         p.grad is None or torch.isfinite(p.grad).all()
         for p in model.parameters()
