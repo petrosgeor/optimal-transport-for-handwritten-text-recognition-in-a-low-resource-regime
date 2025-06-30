@@ -9,6 +9,15 @@ from .ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
 
 
 def _assert_finite(t: torch.Tensor, where: str) -> None:
+    """Raise an error if ``t`` contains ``NaN`` or ``Inf`` values.
+
+    Args:
+        t (torch.Tensor): Tensor to check for numeric stability.
+        where (str): Description of the tensor's origin used in the message.
+
+    Returns:
+        None
+    """
     assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
 

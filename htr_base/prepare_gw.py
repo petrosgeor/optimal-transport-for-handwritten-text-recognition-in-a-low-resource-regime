@@ -19,6 +19,7 @@ from PIL import Image
 from tqdm import tqdm
 
 def decide_split(page_id):
+    """Map GW page id to train/val/test split."""
     # GW fold mapping: 1=train, 2=val, 3=test
     if 270 <= page_id <= 279:
         return 1
@@ -29,6 +30,7 @@ def decide_split(page_id):
     raise ValueError(f'Invalid page id: {page_id}')
 
 def load_word_data(root, allowed_folds):
+    """Load word crops and labels from the GW dataset."""
     gw_root = os.path.join(root, 'GeorgeWashington20')
     pages_dir = os.path.join(gw_root, 'gw4860', 'pages')
     gt_dir    = os.path.join(gw_root, 'gw4860', 'ground_truth')
@@ -52,6 +54,7 @@ def load_word_data(root, allowed_folds):
 
 
 def load_line_data(root, allowed_folds):
+    """Load line-level images and transcriptions from the GW dataset."""
     gw_root = os.path.join(root, 'GeorgeWashington20')
     img_dir = os.path.join(gw_root, 'washingtondb-v1.0', 'data', 'line_images_normalized')
     ann_f   = os.path.join(gw_root, 'washingtondb-v1.0', 'ground_truth', 'transcription.txt')
@@ -71,6 +74,7 @@ def load_line_data(root, allowed_folds):
 
 
 def prepare(args):
+    """Preprocess the dataset into train/val/test splits on disk."""
     # use official folds
     folds = { 'train': [1], 'val': [2], 'test': [3] }
     loader = load_word_data if args.level == 'word' else load_line_data

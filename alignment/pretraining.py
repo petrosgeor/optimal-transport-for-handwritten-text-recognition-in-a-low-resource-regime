@@ -12,10 +12,27 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(_cfg.gpu_id)
 
 import torch
 
-def _assert_finite(t: torch.Tensor, name: str):
+def _assert_finite(t: torch.Tensor, name: str) -> None:
+    """Check ``t`` for ``NaN`` or ``Inf`` values.
+
+    Args:
+        t (torch.Tensor): Tensor produced during training.
+        name (str): Label used in the raised assertion message.
+
+    Returns:
+        None
+    """
     assert torch.isfinite(t).all(), f"{name} contains NaN/Inf"
 
-def _check_grad_finite(model: torch.nn.Module):
+def _check_grad_finite(model: torch.nn.Module) -> None:
+    """Ensure all gradients in ``model`` are finite.
+
+    Args:
+        model (torch.nn.Module): Model to validate after ``backward``.
+
+    Returns:
+        None
+    """
     for n, p in model.named_parameters():
         if p.grad is not None:
             assert torch.isfinite(p.grad).all(), f"grad NaN/Inf in {n}"
