@@ -24,35 +24,6 @@
   },
   "nodes": [
     {
-      "id": "alignment.pretraining",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "alignment.pretraining._assert_finite",
-      "type": "function",
-      "doc": "Check ``t`` for ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor produced during training.\n    name (str): Label used in the raised assertion message.\n\nReturns:\n    None",
-      "signature": "(t: torch.Tensor, name: str)",
-      "file_path": "alignment/pretraining.py",
-      "lineno": 15
-    },
-    {
-      "id": "alignment.pretraining._check_grad_finite",
-      "type": "function",
-      "doc": "Ensure all gradients in ``model`` are finite.\n\nArgs:\n    model (torch.nn.Module): Model to validate after ``backward``.\n\nReturns:\n    None",
-      "signature": "(model: torch.nn.Module)",
-      "file_path": "alignment/pretraining.py",
-      "lineno": 27
-    },
-    {
-      "id": "alignment.pretraining.main",
-      "type": "function",
-      "doc": "Train a small HTRNet on the given image list using dictionary configuration.",
-      "signature": "(config: dict | None)",
-      "file_path": "alignment/pretraining.py",
-      "lineno": 98
-    },
-    {
       "id": "alignment.losses",
       "type": "module",
       "doc": ""
@@ -112,6 +83,56 @@
       "lineno": 8
     },
     {
+      "id": "alignment.eval",
+      "type": "module",
+      "doc": "Evaluation helpers for alignment module."
+    },
+    {
+      "id": "alignment.eval._assert_finite",
+      "type": "function",
+      "doc": "Raise an error if ``t`` contains ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor to check for numeric stability.\n    where (str): Description of the tensor's origin used in the message.\n\nReturns:\n    None",
+      "signature": "(t: torch.Tensor, where: str)",
+      "file_path": "alignment/eval.py",
+      "lineno": 11
+    },
+    {
+      "id": "alignment.eval.compute_cer",
+      "type": "function",
+      "doc": "Return character error rate on *dataset* using *model*.\n\nParameters\n----------\ndataset : Dataset\n    Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.\nmodel : torch.nn.Module\n    Network returning CTC logits (``(T,B,C)``).\nbatch_size : int, optional\n    Mini-batch size used during evaluation.\ndevice : str or torch.device, optional\n    Compute device for the forward pass.\ndecode : {'greedy', 'beam'}, optional\n    Decoding strategy for CTC outputs.\nbeam_width : int, optional\n    Beam width when ``decode='beam'``.\nk : int, optional\n    If given, also report CER for samples of length ``<= k`` and ``> k``.\n\nReturns\n-------\nfloat\n    Overall CER over the dataset.",
+      "signature": "(dataset: Dataset, model: torch.nn.Module)",
+      "file_path": "alignment/eval.py",
+      "lineno": 24
+    },
+    {
+      "id": "alignment.pretraining",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "alignment.pretraining._assert_finite",
+      "type": "function",
+      "doc": "Check ``t`` for ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor produced during training.\n    name (str): Label used in the raised assertion message.\n\nReturns:\n    None",
+      "signature": "(t: torch.Tensor, name: str)",
+      "file_path": "alignment/pretraining.py",
+      "lineno": 15
+    },
+    {
+      "id": "alignment.pretraining._check_grad_finite",
+      "type": "function",
+      "doc": "Ensure all gradients in ``model`` are finite.\n\nArgs:\n    model (torch.nn.Module): Model to validate after ``backward``.\n\nReturns:\n    None",
+      "signature": "(model: torch.nn.Module)",
+      "file_path": "alignment/pretraining.py",
+      "lineno": 27
+    },
+    {
+      "id": "alignment.pretraining.main",
+      "type": "function",
+      "doc": "Train a small HTRNet on the given image list using dictionary configuration.",
+      "signature": "(config: dict | None)",
+      "file_path": "alignment/pretraining.py",
+      "lineno": 98
+    },
+    {
       "id": "alignment.plot",
       "type": "module",
       "doc": "Plotting utilities for alignment module."
@@ -149,56 +170,56 @@
       "lineno": 168
     },
     {
-      "id": "alignment.alignment_trainer",
+      "id": "alignment.trainer",
       "type": "module",
       "doc": ""
     },
     {
-      "id": "alignment.alignment_trainer._assert_finite",
+      "id": "alignment.trainer._assert_finite",
       "type": "function",
       "doc": "Assert that ``t`` contains no ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor to validate.\n    where (str): Human readable location used in the assertion message.\n\nReturns:\n    None",
       "signature": "(t: torch.Tensor, where: str)",
-      "file_path": "alignment/alignment_trainer.py",
+      "file_path": "alignment/trainer.py",
       "lineno": 45
     },
     {
-      "id": "alignment.alignment_trainer._assert_grad_finite",
+      "id": "alignment.trainer._assert_grad_finite",
       "type": "function",
       "doc": "Ensure all gradients in ``model`` are finite.\n\nArgs:\n    model (nn.Module): Model whose parameters were backpropagated.\n    name (str): Identifier used in the error message.\n\nReturns:\n    None",
       "signature": "(model: nn.Module, name: str)",
-      "file_path": "alignment/alignment_trainer.py",
+      "file_path": "alignment/trainer.py",
       "lineno": 57
     },
     {
-      "id": "alignment.alignment_trainer.maybe_load_backbone",
+      "id": "alignment.trainer.maybe_load_backbone",
       "type": "function",
       "doc": "Load pretrained backbone weights if ``cfg.load_pretrained_backbone``.",
       "signature": "(backbone: HTRNet, cfg)",
-      "file_path": "alignment/alignment_trainer.py",
+      "file_path": "alignment/trainer.py",
       "lineno": 85
     },
     {
-      "id": "alignment.alignment_trainer.refine_visual_backbone",
+      "id": "alignment.trainer.refine_visual_backbone",
       "type": "function",
       "doc": "Fine-tunes the visual backbone of the HTR model.\n\nThis function focuses on training the `backbone` exclusively on words that have been\naligned with external word embeddings. It supports mixing in synthetic data and\nan optional PHOC loss to improve feature representation.\n\nArgs:\n    dataset: The HTRDataset containing the training data and alignment info.\n    backbone: The HTRNet model to be refined.\n    num_epochs: The number of epochs to train for.\n    batch_size: The size of each training batch.\n    lr: The learning rate for the AdamW optimizer.\n    main_weight: The weight for the main CTC loss.\n    aux_weight: The weight for the auxiliary CTC loss.\n    pretrain_ds: An optional dataset for synthetic pretraining.\n    syn_batch_ratio: The fraction of each batch to be sourced from `pretrain_ds`.\n    phoc_weight: The weight for the PHOC loss, if enabled.\n    enable_phoc: A flag to enable or disable the PHOC loss.\n    phoc_levels: A tuple specifying the levels for PHOC descriptors.",
       "signature": "(dataset: HTRDataset, backbone: HTRNet, num_epochs: int)",
-      "file_path": "alignment/alignment_trainer.py",
+      "file_path": "alignment/trainer.py",
       "lineno": 98
     },
     {
-      "id": "alignment.alignment_trainer.train_projector",
+      "id": "alignment.trainer.train_projector",
       "type": "function",
       "doc": "Trains a projector network to map backbone features to an embedding space.\n\nThis function freezes the `backbone`, harvests image descriptors for the entire\ndataset, and then trains the `projector` using a combination of an unsupervised\nOptimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.\nThe projector can be a single module or a list of modules for ensemble training.\n\nArgs:\n    dataset: The HTRDataset containing the data.\n    backbone: The HTRNet model (frozen) to extract features from.\n    projector: The projector network(s) to be trained.\n    num_epochs: The number of training epochs.\n    batch_size: The batch size for training the projector.\n    lr: The learning rate for the AdamW optimizer.\n    num_workers: The number of workers for the DataLoader.\n    weight_decay: The weight decay for the optimizer.\n    device: The device to run the training on.\n    plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.",
       "signature": "(dataset: 'HTRDataset', backbone: 'HTRNet', projector: nn.Module | List[nn.Module], num_epochs: int, batch_size: int, lr: float, num_workers: int, weight_decay: float, device: torch.device | str, plot_tsne: bool)",
-      "file_path": "alignment/alignment_trainer.py",
+      "file_path": "alignment/trainer.py",
       "lineno": 244
     },
     {
-      "id": "alignment.alignment_trainer.alternating_refinement",
+      "id": "alignment.trainer.alternating_refinement",
       "type": "function",
       "doc": "Performs an alternating training cycle between the backbone and projectors.\n\nThis function implements a semi-supervised learning strategy where the `backbone`\nand `projectors` are trained in alternation. In each round, the backbone is first\nrefined, then the projectors are trained. After a set number of rounds, more\ninstances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.\nThis cycle continues as long as there are unaligned instances in the dataset.\n\nArgs:\n    dataset: The HTRDataset to be used for training.\n    backbone: The HTRNet model.\n    projectors: A list of projector models.\n    rounds: The number of backbone/projector training cycles per alignment pass.\n    backbone_epochs: The number of epochs for each backbone refinement round.\n    projector_epochs: The number of epochs for each projector training round.\n    refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.\n    projector_kwargs: Additional keyword arguments for `train_projector`.\n    align_kwargs: Additional keyword arguments for `align_more_instances`.",
       "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: List[nn.Module])",
-      "file_path": "alignment/alignment_trainer.py",
+      "file_path": "alignment/trainer.py",
       "lineno": 391
     },
     {
@@ -339,25 +360,9 @@
       "lineno": 134
     },
     {
-      "id": "alignment.eval",
+      "id": "htr_base.__init__",
       "type": "module",
-      "doc": "Evaluation helpers for alignment module."
-    },
-    {
-      "id": "alignment.eval._assert_finite",
-      "type": "function",
-      "doc": "Raise an error if ``t`` contains ``NaN`` or ``Inf`` values.\n\nArgs:\n    t (torch.Tensor): Tensor to check for numeric stability.\n    where (str): Description of the tensor's origin used in the message.\n\nReturns:\n    None",
-      "signature": "(t: torch.Tensor, where: str)",
-      "file_path": "alignment/eval.py",
-      "lineno": 11
-    },
-    {
-      "id": "alignment.eval.compute_cer",
-      "type": "function",
-      "doc": "Return character error rate on *dataset* using *model*.\n\nParameters\n----------\ndataset : Dataset\n    Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.\nmodel : torch.nn.Module\n    Network returning CTC logits (``(T,B,C)``).\nbatch_size : int, optional\n    Mini-batch size used during evaluation.\ndevice : str or torch.device, optional\n    Compute device for the forward pass.\ndecode : {'greedy', 'beam'}, optional\n    Decoding strategy for CTC outputs.\nbeam_width : int, optional\n    Beam width when ``decode='beam'``.\nk : int, optional\n    If given, also report CER for samples of length ``<= k`` and ``> k``.\n\nReturns\n-------\nfloat\n    Overall CER over the dataset.",
-      "signature": "(dataset: Dataset, model: torch.nn.Module)",
-      "file_path": "alignment/eval.py",
-      "lineno": 24
+      "doc": "Core HTR base package."
     },
     {
       "id": "htr_base.prepare_gw",
@@ -395,11 +400,6 @@
       "signature": "(args)",
       "file_path": "htr_base/prepare_gw.py",
       "lineno": 76
-    },
-    {
-      "id": "htr_base.__init__",
-      "type": "module",
-      "doc": "Core HTR base package."
     },
     {
       "id": "htr_base.models",
@@ -614,25 +614,14 @@
       "lineno": 251
     },
     {
-      "id": "htr_base.utils.vocab",
+      "id": "htr_base.utils.__init__",
       "type": "module",
-      "doc": "Utility helpers for the fixed character vocabulary."
+      "doc": ""
     },
     {
-      "id": "htr_base.utils.vocab.create_vocab",
-      "type": "function",
-      "doc": "Create the default vocabulary pickles and return the dictionaries.\n\nThe mapping contains digits ``0``\u2013``9``, lowercase ``a``\u2013``z`` and a\nspace character.  Index ``0`` is reserved for the CTC blank.",
-      "signature": "()",
-      "file_path": "htr_base/utils/vocab.py",
-      "lineno": 8
-    },
-    {
-      "id": "htr_base.utils.vocab.load_vocab",
-      "type": "function",
-      "doc": "Load ``c2i`` and ``i2c`` dictionaries from ``saved_models``.\n\nIf the pickle files do not exist, :func:`create_vocab` is called to\ngenerate them first.",
-      "signature": "()",
-      "file_path": "htr_base/utils/vocab.py",
-      "lineno": 29
+      "id": "htr_base.utils.transforms",
+      "type": "module",
+      "doc": ""
     },
     {
       "id": "htr_base.utils.htr_dataset",
@@ -787,6 +776,40 @@
       "lineno": 42
     },
     {
+      "id": "htr_base.utils.phoc",
+      "type": "module",
+      "doc": ""
+    },
+    {
+      "id": "htr_base.utils.phoc.build_phoc_description",
+      "type": "function",
+      "doc": "Convert *words* into binary PHOC descriptors.\n\nParameters\n----------\nwords : list[str]\n    Words to encode.\nc2i : dict[str, int]\n    Mapping from character to index. This dictionary **does not**\n    contain the CTC blank which is implicitly reserved at index 0.\nlevels : list[int], optional\n    Pyramid levels. Default ``(1, 2, 3, 4)``.\n\nReturns\n-------\ntorch.BoolTensor\n    Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors.",
+      "signature": "(words: List[str], c2i: Dict[str, int])",
+      "file_path": "htr_base/utils/phoc.py",
+      "lineno": 5
+    },
+    {
+      "id": "htr_base.utils.vocab",
+      "type": "module",
+      "doc": "Utility helpers for the fixed character vocabulary."
+    },
+    {
+      "id": "htr_base.utils.vocab.create_vocab",
+      "type": "function",
+      "doc": "Create the default vocabulary pickles and return the dictionaries.\n\nThe mapping contains digits ``0``\u2013``9``, lowercase ``a``\u2013``z`` and a\nspace character.  Index ``0`` is reserved for the CTC blank.",
+      "signature": "()",
+      "file_path": "htr_base/utils/vocab.py",
+      "lineno": 8
+    },
+    {
+      "id": "htr_base.utils.vocab.load_vocab",
+      "type": "function",
+      "doc": "Load ``c2i`` and ``i2c`` dictionaries from ``saved_models``.\n\nIf the pickle files do not exist, :func:`create_vocab` is called to\ngenerate them first.",
+      "signature": "()",
+      "file_path": "htr_base/utils/vocab.py",
+      "lineno": 29
+    },
+    {
       "id": "htr_base.utils.metrics",
       "type": "module",
       "doc": ""
@@ -868,29 +891,6 @@
       "signature": "(self)",
       "file_path": "htr_base/utils/metrics.py",
       "lineno": 67
-    },
-    {
-      "id": "htr_base.utils.__init__",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "htr_base.utils.transforms",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "htr_base.utils.phoc",
-      "type": "module",
-      "doc": ""
-    },
-    {
-      "id": "htr_base.utils.phoc.build_phoc_description",
-      "type": "function",
-      "doc": "Convert *words* into binary PHOC descriptors.\n\nParameters\n----------\nwords : list[str]\n    Words to encode.\nc2i : dict[str, int]\n    Mapping from character to index. This dictionary **does not**\n    contain the CTC blank which is implicitly reserved at index 0.\nlevels : list[int], optional\n    Pyramid levels. Default ``(1, 2, 3, 4)``.\n\nReturns\n-------\ntorch.BoolTensor\n    Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors.",
-      "signature": "(words: List[str], c2i: Dict[str, int])",
-      "file_path": "htr_base/utils/phoc.py",
-      "lineno": 5
     },
     {
       "id": "alignment.losses.ProjectionLoss.reg",
@@ -1234,106 +1234,6 @@
   ],
   "edges": [
     {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.htr_dataset",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.models",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.transforms",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.metrics",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.vocab",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "alignment.ctc_utils",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "alignment.losses",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining",
-      "target": "htr_base.utils.phoc",
-      "type": "import"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.vocab.load_vocab",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.metrics.CER",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.losses.SoftContrastiveLoss",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.ctc_utils.greedy_ctc_decode",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.ctc_utils.beam_search_ctc_decode",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.ctc_utils.encode_for_ctc",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.losses._ctc_loss_fn",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.eval._assert_finite",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "alignment.pretraining._check_grad_finite",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.models.HTRNet",
-      "type": "call"
-    },
-    {
-      "source": "alignment.pretraining.main",
-      "target": "htr_base.utils.phoc.build_phoc_description",
-      "type": "call"
-    },
-    {
       "source": "alignment.losses.ProjectionLoss",
       "target": "alignment.losses.ProjectionLoss.__init__",
       "type": "has_method"
@@ -1419,6 +1319,141 @@
       "type": "call"
     },
     {
+      "source": "alignment.eval",
+      "target": "htr_base.utils.metrics",
+      "type": "import"
+    },
+    {
+      "source": "alignment.eval",
+      "target": "htr_base.utils.vocab",
+      "type": "import"
+    },
+    {
+      "source": "alignment.eval.compute_cer",
+      "target": "htr_base.utils.vocab.load_vocab",
+      "type": "call"
+    },
+    {
+      "source": "alignment.eval.compute_cer",
+      "target": "htr_base.utils.metrics.CER",
+      "type": "call"
+    },
+    {
+      "source": "alignment.eval.compute_cer",
+      "target": "alignment.trainer._assert_finite",
+      "type": "call"
+    },
+    {
+      "source": "alignment.eval.compute_cer",
+      "target": "alignment.ctc_utils.beam_search_ctc_decode",
+      "type": "call"
+    },
+    {
+      "source": "alignment.eval.compute_cer",
+      "target": "alignment.ctc_utils.greedy_ctc_decode",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.htr_dataset",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.models",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.transforms",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.metrics",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.vocab",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "alignment.ctc_utils",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "alignment.losses",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining",
+      "target": "htr_base.utils.phoc",
+      "type": "import"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.vocab.load_vocab",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.metrics.CER",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.losses.SoftContrastiveLoss",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.ctc_utils.greedy_ctc_decode",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.ctc_utils.beam_search_ctc_decode",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.ctc_utils.encode_for_ctc",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.losses._ctc_loss_fn",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.trainer._assert_finite",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "alignment.pretraining._check_grad_finite",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.models.HTRNet",
+      "type": "call"
+    },
+    {
+      "source": "alignment.pretraining.main",
+      "target": "htr_base.utils.phoc.build_phoc_description",
+      "type": "call"
+    },
+    {
       "source": "alignment.plot",
       "target": "htr_base.utils.htr_dataset",
       "type": "import"
@@ -1454,123 +1489,123 @@
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "htr_base.utils.htr_dataset",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "htr_base.models",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "alignment.losses",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "alignment.ctc_utils",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "alignment.alignment_utilities",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "alignment.eval",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "alignment.plot",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "htr_base.utils.transforms",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer",
+      "source": "alignment.trainer",
       "target": "htr_base.utils.vocab",
       "type": "import"
     },
     {
-      "source": "alignment.alignment_trainer.refine_visual_backbone",
+      "source": "alignment.trainer.refine_visual_backbone",
       "target": "htr_base.utils.vocab.load_vocab",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.refine_visual_backbone",
-      "target": "alignment.eval._assert_finite",
+      "source": "alignment.trainer.refine_visual_backbone",
+      "target": "alignment.trainer._assert_finite",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.refine_visual_backbone",
+      "source": "alignment.trainer.refine_visual_backbone",
       "target": "alignment.ctc_utils.encode_for_ctc",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.refine_visual_backbone",
+      "source": "alignment.trainer.refine_visual_backbone",
       "target": "alignment.losses._ctc_loss_fn",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.refine_visual_backbone",
-      "target": "alignment.alignment_trainer._assert_grad_finite",
+      "source": "alignment.trainer.refine_visual_backbone",
+      "target": "alignment.trainer._assert_grad_finite",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.refine_visual_backbone",
+      "source": "alignment.trainer.refine_visual_backbone",
       "target": "htr_base.utils.phoc.build_phoc_description",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.train_projector",
+      "source": "alignment.trainer.train_projector",
       "target": "alignment.alignment_utilities.harvest_backbone_features",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.train_projector",
+      "source": "alignment.trainer.train_projector",
       "target": "alignment.plot.plot_tsne_embeddings",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.train_projector",
+      "source": "alignment.trainer.train_projector",
       "target": "alignment.losses.ProjectionLoss",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.train_projector",
+      "source": "alignment.trainer.train_projector",
       "target": "alignment.plot.plot_projector_tsne",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.alternating_refinement",
-      "target": "alignment.alignment_trainer.maybe_load_backbone",
+      "source": "alignment.trainer.alternating_refinement",
+      "target": "alignment.trainer.maybe_load_backbone",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.alternating_refinement",
+      "source": "alignment.trainer.alternating_refinement",
       "target": "alignment.alignment_utilities.align_more_instances",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.alternating_refinement",
+      "source": "alignment.trainer.alternating_refinement",
       "target": "alignment.eval.compute_cer",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.alternating_refinement",
-      "target": "alignment.alignment_trainer.refine_visual_backbone",
+      "source": "alignment.trainer.alternating_refinement",
+      "target": "alignment.trainer.refine_visual_backbone",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_trainer.alternating_refinement",
-      "target": "alignment.alignment_trainer.train_projector",
+      "source": "alignment.trainer.alternating_refinement",
+      "target": "alignment.trainer.train_projector",
       "type": "call"
     },
     {
@@ -1701,41 +1736,6 @@
     {
       "source": "alignment.alignment_utilities.align_more_instances",
       "target": "alignment.alignment_utilities.OTAligner",
-      "type": "call"
-    },
-    {
-      "source": "alignment.eval",
-      "target": "htr_base.utils.metrics",
-      "type": "import"
-    },
-    {
-      "source": "alignment.eval",
-      "target": "htr_base.utils.vocab",
-      "type": "import"
-    },
-    {
-      "source": "alignment.eval.compute_cer",
-      "target": "htr_base.utils.vocab.load_vocab",
-      "type": "call"
-    },
-    {
-      "source": "alignment.eval.compute_cer",
-      "target": "htr_base.utils.metrics.CER",
-      "type": "call"
-    },
-    {
-      "source": "alignment.eval.compute_cer",
-      "target": "alignment.eval._assert_finite",
-      "type": "call"
-    },
-    {
-      "source": "alignment.eval.compute_cer",
-      "target": "alignment.ctc_utils.beam_search_ctc_decode",
-      "type": "call"
-    },
-    {
-      "source": "alignment.eval.compute_cer",
-      "target": "alignment.ctc_utils.greedy_ctc_decode",
       "type": "call"
     },
     {
@@ -2069,11 +2069,6 @@
       "type": "call"
     },
     {
-      "source": "htr_base.utils.vocab.load_vocab",
-      "target": "htr_base.utils.vocab.create_vocab",
-      "type": "call"
-    },
-    {
       "source": "htr_base.utils.htr_dataset",
       "target": "htr_base.utils.vocab",
       "type": "import"
@@ -2321,6 +2316,11 @@
     {
       "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
       "target": "htr_base.utils.preprocessing.preprocess",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.vocab.load_vocab",
+      "target": "htr_base.utils.vocab.create_vocab",
       "type": "call"
     },
     {
