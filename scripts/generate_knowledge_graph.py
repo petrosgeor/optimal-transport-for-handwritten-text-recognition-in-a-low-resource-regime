@@ -53,7 +53,7 @@ def parse_module(path: Path):
     }
 
 
-def build_repo_graph(root_dirs, graphml_path="knowledge_graph.graphml", json_path="knowledge_graph.json"):
+def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml", json_path="overview/knowledge_graph.json"):
     modules = {}
     for d in root_dirs:
         for path in Path(d).rglob("*.py"):
