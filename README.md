@@ -279,6 +279,9 @@ def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metr
 * `transport_plan`: OT matrix used when `metric="entropy"`.
 * `dist_matrix`: pairwise distances used when `metric="gap"`.
 * `metric`: either `'gap'` (smallest nearest-neighbour gap) or `'entropy'`.
+* **variance** – ranks samples by the summed variance of their ensemble
+  projection vectors (lower = higher agreement).  Requires `ensemble_size > 1`.
+  Works with `agree_threshold` exactly like the existing metrics.
 
 ## plot\_dataset\_augmentations
 
