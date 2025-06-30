@@ -331,7 +331,7 @@ def train_projector(  # pylint: disable=too-many-arguments
         with torch.no_grad():
             proj_vecs = proj(feats_all.to(device)).cpu()
 
-        if plot_tsne:
+        if plot_tsne and idx == 0:
             plot_projector_tsne(
                 proj_vecs,
                 dataset,

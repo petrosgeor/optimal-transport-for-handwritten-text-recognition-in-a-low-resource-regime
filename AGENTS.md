@@ -1,4 +1,3 @@
-
 ---
 
 # AGENTS.md – Operational Rules for Codebase Integrity
@@ -7,25 +6,45 @@ These rules define how agents must operate on the codebase to ensure it remains 
 
 ---
 
-## 1. 🧾 Sync the Docs
+## 1. 🧠 Understand the Codebase via the Knowledge Graph
 
-Whenever you **add**, **remove**, **rename**, or **modify** any class, function, or script:
+Before performing **any** task, you **must** first read and understand the project's structure by consulting the knowledge graph:
 
-* **Update the corresponding section in `README.md` in the same commit.**
-* This includes docstring or signature changes, not just new files.
+*   **File Location**: `overview/knowledge_graph.json`
 
-### 📌 Important:
-
-If you find a **function or class** in the repository that:
-
-* Appears to be **central to the codebase**, and
-* Is **not yet documented in `README.md`**,
-
-Then you **must add it** to the appropriate section of `README.md`, along with a brief usage description or summary. This ensures the documentation reflects the true operational structure of the codebase.
+This file is the single source of truth for the codebase architecture. It contains all the information about modules, classes, functions, and their relationships. Use it to gather context and understand how the project works before making any changes.
 
 ---
 
-## 2. 🧪 Self-Test All Changes with `pytest`
+## 2. ✍️ Document All Code with Docstrings
+
+Whenever you **create or modify** a function or class, you **must** include a concise docstring that follows this structure:
+
+1.  **Purpose**: A brief, one-line summary of what the component does.
+2.  **Arguments** (`Args:`): A list of all arguments, their expected types, and a short description.
+3.  **Returns** (`Returns:`): A description of the value(s) returned by the function.
+
+This ensures that the `overview/knowledge_graph.json` remains populated with useful, human-readable context.
+
+### Example:
+
+```python
+def normalize_vector(vector: list[float]) -> list[float]:
+    """
+    Normalizes a vector to have a unit length of 1.
+
+    Args:
+        vector (list[float]): The input vector to normalize.
+
+    Returns:
+        list[float]: The normalized vector.
+    """
+    # ... implementation ...
+```
+
+---
+
+## 3. 🧪 Self-Test All Changes with `pytest`
 
 Whenever you **introduce or modify** any functionality:
 
@@ -55,7 +74,7 @@ Whenever you **introduce or modify** any functionality:
 
 ---
 
-## 3. ▶️ Run the Tests and Report Results
+## 4. ▶️ Run the Tests and Report Results
 
 After making any change and writing/updating the tests:
 
@@ -69,7 +88,7 @@ Do **not** consider the task complete until all tests pass and the test suite is
 
 ---
 
-## 4. 🔁 Avoid Redundant Work
+## 5. 🔁 Avoid Redundant Work
 
 Before implementing any change:
 
@@ -79,7 +98,7 @@ Before implementing any change:
 
 ---
 
-## 5. 📋 Propose Specific Tasks with Context
+## 6. 📋 Propose Specific Tasks with Context
 
 When proposing a new task:
 
@@ -98,7 +117,7 @@ This ensures that proposed tasks are **directly actionable**, **context-aware**,
 
 > 🔧 You introduce a new function `def normalize(vec): ...`
 
-* Update `README.md` to reflect the new function.
+* Add a docstring explaining its purpose, arguments, and return value.
 * Add a test like:
 
 ```python
@@ -118,10 +137,9 @@ def test_normalize():
 Keep the repo:
 
 * **Self-verifying** through tests
-* **Up-to-date** through docs
+* **Well-documented** through docstrings
 * **Minimal and truthful** through careful removals
 * **Reliable** by ensuring every commit leaves the test suite in a passing state
 * **Context-sensitive** in all task planning and recommendations
 
 ---
-

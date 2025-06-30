@@ -17,10 +17,10 @@ def compute_cer(
     model: torch.nn.Module,
     *,
     batch_size: int = 64,
-    device: str | torch.device = "cpu",
+    device: str = "cpu",
     decode: str = "greedy",
     beam_width: int = 10,
-    k: int | None = None,
+    k: int = None,
 ) -> float:
     """Return character error rate on *dataset* using *model*.
 

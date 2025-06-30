@@ -9,9 +9,9 @@ refine_epochs: 30           # epochs used for backbone refinement
 syn_batch_ratio: 0.0        # fraction of each batch drawn from PretrainingHTRDataset
 
 # optional PHOC training
-enable_phoc: false        # turn PHOC loss on/off
+enable_phoc: true        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # descriptor levels
-phoc_loss_weight: 0.1     # scaling factor
+phoc_loss_weight: 0.5     # scaling factor
 
 # Default HTRNet architecture
 architecture:
@@ -35,7 +35,7 @@ projector_batch_size: 4000  # mini-batch size when collecting descriptors
 projector_lr: 1e-4          # learning rate for projector optimisation
 projector_workers: 1        # dataloader workers used during descriptor caching
 projector_weight_decay: 1e-4  # weight decay for the projector optimiser
-plot_tsne: false              # save t-SNE plots during projector training
+plot_tsne: true              # save t-SNE plots during projector training
 
 # ----------------------------------------------------------------------
 # Compute device
@@ -71,7 +71,7 @@ dataset:
   word_emb_dim: 512
   two_views: false
 
-n_aligned: 300
+n_aligned: 50
 k_external_words: 200
 ensemble_size: 3
 agree_threshold: 1

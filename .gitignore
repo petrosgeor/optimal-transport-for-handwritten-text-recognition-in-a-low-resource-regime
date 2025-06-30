@@ -4,9 +4,12 @@ __pycache__/
 .env
 *.xml
 *.json
+!overview/knowledge_graph.json
 *.sh
 instructions.txt
 results.txt
+overview/README.md
+overview/knowledge_graph.graphml
 
 # Data and models
 htr_base/data/*
@@ -24,11 +27,10 @@ tests/dataset_value_range_test.py
 
 # Project-specific directories
 google_drive_upload/
-overview/
 
 # Markdown files (except specific ones)
 *.md
-!README.md
+!/README.md
 !AGENTS.md
 !GEMINI.md
 !docs/knowledge_graph.md
