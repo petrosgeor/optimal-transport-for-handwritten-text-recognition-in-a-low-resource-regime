@@ -37,7 +37,6 @@ from alignment.plot import (
     plot_tsne_embeddings,
     plot_projector_tsne
 )
-from htr_base.utils.metrics import word_silhouette_score
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
@@ -199,13 +198,6 @@ def refine_visual_backbone(
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     backbone.eval()
-    # Evaluate silhouette score if enough aligned samples exist
-    if len(aligned_indices) > 1:
-        with torch.no_grad():
-            feats, _ = harvest_backbone_features(subset, backbone, device=device)
-        words = [dataset.external_words[dataset.aligned[i].item()] for i in aligned_indices.tolist()]
-        score = word_silhouette_score(feats, words)
-        print(f"[Refine] silhouette score: {score:.4f}")
     print("[Refine] finished.")
 
 # File: alignment/alignment_trainer.py
