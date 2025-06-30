@@ -13,6 +13,14 @@ enable_phoc: true        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # descriptor levels for PHOC (Pyramidal Histogram of Characters)
 phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 
+# ----------------------------------------------------------------------
+# Soft‑contrastive loss defaults
+# ----------------------------------------------------------------------
+contrastive_enable: false  # turn on to activate the loss
+contrastive_weight: 0.0    # β – scales the new loss inside total_loss
+contrastive_tau: 0.07      # τ – temperature for descriptor similarities
+contrastive_text_T: 1.0    # T_txt – softness in edit‑distance space
+
 # Default HTRNet architecture configuration
 architecture:
   cnn_cfg: [[2, 64], "M", [3, 128], "M", [2, 256]] # Configuration for the Convolutional Neural Network (CNN) layers

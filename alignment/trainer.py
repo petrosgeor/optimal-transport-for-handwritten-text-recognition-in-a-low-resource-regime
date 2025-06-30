@@ -25,7 +25,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
-from alignment.losses import ProjectionLoss
+from alignment.losses import ProjectionLoss, SoftContrastiveLoss
 from alignment.ctc_utils import encode_for_ctc
 from alignment.losses import _ctc_loss_fn
 from alignment.alignment_utilities import (
@@ -76,6 +76,12 @@ ENABLE_PHOC = bool(cfg.get("enable_phoc", False))
 PHOC_LEVELS = tuple(cfg.get("phoc_levels", (1, 2, 3, 4)))
 SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
 
+# Soft-contrastive configuration defaults
+CONTRASTIVE_ENABLE = bool(cfg.get("contrastive_enable", False))
+CONTRASTIVE_WEIGHT = float(cfg.get("contrastive_weight", 0.0))
+CONTRASTIVE_TAU = float(cfg.get("contrastive_tau", 0.07))
+CONTRASTIVE_TEXT_T = float(cfg.get("contrastive_text_T", 1.0))
+
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if str(cfg.device).startswith("cuda"):
@@ -109,27 +115,37 @@ def refine_visual_backbone(
     phoc_weight: float = cfg.phoc_loss_weight,
     enable_phoc: bool = cfg.enable_phoc,
     phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
+    enable_contrastive: bool = CONTRASTIVE_ENABLE,
+    contrastive_weight: float = CONTRASTIVE_WEIGHT,
+    contrastive_tau: float = CONTRASTIVE_TAU,
+    contrastive_text_T: float = CONTRASTIVE_TEXT_T,
 ) -> None:
-    """
-    Fine-tunes the visual backbone of the HTR model.
+    """Fine-tune ``backbone`` on words aligned to external vocabulary.
 
-    This function focuses on training the `backbone` exclusively on words that have been
-    aligned with external word embeddings. It supports mixing in synthetic data and
-    an optional PHOC loss to improve feature representation.
+    The routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.
+    Synthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and
+    soft contrastive losses are supported.
 
     Args:
-        dataset: The HTRDataset containing the training data and alignment info.
-        backbone: The HTRNet model to be refined.
-        num_epochs: The number of epochs to train for.
-        batch_size: The size of each training batch.
-        lr: The learning rate for the AdamW optimizer.
-        main_weight: The weight for the main CTC loss.
-        aux_weight: The weight for the auxiliary CTC loss.
-        pretrain_ds: An optional dataset for synthetic pretraining.
-        syn_batch_ratio: The fraction of each batch to be sourced from `pretrain_ds`.
-        phoc_weight: The weight for the PHOC loss, if enabled.
-        enable_phoc: A flag to enable or disable the PHOC loss.
-        phoc_levels: A tuple specifying the levels for PHOC descriptors.
+        dataset (HTRDataset): Training dataset with alignment information.
+        backbone (HTRNet): Model to be refined.
+        num_epochs (int): Number of optimisation epochs.
+        batch_size (int): Mini-batch size.
+        lr (float): Learning rate for the optimiser.
+        main_weight (float): Scale for the main CTC loss.
+        aux_weight (float): Scale for the auxiliary CTC loss.
+        pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.
+        syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.
+        phoc_weight (float): Scale for the PHOC loss.
+        enable_phoc (bool): Whether to include the PHOC loss.
+        phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.
+        enable_contrastive (bool): Use the SoftContrastiveLoss.
+        contrastive_weight (float): Weight of the contrastive term.
+        contrastive_tau (float): Temperature for descriptor similarities.
+        contrastive_text_T (float): Temperature in edit-distance space.
+
+    Returns:
+        None
     """
     print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
     device = next(backbone.parameters()).device
@@ -173,6 +189,9 @@ def refine_visual_backbone(
         pre_iter = None
 
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
+    contr_fn = None
+    if enable_contrastive:
+        contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
     # Training loop for backbone refinement
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
@@ -195,12 +214,20 @@ def refine_visual_backbone(
             _assert_finite(imgs, "images")
 
             # Forward pass through the backbone
-            need_feats = enable_phoc and backbone.phoc_head is not None
+            need_feats = (
+                (enable_phoc and backbone.phoc_head is not None)
+                or enable_contrastive
+            )
             out = backbone(imgs, return_feats=need_feats)
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
-            main_logits, aux_logits = out[:2]
-            phoc_logits = out[-1] if need_feats else None
+            if need_feats:
+                main_logits, aux_logits, feats = out[:3]
+                phoc_logits = out[3] if enable_phoc and backbone.phoc_head is not None else None
+            else:
+                main_logits, aux_logits = out[:2]
+                feats = None
+                phoc_logits = None
 
             T, K, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
@@ -217,10 +244,19 @@ def refine_visual_backbone(
                 phoc_targets = build_phoc_description(words, c2i, levels=phoc_levels)
                 phoc_targets = phoc_targets.float().to(device)
                 loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+
+            loss_contr = torch.tensor(0.0, device=device)
+            if enable_contrastive and feats is not None:
+                loss_contr = contr_fn(feats, targets, tgt_lens)
+                _assert_finite(loss_contr, "contrastive loss")
+
             # Combine losses with configured weights
-            loss = (main_weight * loss_main +
-                    aux_weight * loss_aux +
-                    phoc_weight * loss_phoc)
+            loss = (
+                main_weight * loss_main +
+                aux_weight * loss_aux +
+                phoc_weight * loss_phoc +
+                contrastive_weight * loss_contr
+            )
             _assert_finite(loss, "loss")
 
             # Optimization step
