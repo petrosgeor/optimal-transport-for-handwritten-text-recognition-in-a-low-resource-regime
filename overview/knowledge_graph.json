@@ -8,17 +8,20 @@
     {
       "id": "alignment.pretraining._assert_finite",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(t: torch.Tensor, name: str)"
     },
     {
       "id": "alignment.pretraining._check_grad_finite",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(model: torch.nn.Module)"
     },
     {
       "id": "alignment.pretraining.main",
       "type": "function",
-      "doc": "Train a small HTRNet on the given image list using dictionary configuration."
+      "doc": "Train a small HTRNet on the given image list using dictionary configuration.",
+      "signature": "(config: dict | None)"
     },
     {
       "id": "alignment.losses",
@@ -38,7 +41,8 @@
     {
       "id": "alignment.losses._ctc_loss_fn",
       "type": "function",
-      "doc": "A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*."
+      "doc": "A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*.",
+      "signature": "(logits: torch.Tensor, targets: torch.IntTensor, inp_lens: torch.IntTensor, tgt_lens: torch.IntTensor)"
     },
     {
       "id": "alignment.plot",
@@ -48,22 +52,26 @@
     {
       "id": "alignment.plot.plot_dataset_augmentations",
       "type": "function",
-      "doc": "Save a figure showing three images and their augmentations side by side.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset providing images and augmentation transforms.\nsave_path : str\n    Where to write the PNG figure."
+      "doc": "Save a figure showing three images and their augmentations side by side.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset providing images and augmentation transforms.\nsave_path : str\n    Where to write the PNG figure.",
+      "signature": "(dataset: HTRDataset, save_path: str)"
     },
     {
       "id": "alignment.plot.plot_tsne_embeddings",
       "type": "function",
-      "doc": "Generate a coloured t-SNE plot of backbone embeddings and save it.\n\nFeatures and current alignment labels are harvested from ``dataset`` using\n``backbone``. t-SNE then projects the descriptors to 2\u2011D and the scatter\nplot colours samples in blue when ``aligned == 1`` and black otherwise.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset instance providing the images.\nbackbone : HTRNet\n    The visual backbone model to extract embeddings from.\nsave_path : str\n    Path where the generated t-SNE plot (PNG image) will be saved."
+      "doc": "Generate a coloured t-SNE plot of backbone embeddings and save it.\n\nFeatures and current alignment labels are harvested from ``dataset`` using\n``backbone``. t-SNE then projects the descriptors to 2\u2011D and the scatter\nplot colours samples in blue when ``aligned == 1`` and black otherwise.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset instance providing the images.\nbackbone : HTRNet\n    The visual backbone model to extract embeddings from.\nsave_path : str\n    Path where the generated t-SNE plot (PNG image) will be saved.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, save_path: str)"
     },
     {
       "id": "alignment.plot.plot_projector_tsne",
       "type": "function",
-      "doc": "Plot t-SNE of projector outputs and word embeddings.\n\nParameters\n----------\nprojections : torch.Tensor\n    Output of the projector with shape ``(N, E)``.\ndataset : HTRDataset\n    Provides ``external_word_embeddings`` of shape ``(V, E)``.\nsave_path : str\n    Destination path for the PNG figure."
+      "doc": "Plot t-SNE of projector outputs and word embeddings.\n\nParameters\n----------\nprojections : torch.Tensor\n    Output of the projector with shape ``(N, E)``.\ndataset : HTRDataset\n    Provides ``external_word_embeddings`` of shape ``(V, E)``.\nsave_path : str\n    Destination path for the PNG figure.",
+      "signature": "(projections: torch.Tensor, dataset: HTRDataset, save_path: str)"
     },
     {
       "id": "alignment.plot.plot_pretrained_backbone_tsne",
       "type": "function",
-      "doc": "Plot t-SNE embeddings from the pretrained backbone.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset instance providing images and alignment labels.\nn_samples : int\n    Number of random samples to visualise.\nsave_path : str\n    Path where the PNG figure will be saved."
+      "doc": "Plot t-SNE embeddings from the pretrained backbone.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset instance providing images and alignment labels.\nn_samples : int\n    Number of random samples to visualise.\nsave_path : str\n    Path where the PNG figure will be saved.",
+      "signature": "(dataset: HTRDataset, n_samples: int, save_path: str)"
     },
     {
       "id": "alignment.alignment_trainer",
@@ -73,32 +81,38 @@
     {
       "id": "alignment.alignment_trainer._assert_finite",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(t: torch.Tensor, where: str)"
     },
     {
       "id": "alignment.alignment_trainer._assert_grad_finite",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(model: nn.Module, name: str)"
     },
     {
       "id": "alignment.alignment_trainer.maybe_load_backbone",
       "type": "function",
-      "doc": "Load pretrained backbone weights if ``cfg.load_pretrained_backbone``."
+      "doc": "Load pretrained backbone weights if ``cfg.load_pretrained_backbone``.",
+      "signature": "(backbone: HTRNet, cfg)"
     },
     {
       "id": "alignment.alignment_trainer.refine_visual_backbone",
       "type": "function",
-      "doc": "Fine\u2011tune *backbone* only on words already aligned to external words."
+      "doc": "Fine\u2011tune *backbone* only on words already aligned to external words.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, num_epochs: int)"
     },
     {
       "id": "alignment.alignment_trainer.train_projector",
       "type": "function",
-      "doc": "Freeze `backbone`, collect all image descriptors, and then train the\n`projector` (or a list of projectors) using a combination of an\nunsupervised Optimal Transport loss on all samples and a supervised MSE\nloss on the subset of pre-aligned samples.\n\nAll images are first forwarded through the frozen `backbone` **without\naugmentation** to obtain a stable descriptor for every sample. These descriptors,\nalong with their alignment information, are cached in a temporary TensorDataset.\nThe `projector` is then optimised using this dataset."
+      "doc": "Freeze `backbone`, collect all image descriptors, and then train the\n`projector` (or a list of projectors) using a combination of an\nunsupervised Optimal Transport loss on all samples and a supervised MSE\nloss on the subset of pre-aligned samples.\n\nAll images are first forwarded through the frozen `backbone` **without\naugmentation** to obtain a stable descriptor for every sample. These descriptors,\nalong with their alignment information, are cached in a temporary TensorDataset.\nThe `projector` is then optimised using this dataset.",
+      "signature": "(dataset: 'HTRDataset', backbone: 'HTRNet', projector: nn.Module | List[nn.Module], num_epochs: int, batch_size: int, lr: float, num_workers: int, weight_decay: float, device: torch.device | str, plot_tsne: bool)"
     },
     {
       "id": "alignment.alignment_trainer.alternating_refinement",
       "type": "function",
-      "doc": "Alternately train ``backbone`` and one or more projectors with OT alignment."
+      "doc": "Alternately train ``backbone`` and one or more projectors with OT alignment.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: List[nn.Module])"
     },
     {
       "id": "alignment.alignment_utilities",
@@ -113,22 +127,26 @@
     {
       "id": "alignment.alignment_utilities.harvest_backbone_features",
       "type": "function",
-      "doc": "Return image descriptors and alignment info for the whole dataset.\n\nDataset augmentations are temporarily disabled while collecting\ndescriptors. The backbone is run in evaluation mode on ``device``.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset providing images and alignment information.\nbackbone : HTRNet\n    Visual encoder used to extract per-image descriptors.\nbatch_size : int, optional\n    Mini-batch size when forwarding the dataset.\nnum_workers : int, optional\n    Worker processes used by the ``DataLoader``.\ndevice : torch.device | str, optional\n    Device on which the backbone runs.\n\nReturns\n-------\ntorch.Tensor\n    Tensor of descriptors with shape ``(N, D)`` where ``N`` is the\n    dataset size.\ntorch.Tensor\n    Alignment tensor of shape ``(N,)`` copied from the dataset."
+      "doc": "Return image descriptors and alignment info for the whole dataset.\n\nDataset augmentations are temporarily disabled while collecting\ndescriptors. The backbone is run in evaluation mode on ``device``.\n\nParameters\n----------\ndataset : HTRDataset\n    Dataset providing images and alignment information.\nbackbone : HTRNet\n    Visual encoder used to extract per-image descriptors.\nbatch_size : int, optional\n    Mini-batch size when forwarding the dataset.\nnum_workers : int, optional\n    Worker processes used by the ``DataLoader``.\ndevice : torch.device | str, optional\n    Device on which the backbone runs.\n\nReturns\n-------\ntorch.Tensor\n    Tensor of descriptors with shape ``(N, D)`` where ``N`` is the\n    dataset size.\ntorch.Tensor\n    Alignment tensor of shape ``(N,)`` copied from the dataset.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet)"
     },
     {
       "id": "alignment.alignment_utilities.calculate_ot_projections",
       "type": "function",
-      "doc": "Compute OT projections of ``X`` onto ``Y``.\n\nParameters\n----------\npa : np.ndarray\n    Source distribution over ``X`` of shape ``(N,)``.\nX : np.ndarray\n    Source features of shape ``(N, D)``.\npb : np.ndarray\n    Target distribution over ``Y`` of shape ``(M,)``.\nY : np.ndarray\n    Target features of shape ``(M, D)``.\nreg : float, optional\n    Entropic regularisation.\nunbalanced : bool, optional\n    Use unbalanced OT formulation if ``True``.\nreg_m : float, optional\n    Unbalanced mass regularisation.\nsinkhorn_kwargs : dict, optional\n    Additional arguments for the OT solver.\n\nReturns\n-------\nprojections : np.ndarray\n    ``X`` projected in the space of ``Y`` (``(N, D)``).\nplan : np.ndarray\n    Optimal transport plan of shape ``(N, M)``."
+      "doc": "Compute OT projections of ``X`` onto ``Y``.\n\nParameters\n----------\npa : np.ndarray\n    Source distribution over ``X`` of shape ``(N,)``.\nX : np.ndarray\n    Source features of shape ``(N, D)``.\npb : np.ndarray\n    Target distribution over ``Y`` of shape ``(M,)``.\nY : np.ndarray\n    Target features of shape ``(M, D)``.\nreg : float, optional\n    Entropic regularisation.\nunbalanced : bool, optional\n    Use unbalanced OT formulation if ``True``.\nreg_m : float, optional\n    Unbalanced mass regularisation.\nsinkhorn_kwargs : dict, optional\n    Additional arguments for the OT solver.\n\nReturns\n-------\nprojections : np.ndarray\n    ``X`` projected in the space of ``Y`` (``(N, D)``).\nplan : np.ndarray\n    Optimal transport plan of shape ``(N, M)``.",
+      "signature": "(pa: np.ndarray, X: np.ndarray, pb: np.ndarray, Y: np.ndarray, reg: float)"
     },
     {
       "id": "alignment.alignment_utilities.select_uncertain_instances",
       "type": "function",
-      "doc": "Return indices of the ``m`` most uncertain instances.\n\nParameters\n----------\nm : int\n    Number of indices to return.\ntransport_plan : np.ndarray, optional\n    OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.\ndist_matrix : np.ndarray, optional\n    Pre-computed pairwise distances ``(N, V)``. Required for\n    ``metric='gap'``.\nmetric : str, optional\n    Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.\n\nReturns\n-------\nnp.ndarray\n    Array of ``m`` indices sorted by decreasing uncertainty."
+      "doc": "Return indices of the ``m`` most uncertain instances.\n\nParameters\n----------\nm : int\n    Number of indices to return.\ntransport_plan : np.ndarray, optional\n    OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.\ndist_matrix : np.ndarray, optional\n    Pre-computed pairwise distances ``(N, V)``. Required for\n    ``metric='gap'``.\nmetric : str, optional\n    Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.\n\nReturns\n-------\nnp.ndarray\n    Array of ``m`` indices sorted by decreasing uncertainty.",
+      "signature": "(m: int)"
     },
     {
       "id": "alignment.alignment_utilities.align_more_instances",
       "type": "function",
-      "doc": "Wrapper over :class:`OTAligner` for backward compatibility."
+      "doc": "Wrapper over :class:`OTAligner` for backward compatibility.",
+      "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])"
     },
     {
       "id": "alignment.ctc_utils",
@@ -138,17 +156,20 @@
     {
       "id": "alignment.ctc_utils.encode_for_ctc",
       "type": "function",
-      "doc": "Convert a batch of raw string transcriptions to the (targets, lengths)\nformat expected by ``nn.CTCLoss``.\n\nParameters\n----------\ntranscriptions : list[str]\n    Each element is a single line/word **already wrapped with leading\n    and trailing spaces** (the dataset does that for you).\nc2i : dict[str, int]\n    Character-to-index mapping where **index 0 is reserved for CTC blank**\n    and every real character starts at 1.\ndevice : torch.device, optional\n    If given, the returned tensors are moved to this device.\n\nReturns\n-------\ntargets : torch.IntTensor   # shape = (total_chars,)\n    All label indices concatenated in batch order.\nlengths : torch.IntTensor   # shape = (batch,)\n    The original length (in characters) of every element in *transcriptions*."
+      "doc": "Convert a batch of raw string transcriptions to the (targets, lengths)\nformat expected by ``nn.CTCLoss``.\n\nParameters\n----------\ntranscriptions : list[str]\n    Each element is a single line/word **already wrapped with leading\n    and trailing spaces** (the dataset does that for you).\nc2i : dict[str, int]\n    Character-to-index mapping where **index 0 is reserved for CTC blank**\n    and every real character starts at 1.\ndevice : torch.device, optional\n    If given, the returned tensors are moved to this device.\n\nReturns\n-------\ntargets : torch.IntTensor   # shape = (total_chars,)\n    All label indices concatenated in batch order.\nlengths : torch.IntTensor   # shape = (batch,)\n    The original length (in characters) of every element in *transcriptions*.",
+      "signature": "(transcriptions: List[str], c2i: Dict[str, int], device: torch.device)"
     },
     {
       "id": "alignment.ctc_utils.greedy_ctc_decode",
       "type": "function",
-      "doc": "Greedy-decode a batch of CTC network outputs.\n\nParameters\n----------\nlogits : torch.Tensor\n    Tensor shaped either (T, B, C) if *time_first* is True\n    **or** (B, T, C) if *time_first* is False, where  \n    *T = time steps*, *B = batch size*, *C = n_classes*.\n    It can contain raw scores, logits, or probabilities \u2013\n    only the arg-max along *C* is used.\ni2c : dict[int, str]\n    Index-to-character mapping that complements the *c2i*\n    used during encoding. It must **not** contain the blank id.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to 0).\ntime_first : bool, optional\n    Set **True** if logits are (T, B, C); otherwise set False\n    for (B, T, C).\n\nReturns\n-------\nList[str]\n    One decoded string per element in the mini-batch."
+      "doc": "Greedy-decode a batch of CTC network outputs.\n\nParameters\n----------\nlogits : torch.Tensor\n    Tensor shaped either (T, B, C) if *time_first* is True\n    **or** (B, T, C) if *time_first* is False, where  \n    *T = time steps*, *B = batch size*, *C = n_classes*.\n    It can contain raw scores, logits, or probabilities \u2013\n    only the arg-max along *C* is used.\ni2c : dict[int, str]\n    Index-to-character mapping that complements the *c2i*\n    used during encoding. It must **not** contain the blank id.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to 0).\ntime_first : bool, optional\n    Set **True** if logits are (T, B, C); otherwise set False\n    for (B, T, C).\n\nReturns\n-------\nList[str]\n    One decoded string per element in the mini-batch.",
+      "signature": "(logits: torch.Tensor, i2c: Dict[int, str], blank_id: int, time_first: bool)"
     },
     {
       "id": "alignment.ctc_utils.beam_search_ctc_decode",
       "type": "function",
-      "doc": "Beam-search decoding for CTC outputs using pyctcdecode.\n\nParameters\n----------\nlogits : torch.Tensor\n    Network output \u2013 either ``(T, B, C)`` if *time_first* or ``(B, T, C)``.\ni2c : dict[int, str]\n    Index-to-character map **excluding** the blank id.\nbeam_width : int, optional\n    Number of prefixes kept after every time-step.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to ``0``).\ntime_first : bool, optional\n    ``True`` if *logits* are ``(T, B, C)``, else ``False`` for ``(B, T, C)``.\n\nReturns\n-------\nlist[str]\n    Best-scoring transcription for every element in the mini-batch."
+      "doc": "Beam-search decoding for CTC outputs using pyctcdecode.\n\nParameters\n----------\nlogits : torch.Tensor\n    Network output \u2013 either ``(T, B, C)`` if *time_first* or ``(B, T, C)``.\ni2c : dict[int, str]\n    Index-to-character map **excluding** the blank id.\nbeam_width : int, optional\n    Number of prefixes kept after every time-step.\nblank_id : int, optional\n    Integer assigned to the CTC blank (defaults to ``0``).\ntime_first : bool, optional\n    ``True`` if *logits* are ``(T, B, C)``, else ``False`` for ``(B, T, C)``.\n\nReturns\n-------\nlist[str]\n    Best-scoring transcription for every element in the mini-batch.",
+      "signature": "(logits: torch.Tensor, i2c: Dict[int, str])"
     },
     {
       "id": "alignment.eval",
@@ -158,12 +179,14 @@
     {
       "id": "alignment.eval._assert_finite",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(t: torch.Tensor, where: str)"
     },
     {
       "id": "alignment.eval.compute_cer",
       "type": "function",
-      "doc": "Return character error rate on *dataset* using *model*.\n\nParameters\n----------\ndataset : Dataset\n    Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.\nmodel : torch.nn.Module\n    Network returning CTC logits (``(T,B,C)``).\nbatch_size : int, optional\n    Mini-batch size used during evaluation.\ndevice : str or torch.device, optional\n    Compute device for the forward pass.\ndecode : {'greedy', 'beam'}, optional\n    Decoding strategy for CTC outputs.\nbeam_width : int, optional\n    Beam width when ``decode='beam'``.\nk : int, optional\n    If given, also report CER for samples of length ``<= k`` and ``> k``.\n\nReturns\n-------\nfloat\n    Overall CER over the dataset."
+      "doc": "Return character error rate on *dataset* using *model*.\n\nParameters\n----------\ndataset : Dataset\n    Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.\nmodel : torch.nn.Module\n    Network returning CTC logits (``(T,B,C)``).\nbatch_size : int, optional\n    Mini-batch size used during evaluation.\ndevice : str or torch.device, optional\n    Compute device for the forward pass.\ndecode : {'greedy', 'beam'}, optional\n    Decoding strategy for CTC outputs.\nbeam_width : int, optional\n    Beam width when ``decode='beam'``.\nk : int, optional\n    If given, also report CER for samples of length ``<= k`` and ``> k``.\n\nReturns\n-------\nfloat\n    Overall CER over the dataset.",
+      "signature": "(dataset: Dataset, model: torch.nn.Module)"
     },
     {
       "id": "htr_base.prepare_gw",
@@ -173,22 +196,26 @@
     {
       "id": "htr_base.prepare_gw.decide_split",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(page_id)"
     },
     {
       "id": "htr_base.prepare_gw.load_word_data",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(root, allowed_folds)"
     },
     {
       "id": "htr_base.prepare_gw.load_line_data",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(root, allowed_folds)"
     },
     {
       "id": "htr_base.prepare_gw.prepare",
       "type": "function",
-      "doc": ""
+      "doc": "",
+      "signature": "(args)"
     },
     {
       "id": "htr_base.__init__",
@@ -253,12 +280,14 @@
     {
       "id": "htr_base.utils.vocab.create_vocab",
       "type": "function",
-      "doc": "Create the default vocabulary pickles and return the dictionaries.\n\nThe mapping contains digits ``0``\u2013``9``, lowercase ``a``\u2013``z`` and a\nspace character.  Index ``0`` is reserved for the CTC blank."
+      "doc": "Create the default vocabulary pickles and return the dictionaries.\n\nThe mapping contains digits ``0``\u2013``9``, lowercase ``a``\u2013``z`` and a\nspace character.  Index ``0`` is reserved for the CTC blank.",
+      "signature": "()"
     },
     {
       "id": "htr_base.utils.vocab.load_vocab",
       "type": "function",
-      "doc": "Load ``c2i`` and ``i2c`` dictionaries from ``saved_models``.\n\nIf the pickle files do not exist, :func:`create_vocab` is called to\ngenerate them first."
+      "doc": "Load ``c2i`` and ``i2c`` dictionaries from ``saved_models``.\n\nIf the pickle files do not exist, :func:`create_vocab` is called to\ngenerate them first.",
+      "signature": "()"
     },
     {
       "id": "htr_base.utils.htr_dataset",
@@ -283,12 +312,14 @@
     {
       "id": "htr_base.utils.preprocessing.load_image",
       "type": "function",
-      "doc": "Read *path* and return a float32 array in [0,1] whose background is black\nand foreground (text) is white.\n\nParameters\n----------\nensure_black_bg : bool, default True\n    If False, keep the legacy unconditional inversion.\nbg_thresh : float, default 0.55\n    When `ensure_black_bg` is True we compute the **median** gray value of\n    the image (after rgb\u2192gray, before any inversion).  If the median is\n    *brighter* than `bg_thresh` we invert, otherwise we keep the pixel\n    values as-is."
+      "doc": "Read *path* and return a float32 array in [0,1] whose background is black\nand foreground (text) is white.\n\nParameters\n----------\nensure_black_bg : bool, default True\n    If False, keep the legacy unconditional inversion.\nbg_thresh : float, default 0.55\n    When `ensure_black_bg` is True we compute the **median** gray value of\n    the image (after rgb\u2192gray, before any inversion).  If the median is\n    *brighter* than `bg_thresh` we invert, otherwise we keep the pixel\n    values as-is.",
+      "signature": "(path: str)"
     },
     {
       "id": "htr_base.utils.preprocessing.preprocess",
       "type": "function",
-      "doc": "Resize ``img`` and symmetrically pad it to ``input_size``."
+      "doc": "Resize ``img`` and symmetrically pad it to ``input_size``.",
+      "signature": "(img, input_size, border_size)"
     },
     {
       "id": "htr_base.utils.metrics",
@@ -308,7 +339,8 @@
     {
       "id": "htr_base.utils.metrics.word_silhouette_score",
       "type": "function",
-      "doc": "Return the average silhouette coefficient for *features* labelled by *words*.\n\nParameters\n----------\nfeatures : torch.Tensor of shape ``(N, D)``\n    Backbone descriptors.\nwords : list[str]\n    Ground-truth word for each descriptor.\n\nReturns\n-------\nfloat\n    Mean silhouette score in ``[-1, 1]``."
+      "doc": "Return the average silhouette coefficient for *features* labelled by *words*.\n\nParameters\n----------\nfeatures : torch.Tensor of shape ``(N, D)``\n    Backbone descriptors.\nwords : list[str]\n    Ground-truth word for each descriptor.\n\nReturns\n-------\nfloat\n    Mean silhouette score in ``[-1, 1]``.",
+      "signature": "(features, words)"
     },
     {
       "id": "htr_base.utils.__init__",
@@ -328,7 +360,8 @@
     {
       "id": "htr_base.utils.phoc.build_phoc_description",
       "type": "function",
-      "doc": "Convert *words* into binary PHOC descriptors.\n\nParameters\n----------\nwords : list[str]\n    Words to encode.\nc2i : dict[str, int]\n    Mapping from character to index. This dictionary **does not**\n    contain the CTC blank which is implicitly reserved at index 0.\nlevels : list[int], optional\n    Pyramid levels. Default ``(1, 2, 3, 4)``.\n\nReturns\n-------\ntorch.BoolTensor\n    Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors."
+      "doc": "Convert *words* into binary PHOC descriptors.\n\nParameters\n----------\nwords : list[str]\n    Words to encode.\nc2i : dict[str, int]\n    Mapping from character to index. This dictionary **does not**\n    contain the CTC blank which is implicitly reserved at index 0.\nlevels : list[int], optional\n    Pyramid levels. Default ``(1, 2, 3, 4)``.\n\nReturns\n-------\ntorch.BoolTensor\n    Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors.",
+      "signature": "(words: List[str], c2i: Dict[str, int])"
     }
   ],
   "edges": [

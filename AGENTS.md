@@ -24,7 +24,7 @@ Whenever you **create or modify** a function or class, you **must** include a co
 2.  **Arguments** (`Args:`): A list of all arguments, their expected types, and a short description.
 3.  **Returns** (`Returns:`): A description of the value(s) returned by the function.
 
-This ensures that the `overview/knowledge_graph.json` remains populated with useful, human-readable context.
+This practice is essential for keeping the `overview/knowledge_graph.json` accurate and synchronized with the codebase.
 
 ### Example:
 
@@ -44,7 +44,16 @@ def normalize_vector(vector: list[float]) -> list[float]:
 
 ---
 
-## 3. 🧪 Self-Test All Changes with `pytest`
+## 3. 🧾 Sync Function Documentation with `README.md`
+
+To ensure the high-level documentation is always current, every time you **add or modify a function**, you must also update its entry in `README.md`.
+
+*   **What to include**: The function's signature, a brief description of its purpose, and a simple usage example. The information from the function's docstring is a good source for this.
+*   **Goal**: Keep the `README.md` file as a human-readable, quick reference for the project's key functionalities.
+
+---
+
+## 4. 🧪 Self-Test All Changes with `pytest`
 
 Whenever you **introduce or modify** any functionality:
 
@@ -74,7 +83,7 @@ Whenever you **introduce or modify** any functionality:
 
 ---
 
-## 4. ▶️ Run the Tests and Report Results
+## 5. ▶️ Run the Tests and Report Results
 
 After making any change and writing/updating the tests:
 
@@ -88,7 +97,7 @@ Do **not** consider the task complete until all tests pass and the test suite is
 
 ---
 
-## 5. 🔁 Avoid Redundant Work
+## 6. 🔁 Avoid Redundant Work
 
 Before implementing any change:
 
@@ -98,7 +107,7 @@ Before implementing any change:
 
 ---
 
-## 6. 📋 Propose Specific Tasks with Context
+## 7. 📋 Propose Specific Tasks with Context
 
 When proposing a new task:
 
@@ -118,6 +127,7 @@ This ensures that proposed tasks are **directly actionable**, **context-aware**,
 > 🔧 You introduce a new function `def normalize(vec): ...`
 
 * Add a docstring explaining its purpose, arguments, and return value.
+* Update `README.md` to reflect the new function.
 * Add a test like:
 
 ```python
@@ -137,7 +147,7 @@ def test_normalize():
 Keep the repo:
 
 * **Self-verifying** through tests
-* **Well-documented** through docstrings
+* **Well-documented** through docstrings and `README.md`
 * **Minimal and truthful** through careful removals
 * **Reliable** by ensuring every commit leaves the test suite in a passing state
 * **Context-sensitive** in all task planning and recommendations

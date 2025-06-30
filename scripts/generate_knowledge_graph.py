@@ -14,6 +14,8 @@ def parse_module(path: Path):
     imports = []
     calls = {}
     class_bases = {}
+    docstrings = {"module": ast.get_docstring(tree)}
+    signatures = {}
 
     for node in tree.body:
         if isinstance(node, ast.Import):
@@ -24,6 +26,7 @@ def parse_module(path: Path):
                 imports.append(node.module)
         elif isinstance(node, ast.ClassDef):
             classes.append(node.name)
+            docstrings[node.name] = ast.get_docstring(node)
             bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
             class_bases[node.name] = bases
             calls[node.name] = []
@@ -35,6 +38,21 @@ def parse_module(path: Path):
                         calls[node.name].append(n.func.attr)
         elif isinstance(node, ast.FunctionDef):
             functions.append(node.name)
+            docstrings[node.name] = ast.get_docstring(node)
+            
+            # Extract signature
+            args = []
+            for arg in node.args.args:
+                arg_info = arg.arg
+                if arg.annotation:
+                    # Attempt to reconstruct the type annotation string
+                    try:
+                        arg_info += f": {ast.unparse(arg.annotation)}"
+                    except:
+                        arg_info += ": complex_type"
+                args.append(arg_info)
+            signatures[node.name] = f"({', '.join(args)})"
+
             calls[node.name] = []
             for n in ast.walk(node):
                 if isinstance(n, ast.Call):
@@ -50,6 +68,8 @@ def parse_module(path: Path):
         "imports": imports,
         "calls": calls,
         "bases": class_bases,
+        "docstrings": docstrings,
+        "signatures": signatures,
     }
 
 
@@ -63,11 +83,15 @@ def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml",
 
     # add nodes
     for info in modules.values():
-        G.add_node(info["module"], type="module")
+        doc = info["docstrings"].get("module")
+        G.add_node(info["module"], type="module", doc=doc or "")
         for cls in info["classes"]:
-            G.add_node(f"{info['module']}.{cls}", type="class")
+            doc = info["docstrings"].get(cls)
+            G.add_node(f"{info['module']}.{cls}", type="class", doc=doc or "")
         for fn in info["functions"]:
-            G.add_node(f"{info['module']}.{fn}", type="function")
+            doc = info["docstrings"].get(fn)
+            sig = info["signatures"].get(fn)
+            G.add_node(f"{info['module']}.{fn}", type="function", doc=doc or "", signature=sig)
 
     # edges for imports
     for info in modules.values():
