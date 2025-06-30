@@ -58,11 +58,11 @@ To ensure the high-level documentation is always current, every time you **add o
 Whenever you **introduce or modify** any functionality:
 
 * Whenever a **function** or **class** is created or modified, the agent should **automatically write a corresponding test**. This test should be placed in a **new file inside the `tests/` directory**, and it must **import the relevant function or class**.
-* The agent should then:
+* You should then:
     1. **Write example usage** of the function or class.
     2. **Use assertions and print statements** to verify the behavior.
-    3. If anything looks suspicious or unexpected, the agent should **revisit the original code** and investigate. He edits the function or class he created again and goes through the same process until it works as expected. He then deletes the test file he made and puts the test code he just written inside the `tests/functionalities_test.py`, inside a function which will work with pytest.
-* Use the `pytest` framework exclusively.
+    3. If anything looks suspicious or unexpected, you should **revisit the original code** and investigate. You edit the function or class you created again and go through the same process until it works as expected. You then delete the test file you made and put the test code you just written inside the `tests/functionalities_test.py`, inside a function which will work with pytest.
+* You can use any command you want (e.g., `python ...`, `pytest`) to run your tests.
 * Always add or update tests in the file:
   `tests/functionalities_test.py`.
 
@@ -119,6 +119,17 @@ When proposing a new task:
 * Avoid generic task descriptions; always ground your suggestions in the actual context of the conversation and the codebase.
 
 This ensures that proposed tasks are **directly actionable**, **context-aware**, and aligned with the user's intentions and inputs.
+
+---
+
+## 8. 🔍 Review Existing Code for Context and Conventions
+
+Before making **any modification** to an existing file or introducing new code in an established area:
+
+*   **Read surrounding code**: Understand the local context, including imports, function/class definitions, and variable usage.
+*   **Identify conventions**: Observe existing patterns for naming, formatting, error handling, and architectural choices.
+*   **Mimic style**: Ensure your changes integrate naturally and idiomatically with the surrounding code.
+*   **Goal**: Maintain consistency across the codebase, making it easier for others to understand and contribute, and preventing the introduction of divergent styles or anti-patterns.
 
 ---
 
