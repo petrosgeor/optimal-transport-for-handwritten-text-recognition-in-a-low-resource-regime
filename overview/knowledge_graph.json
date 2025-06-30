@@ -1,4 +1,23 @@
 {
+  "schema_version": "1.2",
+  "schema": {
+    "node_types": {
+      "module": "Represents a Python module (.py file).",
+      "class": "Represents a Python class defined within the repository.",
+      "external_class": "Represents a class imported from an external library.",
+      "method": "Represents a method within a class.",
+      "function": "Represents a standalone function in a module.",
+      "attribute": "Represents a class attribute, typically defined with 'self.<attr>'."
+    },
+    "edge_types": {
+      "import": "Source module imports target module.",
+      "inherit": "Source class inherits from target class (internal or external).",
+      "call": "Source function/method calls target function/method.",
+      "has_method": "Source class contains target method.",
+      "has_attr": "Source class has target attribute.",
+      "instance_of": "Source attribute is an instance of target class."
+    }
+  },
   "nodes": [
     {
       "id": "alignment.pretraining",
@@ -34,9 +53,33 @@
       "doc": "Entropic\u2011regularised optimal\u2011transport projection loss with optional\nunbalanced formulation.\n\nParameters\n----------\nreg : float, optional\n    Entropic regularisation strength passed to ``ot.sinkhorn2`` or\n    ``ot.unbalanced.sinkhorn_unbalanced2``.  Default = 0.1.\nunbalanced : bool, optional\n    If ``True`` use the unbalanced OT formulation\n    ``ot.unbalanced.sinkhorn_unbalanced2`` (requires an additional\n    ``reg_m`` parameter that can be passed through ``sinkhorn_kwargs``);\n    otherwise use the balanced formulation ``ot.sinkhorn2``.\n    Default = ``False`` (balanced).\nsupervised_weight : float, optional\n    Scale for the supervised descriptor distance term.  Default = 1.0.\nsinkhorn_kwargs : dict, optional\n    Extra keyword arguments forwarded to the solver (e.g. max_iter, tol,\n    log, reg_m for the unbalanced case).\n\nForward Inputs\n--------------\ndescriptors : torch.Tensor                # shape (N, d)\n    Source features extracted by the network.\nword_embeddings : torch.Tensor            # shape (M, d)\n    2\u2011D \u201cvocabulary\u201d embedding coordinates (target support).\naligned : torch.Tensor                    # shape (N,)\n    For each descriptor, the index of its aligned word in\n    ``word_embeddings`` (\u20121 if no alignment available).\ntgt_probs : torch.Tensor                  # shape (M,)\n    Marginal probabilities for the target distribution.  For the balanced\n    version it will be renormalised to sum to 1.\n\nReturns\n-------\nloss : torch.Tensor\n    Scalar loss = OT loss + supervised alignment loss."
     },
     {
+      "id": "alignment.losses.ProjectionLoss.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, reg: float)"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, descriptors: torch.Tensor, word_embeddings: torch.Tensor, aligned: torch.Tensor, tgt_probs: torch.Tensor)"
+    },
+    {
       "id": "alignment.losses.SoftContrastiveLoss",
       "type": "class",
       "doc": "InfoNCE\u2011style loss that pulls together image descriptors whose\ntranscripts have small Levenshtein distance.\n\nParameters\n----------\ntau   : float  \u2013 temperature in image space (distance \u2192 similarity).\nT_txt : float  \u2013 temperature in transcript space (controls softness).\neps   : float  \u2013 numeric stability."
+    },
+    {
+      "id": "alignment.losses.SoftContrastiveLoss.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, tau: float, T_txt: float, eps: float)"
+    },
+    {
+      "id": "alignment.losses.SoftContrastiveLoss.forward",
+      "type": "method",
+      "doc": "feats        : (B, D) float tensor (output of HTRNet, 3\u02b3\u1d48 element)\ntranscripts  : list of B padded strings (\" word \")",
+      "signature": "(self, feats: torch.Tensor, transcripts: list[str])"
     },
     {
       "id": "alignment.losses._ctc_loss_fn",
@@ -123,6 +166,48 @@
       "id": "alignment.alignment_utilities.OTAligner",
       "type": "class",
       "doc": "Helper class implementing the OT pseudo-labelling routine."
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._calculate_ot",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, proj_feats: torch.Tensor)"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._get_projector_outputs",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._select_candidates",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, counts: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor, aligned_all: torch.Tensor)"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._update_dataset",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor)"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner._log_results",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor, moved_dist: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor)"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.align",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
     },
     {
       "id": "alignment.alignment_utilities.harvest_backbone_features",
@@ -233,9 +318,33 @@
       "doc": ""
     },
     {
+      "id": "htr_base.models.Projector.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, input_dim: int, output_dim: int, dropout: float)"
+    },
+    {
+      "id": "htr_base.models.Projector.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
+    },
+    {
       "id": "htr_base.models.BasicBlock",
       "type": "class",
       "doc": ""
+    },
+    {
+      "id": "htr_base.models.BasicBlock.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, in_planes, planes, stride)"
+    },
+    {
+      "id": "htr_base.models.BasicBlock.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
     },
     {
       "id": "htr_base.models.CNN",
@@ -243,9 +352,33 @@
       "doc": ""
     },
     {
+      "id": "htr_base.models.CNN.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, cnn_cfg, flattening)"
+    },
+    {
+      "id": "htr_base.models.CNN.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
+    },
+    {
       "id": "htr_base.models.AttentivePool",
       "type": "class",
       "doc": "Collapses a feature map via learnable attention weights."
+    },
+    {
+      "id": "htr_base.models.AttentivePool.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, ch: int, dim_out: int)"
+    },
+    {
+      "id": "htr_base.models.AttentivePool.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x: torch.Tensor)"
     },
     {
       "id": "htr_base.models.CTCtopC",
@@ -253,9 +386,33 @@
       "doc": ""
     },
     {
+      "id": "htr_base.models.CTCtopC.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, input_size, nclasses, dropout)"
+    },
+    {
+      "id": "htr_base.models.CTCtopC.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
+    },
+    {
       "id": "htr_base.models.CTCtopR",
       "type": "class",
       "doc": ""
+    },
+    {
+      "id": "htr_base.models.CTCtopR.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, input_size, rnn_cfg, nclasses, rnn_type)"
+    },
+    {
+      "id": "htr_base.models.CTCtopR.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
     },
     {
       "id": "htr_base.models.CTCtopB",
@@ -263,14 +420,50 @@
       "doc": ""
     },
     {
+      "id": "htr_base.models.CTCtopB.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, input_size, rnn_cfg, nclasses, rnn_type)"
+    },
+    {
+      "id": "htr_base.models.CTCtopB.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
+    },
+    {
       "id": "htr_base.models.CTCtopT",
       "type": "class",
       "doc": "Transformer-based CTC head."
     },
     {
+      "id": "htr_base.models.CTCtopT.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, input_size, transf_cfg, nclasses)"
+    },
+    {
+      "id": "htr_base.models.CTCtopT.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
+    },
+    {
       "id": "htr_base.models.HTRNet",
       "type": "class",
       "doc": "HTRNet backbone with optional global feature projection.\n\nAdditional arg in *arch_cfg*:\n    feat_dim (int | None): size of per-image descriptor."
+    },
+    {
+      "id": "htr_base.models.HTRNet.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, arch_cfg, nclasses)"
+    },
+    {
+      "id": "htr_base.models.HTRNet.forward",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, x)"
     },
     {
       "id": "htr_base.utils.vocab",
@@ -300,9 +493,93 @@
       "doc": ""
     },
     {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, basefolder: str, subset: str, fixed_size: tuple, transforms: list, character_classes: list, config, two_views: bool)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.__getitem__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, index)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.__len__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset._filter_external_words",
+      "type": "method",
+      "doc": "Return words containing only known dataset characters.",
+      "signature": "(self, words: List[str])"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.letter_priors",
+      "type": "method",
+      "doc": "Return prior probabilities for ``a-z0-9``.\n\nIf ``transcriptions`` is ``None`` the distribution is computed from the\n``n_words`` most common English words provided by ``wordfreq``.\nOtherwise ``transcriptions`` are used directly.",
+      "signature": "(transcriptions: List[str])"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.find_word_embeddings",
+      "type": "method",
+      "doc": "Compute embeddings of words using pairwise Levenshtein distances.",
+      "signature": "(self, word_list, n_components: int)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.save_image",
+      "type": "method",
+      "doc": "Save the preprocessed image at *index* to *out_dir* and return its path.",
+      "signature": "(self, index: int, out_dir: str, filename: str)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.external_word_histogram",
+      "type": "method",
+      "doc": "Plot a histogram showing how many ground-truth transcriptions\nexactly match each external vocabulary word and save it under\n*tests/figures/* by default.\n\nParameters\n----------\nsave_dir : str | Path, default \"tests/figures\"\n    Directory where the PNG will be written.  Created if missing.\nfilename : str, default \"external_word_hist.png\"\n    Name of the output file inside *save_dir*.\ndpi : int, default 200\n    Resolution of the saved figure.\n\nNotes\n-----\n\u2022 The method **returns nothing**; its side-effect is a saved PNG.  \n\u2022 An exception is raised if the dataset was built without\n    ``external_words``.",
+      "signature": "(self)"
+    },
+    {
       "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
       "type": "class",
       "doc": "Lightweight dataset for image-only pretraining.\n\nIf ``n_random`` is provided, ``random_seed`` ensures the same\nsubset of images is selected each time.  When ``preload_images``\nis ``True`` the raw images are cached in memory for faster\naccess."
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, list_file: str, fixed_size: tuple, base_path: str, transforms: list, n_random: int, random_seed: int, preload_images: bool)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.process_paths",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, filtered_list)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__len__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__getitem__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, index)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
+      "type": "method",
+      "doc": "Save the preprocessed image at *index* to *out_dir* and return its path.",
+      "signature": "(self, index: int, out_dir: str, filename: str)"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.loaded_image_shapes",
+      "type": "method",
+      "doc": "Return the shapes of all preloaded images.\n\nRaises\n------\nRuntimeError\n    If ``preload_images`` was ``False`` when the dataset was built.",
+      "signature": "(self)"
     },
     {
       "id": "htr_base.utils.preprocessing",
@@ -332,9 +609,57 @@
       "doc": ""
     },
     {
+      "id": "htr_base.utils.metrics.CER.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.update",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, prediction, target)"
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.score",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.reset",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
       "id": "htr_base.utils.metrics.WER",
       "type": "class",
       "doc": ""
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.__init__",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, mode)"
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.update",
+      "type": "method",
+      "doc": "",
+      "signature": "(self, prediction, target)"
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.score",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.reset",
+      "type": "method",
+      "doc": "",
+      "signature": "(self)"
     },
     {
       "id": "htr_base.utils.metrics.word_silhouette_score",
@@ -362,6 +687,345 @@
       "type": "function",
       "doc": "Convert *words* into binary PHOC descriptors.\n\nParameters\n----------\nwords : list[str]\n    Words to encode.\nc2i : dict[str, int]\n    Mapping from character to index. This dictionary **does not**\n    contain the CTC blank which is implicitly reserved at index 0.\nlevels : list[int], optional\n    Pyramid levels. Default ``(1, 2, 3, 4)``.\n\nReturns\n-------\ntorch.BoolTensor\n    Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors.",
       "signature": "(words: List[str], c2i: Dict[str, int])"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.reg",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.unbalanced",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.reg_m",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.supervised_weight",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.sinkhorn_kwargs",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.unbalanced_ot_loss",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.ProjectionLoss.balanced_ot_loss",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.SoftContrastiveLoss.tau",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.SoftContrastiveLoss.T_txt",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.losses.SoftContrastiveLoss.eps",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.dataset",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.backbone",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.projectors",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.batch_size",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.device",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.reg",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.unbalanced",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.reg_m",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.sinkhorn_kwargs",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.k",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.metric",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.agree_threshold",
+      "type": "attribute"
+    },
+    {
+      "id": "alignment.alignment_utilities.OTAligner.word_embs",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.Projector.input_dim",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.Projector.output_dim",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.Projector.sequential",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.BasicBlock.conv1",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.BasicBlock.bn1",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.BasicBlock.conv2",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.BasicBlock.bn2",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.BasicBlock.shortcut",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CNN.k",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CNN.flattening",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CNN.features",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.AttentivePool.attn",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.AttentivePool.proj",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopC.dropout",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopC.cnn_top",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopR.fnl",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopR.rec",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopB.fnl",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopB.cnn",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopB.rec",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopT.proj",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopT.encoder",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.CTCtopT.fc",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.feat_pool",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.features",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.feat_dim",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.phoc_levels",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.top",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.phoc_head",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.models.HTRNet.feat_head",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.basefolder",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.subset",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.fixed_size",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.transforms",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.character_classes",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.config",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.two_views",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.k_external_words",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.n_aligned",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.word_emb_dim",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.data",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.transcriptions",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.prior_char_probs",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.external_words",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.external_word_probs",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.external_word_embeddings",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.is_in_dict",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.HTRDataset.aligned",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.fixed_size",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.base_path",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.transforms",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.preload_images",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.htr_dataset.PretrainingHTRDataset.images",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.total_dist",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.metrics.CER.total_len",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.total_dist",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.total_len",
+      "type": "attribute"
+    },
+    {
+      "id": "htr_base.utils.metrics.WER.mode",
+      "type": "attribute"
+    },
+    {
+      "id": "torch.nn.Module",
+      "type": "external_class",
+      "doc": "External class: torch.nn.Module"
+    },
+    {
+      "id": "nn.Module",
+      "type": "external_class",
+      "doc": "External class: nn.Module"
+    },
+    {
+      "id": "Dataset",
+      "type": "external_class",
+      "doc": "External class: Dataset"
     }
   ],
   "edges": [
@@ -464,6 +1128,86 @@
       "source": "alignment.pretraining.main",
       "target": "htr_base.utils.phoc.build_phoc_description",
       "type": "call"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.reg",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.unbalanced",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.reg_m",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.supervised_weight",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.sinkhorn_kwargs",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.unbalanced_ot_loss",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "alignment.losses.ProjectionLoss.balanced_ot_loss",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.ProjectionLoss",
+      "target": "torch.nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.tau",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.T_txt",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "alignment.losses.SoftContrastiveLoss.eps",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.losses.SoftContrastiveLoss",
+      "target": "torch.nn.Module",
+      "type": "inherit"
     },
     {
       "source": "alignment.plot",
@@ -647,16 +1391,116 @@
     },
     {
       "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner._calculate_ot",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner._get_projector_outputs",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner._select_candidates",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner._update_dataset",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner._log_results",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.align",
+      "type": "has_method"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.dataset",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.backbone",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.projectors",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.batch_size",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.device",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.reg",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.unbalanced",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.reg_m",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.sinkhorn_kwargs",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.k",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.metric",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.agree_threshold",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner",
+      "target": "alignment.alignment_utilities.OTAligner.word_embs",
+      "type": "has_attr"
+    },
+    {
+      "source": "alignment.alignment_utilities.OTAligner._calculate_ot",
       "target": "alignment.alignment_utilities.calculate_ot_projections",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_utilities.OTAligner",
+      "source": "alignment.alignment_utilities.OTAligner._get_projector_outputs",
       "target": "alignment.alignment_utilities.harvest_backbone_features",
       "type": "call"
     },
     {
-      "source": "alignment.alignment_utilities.OTAligner",
+      "source": "alignment.alignment_utilities.OTAligner._select_candidates",
       "target": "alignment.alignment_utilities.select_uncertain_instances",
       "type": "call"
     },
@@ -711,37 +1555,322 @@
       "type": "call"
     },
     {
+      "source": "htr_base.models.Projector",
+      "target": "htr_base.models.Projector.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.Projector",
+      "target": "htr_base.models.Projector.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.Projector",
+      "target": "htr_base.models.Projector.input_dim",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.Projector",
+      "target": "htr_base.models.Projector.output_dim",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.Projector",
+      "target": "htr_base.models.Projector.sequential",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.Projector",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.conv1",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.bn1",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.conv2",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.bn2",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "htr_base.models.BasicBlock.shortcut",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.BasicBlock",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
       "source": "htr_base.models.CNN",
+      "target": "htr_base.models.CNN.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CNN",
+      "target": "htr_base.models.CNN.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CNN",
+      "target": "htr_base.models.CNN.k",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CNN",
+      "target": "htr_base.models.CNN.flattening",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CNN",
+      "target": "htr_base.models.CNN.features",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CNN",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.CNN.__init__",
       "target": "htr_base.models.BasicBlock",
       "type": "call"
     },
     {
+      "source": "htr_base.models.AttentivePool",
+      "target": "htr_base.models.AttentivePool.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.AttentivePool",
+      "target": "htr_base.models.AttentivePool.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.AttentivePool",
+      "target": "htr_base.models.AttentivePool.attn",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.AttentivePool",
+      "target": "htr_base.models.AttentivePool.proj",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.AttentivePool",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.CTCtopC",
+      "target": "htr_base.models.CTCtopC.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopC",
+      "target": "htr_base.models.CTCtopC.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopC",
+      "target": "htr_base.models.CTCtopC.dropout",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopC",
+      "target": "htr_base.models.CTCtopC.cnn_top",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopC",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.CTCtopR",
+      "target": "htr_base.models.CTCtopR.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopR",
+      "target": "htr_base.models.CTCtopR.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopR",
+      "target": "htr_base.models.CTCtopR.fnl",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopR",
+      "target": "htr_base.models.CTCtopR.rec",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopR",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.CTCtopB",
+      "target": "htr_base.models.CTCtopB.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopB",
+      "target": "htr_base.models.CTCtopB.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopB",
+      "target": "htr_base.models.CTCtopB.fnl",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopB",
+      "target": "htr_base.models.CTCtopB.cnn",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopB",
+      "target": "htr_base.models.CTCtopB.rec",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopB",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.CTCtopT",
+      "target": "htr_base.models.CTCtopT.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopT",
+      "target": "htr_base.models.CTCtopT.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.CTCtopT",
+      "target": "htr_base.models.CTCtopT.proj",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopT",
+      "target": "htr_base.models.CTCtopT.encoder",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopT",
+      "target": "htr_base.models.CTCtopT.fc",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.CTCtopT",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
       "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.forward",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.feat_pool",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.features",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.feat_dim",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.phoc_levels",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.top",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.phoc_head",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "htr_base.models.HTRNet.feat_head",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet",
+      "target": "nn.Module",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.models.HTRNet.__init__",
       "target": "htr_base.models.CNN",
       "type": "call"
     },
     {
-      "source": "htr_base.models.HTRNet",
+      "source": "htr_base.models.HTRNet.__init__",
       "target": "htr_base.models.CTCtopC",
       "type": "call"
     },
     {
-      "source": "htr_base.models.HTRNet",
+      "source": "htr_base.models.HTRNet.__init__",
       "target": "htr_base.models.CTCtopR",
       "type": "call"
     },
     {
-      "source": "htr_base.models.HTRNet",
+      "source": "htr_base.models.HTRNet.__init__",
       "target": "htr_base.models.AttentivePool",
       "type": "call"
     },
     {
-      "source": "htr_base.models.HTRNet",
+      "source": "htr_base.models.HTRNet.__init__",
       "target": "htr_base.models.CTCtopB",
       "type": "call"
     },
     {
-      "source": "htr_base.models.HTRNet",
+      "source": "htr_base.models.HTRNet.__init__",
       "target": "htr_base.models.CTCtopT",
       "type": "call"
     },
@@ -757,28 +1886,343 @@
     },
     {
       "source": "htr_base.utils.htr_dataset.HTRDataset",
-      "target": "htr_base.utils.preprocessing.load_image",
-      "type": "call"
+      "target": "htr_base.utils.htr_dataset.HTRDataset.__init__",
+      "type": "has_method"
     },
     {
       "source": "htr_base.utils.htr_dataset.HTRDataset",
-      "target": "htr_base.utils.preprocessing.preprocess",
-      "type": "call"
+      "target": "htr_base.utils.htr_dataset.HTRDataset.__getitem__",
+      "type": "has_method"
     },
     {
       "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.__len__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset._filter_external_words",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.letter_priors",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.find_word_embeddings",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.save_image",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.external_word_histogram",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.basefolder",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.subset",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.fixed_size",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.transforms",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.character_classes",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.config",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.two_views",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.k_external_words",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.n_aligned",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.word_emb_dim",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.data",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.transcriptions",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.prior_char_probs",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.external_words",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.external_word_probs",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.external_word_embeddings",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.is_in_dict",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "htr_base.utils.htr_dataset.HTRDataset.aligned",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset",
+      "target": "Dataset",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset.__init__",
       "target": "htr_base.utils.vocab.load_vocab",
       "type": "call"
     },
     {
-      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "source": "htr_base.utils.htr_dataset.HTRDataset.__getitem__",
+      "target": "htr_base.utils.preprocessing.load_image",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset.__getitem__",
+      "target": "htr_base.utils.preprocessing.preprocess",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset.save_image",
+      "target": "htr_base.utils.preprocessing.load_image",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.HTRDataset.save_image",
       "target": "htr_base.utils.preprocessing.preprocess",
       "type": "call"
     },
     {
       "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.process_paths",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__len__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__getitem__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.loaded_image_shapes",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.fixed_size",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.base_path",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.transforms",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.preload_images",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "htr_base.utils.htr_dataset.PretrainingHTRDataset.images",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset",
+      "target": "Dataset",
+      "type": "inherit"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__init__",
       "target": "htr_base.utils.preprocessing.load_image",
       "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__getitem__",
+      "target": "htr_base.utils.preprocessing.preprocess",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset.__getitem__",
+      "target": "htr_base.utils.preprocessing.load_image",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
+      "target": "htr_base.utils.preprocessing.load_image",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.htr_dataset.PretrainingHTRDataset.save_image",
+      "target": "htr_base.utils.preprocessing.preprocess",
+      "type": "call"
+    },
+    {
+      "source": "htr_base.utils.metrics.CER",
+      "target": "htr_base.utils.metrics.CER.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.CER",
+      "target": "htr_base.utils.metrics.CER.update",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.CER",
+      "target": "htr_base.utils.metrics.CER.score",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.CER",
+      "target": "htr_base.utils.metrics.CER.reset",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.CER",
+      "target": "htr_base.utils.metrics.CER.total_dist",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.metrics.CER",
+      "target": "htr_base.utils.metrics.CER.total_len",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.__init__",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.update",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.score",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.reset",
+      "type": "has_method"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.total_dist",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.total_len",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.utils.metrics.WER",
+      "target": "htr_base.utils.metrics.WER.mode",
+      "type": "has_attr"
+    },
+    {
+      "source": "htr_base.models.HTRNet.features",
+      "target": "htr_base.models.CNN",
+      "type": "instance_of"
+    },
+    {
+      "source": "htr_base.models.HTRNet.top",
+      "target": "htr_base.models.CTCtopC",
+      "type": "instance_of"
+    },
+    {
+      "source": "htr_base.models.HTRNet.top",
+      "target": "htr_base.models.CTCtopR",
+      "type": "instance_of"
+    },
+    {
+      "source": "htr_base.models.HTRNet.top",
+      "target": "htr_base.models.CTCtopB",
+      "type": "instance_of"
+    },
+    {
+      "source": "htr_base.models.HTRNet.top",
+      "target": "htr_base.models.CTCtopT",
+      "type": "instance_of"
+    },
+    {
+      "source": "htr_base.models.HTRNet.feat_head",
+      "target": "htr_base.models.AttentivePool",
+      "type": "instance_of"
     }
   ]
 }
