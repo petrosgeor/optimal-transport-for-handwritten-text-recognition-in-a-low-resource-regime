@@ -126,6 +126,42 @@ def test_otaligner_shapes():
     assert moved.shape[0] == len(ds)
 
 
+def test_otaligner_variance_metric():
+    base = Path("htr_base/data/GW/processed_words")
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))
+
+    ds.external_words = [ds.transcriptions[0].strip(), ds.transcriptions[1].strip()]
+    ds.word_emb_dim = 8
+    ds.external_word_embeddings = ds.find_word_embeddings(ds.external_words, n_components=8)
+    ds.aligned[:] = -1
+
+    c2i, _ = load_vocab()
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    arch = SimpleNamespace(**pre_cfg["architecture"])
+    arch.feat_dim = 32
+    arch.phoc_levels = None
+    backbone = HTRNet(arch, nclasses=len(c2i) + 1)
+    proj1 = Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)
+    proj2 = Projector(arch.feat_dim, ds.word_emb_dim, dropout=0.2)
+
+    from alignment.alignment_utilities import OTAligner
+
+    aligner = OTAligner(
+        ds,
+        backbone,
+        [proj1, proj2],
+        batch_size=2,
+        device="cpu",
+        k=0,
+        metric="variance",
+    )
+    plan, proj, moved = aligner.align()
+
+    assert plan.shape == (len(ds), len(ds.external_words))
+    assert proj.shape == (len(ds), ds.word_emb_dim)
+    assert moved.shape[0] == len(ds)
+
+
 def test_alternating_refinement_uses_pretrain_ds(tmp_path, monkeypatch):
     base = Path("htr_base/data/GW/processed_words")
     ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))

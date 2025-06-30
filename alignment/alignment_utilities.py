@@ -228,8 +228,8 @@ class OTAligner:
         metric: str = "entropy",
         agree_threshold: int = 1,
     ) -> None:
-        if metric not in {"gap", "entropy"}:
-            raise ValueError("metric must be 'gap' or 'entropy'")
+        if metric not in {"gap", "entropy", "variance"}:
+            raise ValueError("metric must be 'gap', 'entropy' or 'variance'")
         self.dataset = dataset
         self.backbone = backbone
         self.projectors = (
@@ -299,8 +299,9 @@ class OTAligner:
 
         Returns:
             dict: Dictionary containing the OT plan, mean projected features,
-            distance matrix, moved distances, nearest word indices and
-            the ``aligned`` vector from the dataset.
+            distance matrix, moved distances, nearest word indices,
+            per-sample variance scores and the ``aligned`` vector from the
+            dataset.
         """
         feats_all, aligned_all = harvest_backbone_features(
             self.dataset,
@@ -340,6 +341,7 @@ class OTAligner:
             moved_list.append(moved_dist)
 
         Z = torch.stack(Z_list)
+        var_scores = Z.var(dim=0, unbiased=False).sum(dim=1)
         dist_matrix = torch.stack(dist_list).mean(dim=0)
         moved_dist = torch.stack(moved_list).mean(dim=0)
         preds = torch.stack(nearest_list)
@@ -358,6 +360,7 @@ class OTAligner:
             "moved_dist": moved_dist,
             "nearest_word": nearest_word,
             "counts": counts,
+            "var_scores": var_scores,
             "aligned_all": aligned_all,
         }
 
@@ -368,6 +371,7 @@ class OTAligner:
         dist_matrix: torch.Tensor,
         plan: torch.Tensor,
         aligned_all: torch.Tensor,
+        var_scores: torch.Tensor,
     ) -> torch.Tensor:
         """Choose which dataset indices to pseudo-label this round.
 
@@ -376,17 +380,21 @@ class OTAligner:
             dist_matrix (torch.Tensor): Pairwise distances to word embeddings.
             plan (torch.Tensor): Optimal transport plan from OT alignment.
             aligned_all (torch.Tensor): Current alignment vector ``(N,)``.
+            var_scores (torch.Tensor): Per-sample variance scores.
 
         Returns:
             torch.Tensor: 1-D tensor of selected dataset indices.
         """
         assert self.k >= 0, "k must be non-negative"
-        order_unc = select_uncertain_instances(
-            m=len(self.dataset),
-            transport_plan=plan.numpy() if self.metric == "entropy" else None,
-            dist_matrix=dist_matrix.numpy() if self.metric == "gap" else None,
-            metric=self.metric,
-        )
+        if self.metric == "variance":
+            order_unc = torch.argsort(var_scores).cpu().numpy()
+        else:
+            order_unc = select_uncertain_instances(
+                m=len(self.dataset),
+                transport_plan=plan.numpy() if self.metric == "entropy" else None,
+                dist_matrix=dist_matrix.numpy() if self.metric == "gap" else None,
+                metric=self.metric,
+            )
         order_cert = order_unc[::-1]
         mask_new = (aligned_all == -1).numpy()
         assert self.agree_threshold > 0, "agree_threshold must be positive"
@@ -424,6 +432,7 @@ class OTAligner:
         moved_dist: torch.Tensor,
         dist_matrix: torch.Tensor,
         plan: torch.Tensor,
+        var_scores: torch.Tensor,
     ) -> None:
         """Print alignment statistics for the current round.
 
@@ -433,6 +442,7 @@ class OTAligner:
             moved_dist (torch.Tensor): Distances moved by descriptors during OT.
             dist_matrix (torch.Tensor): Pairwise distances after projection.
             plan (torch.Tensor): Optimal transport plan used for alignment.
+            var_scores (torch.Tensor): Variance scores for every dataset sample.
 
         Returns:
             None
@@ -458,6 +468,11 @@ class OTAligner:
             md = moved_dist[chosen]
             print(
                 f"[Align] mean moved distance: {md.mean():.4f} ± {md.std(unbiased=False):.4f}"
+            )
+
+            vs = var_scores[chosen]
+            print(
+                f"[Align] mean var score: {vs.mean():.4f} ± {vs.std(unbiased=False):.4f}"
             )
 
             if self.metric == "gap":
@@ -501,6 +516,7 @@ class OTAligner:
             out["dist_matrix"],
             out["plan"],
             out["aligned_all"],
+            out["var_scores"],
         )
 
         self._update_dataset(chosen, out["nearest_word"])
@@ -510,6 +526,7 @@ class OTAligner:
             out["moved_dist"],
             out["dist_matrix"],
             out["plan"].numpy() if out["plan"].numel() else np.empty((0, 0)),
+            out["var_scores"],
         )
 
         for proj in self.projectors:
@@ -532,7 +549,7 @@ def align_more_instances(
     reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
-    metric: str = "entropy",          # 'gap' or 'entropy'  (assignment certainty)
+    metric: str = "entropy",          # 'gap', 'entropy' or 'variance' (assignment certainty)
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Wrapper over :class:`OTAligner` for backward compatibility."""
