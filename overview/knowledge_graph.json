@@ -180,7 +180,7 @@
     {
       "id": "alignment.trainer.refine_visual_backbone",
       "type": "function",
-      "doc": "Fine-tune ``backbone`` on words aligned to external vocabulary.\n\nThe routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.\nSynthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and\nsoft contrastive losses are supported.\n\nArgs:\n    dataset (HTRDataset): Training dataset with alignment information.\n    backbone (HTRNet): Model to be refined.\n    num_epochs (int): Number of optimisation epochs.\n    batch_size (int): Mini-batch size.\n    lr (float): Learning rate for the optimiser.\n    main_weight (float): Scale for the main CTC loss.\n    aux_weight (float): Scale for the auxiliary CTC loss.\n    pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.\n    syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.\n    phoc_weight (float): Scale for the PHOC loss.\n    enable_phoc (bool): Whether to include the PHOC loss.\n    phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.\n    enable_contrastive (bool): Use the SoftContrastiveLoss.\n    contrastive_weight (float): Weight of the contrastive term.\n    contrastive_tau (float): Temperature for descriptor similarities.\n    contrastive_text_T (float): Temperature in edit-distance space.\n\nReturns:\n    None",
+      "doc": "Fine-tune ``backbone`` on words aligned to external vocabulary.\n\nThe routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.\nSynthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and\nsoft contrastive losses are supported.\n\nWhen ``pretrain_ds`` is given, each epoch iterates over this synthetic\nloader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the\nepoch length matches ``len(pretrain_loader)``.\n\nArgs:\n    dataset (HTRDataset): Training dataset with alignment information.\n    backbone (HTRNet): Model to be refined.\n    num_epochs (int): Number of optimisation epochs. When ``pretrain_ds``\n        is provided, one epoch spans the synthetic dataset.\n    batch_size (int): Mini-batch size.\n    lr (float): Learning rate for the optimiser.\n    main_weight (float): Scale for the main CTC loss.\n    aux_weight (float): Scale for the auxiliary CTC loss.\n    pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.\n    syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.\n    phoc_weight (float): Scale for the PHOC loss.\n    enable_phoc (bool): Whether to include the PHOC loss.\n    phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.\n    enable_contrastive (bool): Use the SoftContrastiveLoss.\n    contrastive_weight (float): Weight of the contrastive term.\n    contrastive_tau (float): Temperature for descriptor similarities.\n    contrastive_text_T (float): Temperature in edit-distance space.\n\nReturns:\n    None",
       "signature": "(dataset: HTRDataset, backbone: HTRNet, num_epochs: int)",
       "file_path": "alignment/trainer.py",
       "lineno": 104
@@ -191,7 +191,7 @@
       "doc": "Trains a projector network to map backbone features to an embedding space.\n\nThis function freezes the `backbone`, harvests image descriptors for the entire\ndataset, and then trains the `projector` using a combination of an unsupervised\nOptimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.\nThe projector can be a single module or a list of modules for ensemble training.\n\nArgs:\n    dataset: The HTRDataset containing the data.\n    backbone: The HTRNet model (frozen) to extract features from.\n    projector: The projector network(s) to be trained.\n    num_epochs: The number of training epochs.\n    batch_size: The batch size for training the projector.\n    lr: The learning rate for the AdamW optimizer.\n    num_workers: The number of workers for the DataLoader.\n    weight_decay: The weight decay for the optimizer.\n    device: The device to run the training on.\n    plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.",
       "signature": "(dataset: 'HTRDataset', backbone: 'HTRNet', projector: nn.Module | List[nn.Module], num_epochs: int, batch_size: int, lr: float, num_workers: int, weight_decay: float, device: torch.device | str, plot_tsne: bool)",
       "file_path": "alignment/trainer.py",
-      "lineno": 277
+      "lineno": 287
     },
     {
       "id": "alignment.trainer.alternating_refinement",
@@ -199,7 +199,7 @@
       "doc": "Performs an alternating training cycle between the backbone and projectors.\n\nThis function implements a semi-supervised learning strategy where the `backbone`\nand `projectors` are trained in alternation. In each round, the backbone is first\nrefined, then the projectors are trained. After a set number of rounds, more\ninstances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.\nThis cycle continues as long as there are unaligned instances in the dataset.\n\nArgs:\n    dataset: The HTRDataset to be used for training.\n    backbone: The HTRNet model.\n    projectors: A list of projector models.\n    rounds: The number of backbone/projector training cycles per alignment pass.\n    backbone_epochs: The number of epochs for each backbone refinement round.\n    projector_epochs: The number of epochs for each projector training round.\n    refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.\n    projector_kwargs: Additional keyword arguments for `train_projector`.\n    align_kwargs: Additional keyword arguments for `align_more_instances`.",
       "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: List[nn.Module])",
       "file_path": "alignment/trainer.py",
-      "lineno": 409
+      "lineno": 421
     },
     {
       "id": "alignment.alignment_utilities",
@@ -310,7 +310,7 @@
       "id": "alignment.ctc_utils.encode_for_ctc",
       "type": "function",
       "doc": "Convert a batch of raw string transcriptions to the (targets, lengths)\nformat expected by ``nn.CTCLoss``.\n\nParameters\n----------\ntranscriptions : list[str]\n    Each element is a single line/word **already wrapped with leading\n    and trailing spaces** (the dataset does that for you).\nc2i : dict[str, int]\n    Character-to-index mapping where **index 0 is reserved for CTC blank**\n    and every real character starts at 1.\ndevice : torch.device, optional\n    If given, the returned tensors are moved to this device.\n\nReturns\n-------\ntargets : torch.IntTensor   # shape = (total_chars,)\n    All label indices concatenated in batch order.\nlengths : torch.IntTensor   # shape = (batch,)\n    The original length (in characters) of every element in *transcriptions*.",
-      "signature": "(transcriptions: List[str], c2i: Dict[str, int], device: torch.device)",
+      "signature": "(transcriptions: List[str], c2i: Dict[str, int], device: torch.device | str)",
       "file_path": "alignment/ctc_utils.py",
       "lineno": 18
     },

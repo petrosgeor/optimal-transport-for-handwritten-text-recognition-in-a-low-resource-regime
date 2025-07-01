@@ -153,10 +153,11 @@ def refine_visual_backbone(
         None
     """
     device = next(backbone.parameters()).device
+    assert device.type == "cuda", "Backbone is not on a CUDA device"
     backbone.train().to(device)
     # Build CTC mapping once using the fixed vocabulary.
     c2i, _ = load_vocab()
-    assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned),         "Dataset alignment flags vector is malformed."
+    assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned), "Dataset alignment flags vector is malformed."
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
     subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
@@ -317,6 +318,7 @@ def train_projector(  # pylint: disable=too-many-arguments
     """
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
+    assert device.type == "cuda", "Projector training must be on a CUDA device"
     backbone = backbone.to(device).eval()          # freeze visual encoder
     projs = projector if isinstance(projector, (list, tuple)) else [projector]
     projs = [p.to(device).train() for p in projs]
@@ -451,6 +453,9 @@ def alternating_refinement(
 
     maybe_load_backbone(backbone, cfg)
 
+    device = torch.device(cfg.device)
+    backbone.to(device)
+    projectors = [p.to(device) for p in projectors]
     
     assert isinstance(projectors, (list, tuple)) and len(projectors) > 0, \
         "Projectors must be a non-empty list or tuple."
@@ -539,8 +544,7 @@ def alternating_refinement(
             # Verify that exactly one module family has requires_grad=True
             backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
             projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
-            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
-                   (backbone_trainable > 0 and projectors_trainable == 0), \
+            assert (backbone_trainable > 0 and projectors_trainable == 0), \
                    "Exactly one module family (backbone or projectors) should be trainable."
 
         print("[Cycle] Aligning more instances...")

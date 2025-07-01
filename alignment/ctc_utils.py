@@ -18,7 +18,7 @@ from pyctcdecode import build_ctcdecoder
 def encode_for_ctc(
     transcriptions: List[str],
     c2i: Dict[str, int],
-    device: torch.device = None
+    device: torch.device | str = None
 ) -> Tuple[torch.IntTensor, torch.IntTensor]:
     """
     Convert a batch of raw string transcriptions to the (targets, lengths)
