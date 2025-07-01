@@ -126,10 +126,15 @@ def refine_visual_backbone(
     Synthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and
     soft contrastive losses are supported.
 
+    When ``pretrain_ds`` is given, each epoch iterates over this synthetic
+    loader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the
+    epoch length matches ``len(pretrain_loader)``.
+
     Args:
         dataset (HTRDataset): Training dataset with alignment information.
         backbone (HTRNet): Model to be refined.
-        num_epochs (int): Number of optimisation epochs.
+        num_epochs (int): Number of optimisation epochs. When ``pretrain_ds``
+            is provided, one epoch spans the synthetic dataset.
         batch_size (int): Mini-batch size.
         lr (float): Learning rate for the optimiser.
         main_weight (float): Scale for the main CTC loss.
@@ -171,7 +176,6 @@ def refine_visual_backbone(
     )
 
     pretrain_loader = None
-    pre_iter = None
     if pretrain_ds is not None and syn_bs > 0:
         pretrain_loader = DataLoader(
             pretrain_ds,
@@ -180,11 +184,16 @@ def refine_visual_backbone(
             num_workers=2,
             pin_memory=(device.type == "cuda"),
         )
-        pre_iter = cycle(pretrain_loader)
 
     if len(aligned_indices) == 0:
         gt_loader = pretrain_loader
-        pre_iter = None
+
+    if pretrain_loader is not None:
+        epoch_loader = pretrain_loader
+        gt_iter = cycle(gt_loader) if len(aligned_indices) > 0 else None
+    else:
+        epoch_loader = gt_loader
+        gt_iter = None
 
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
     contr_fn = None
@@ -194,20 +203,20 @@ def refine_visual_backbone(
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
-        for batch in gt_loader:
-            if len(aligned_indices) == 0:
+        for batch in epoch_loader:
+            if pretrain_loader is not None:
                 imgs, trans = batch
                 words = list(trans)
+                if gt_iter is not None:
+                    imgs_gt, _, aligned = next(gt_iter)
+                    imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
+                    words = [f" {dataset.external_words[i]} " for i in aligned.tolist()] + words
+                else:
+                    imgs = imgs.to(device)
             else:
                 imgs, _, aligned = batch
                 words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
-
-            imgs = imgs.to(device)
-
-            if pre_iter is not None:
-                imgs_syn, trans_syn = next(pre_iter)
-                imgs = torch.cat([imgs, imgs_syn.to(device)], dim=0)
-                words.extend(list(trans_syn))
+                imgs = imgs.to(device)
 
             _assert_finite(imgs, "images")
 
