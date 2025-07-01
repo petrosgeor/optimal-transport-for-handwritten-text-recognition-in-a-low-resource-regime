@@ -399,14 +399,15 @@ def train_projector(  # pylint: disable=too-many-arguments
                 num_batches += 1
             
             avg_loss = running_loss / num_batches if num_batches > 0 else 0
-            print(f"Projector {idx} - Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-
+            if epoch % 20 == 0:
+                print(f"Projector {idx} - Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+                
         # Set projector to evaluation mode and generate t-SNE plot if enabled
-        proj.eval()
-        with torch.no_grad():
-            proj_vecs = proj(feats_all.to(device)).cpu()
 
         if plot_tsne and idx == 0:
+            proj.eval()
+            with torch.no_grad():
+                proj_vecs = proj(feats_all.to(device)).cpu()
             plot_projector_tsne(
                 proj_vecs,
                 dataset,

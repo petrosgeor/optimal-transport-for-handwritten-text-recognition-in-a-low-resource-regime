@@ -191,7 +191,7 @@
       "doc": "Trains a projector network to map backbone features to an embedding space.\n\nThis function freezes the `backbone`, harvests image descriptors for the entire\ndataset, and then trains the `projector` using a combination of an unsupervised\nOptimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.\nThe projector can be a single module or a list of modules for ensemble training.\n\nArgs:\n    dataset: The HTRDataset containing the data.\n    backbone: The HTRNet model (frozen) to extract features from.\n    projector: The projector network(s) to be trained.\n    num_epochs: The number of training epochs.\n    batch_size: The batch size for training the projector.\n    lr: The learning rate for the AdamW optimizer.\n    num_workers: The number of workers for the DataLoader.\n    weight_decay: The weight decay for the optimizer.\n    device: The device to run the training on.\n    plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.",
       "signature": "(dataset: 'HTRDataset', backbone: 'HTRNet', projector: nn.Module | List[nn.Module], num_epochs: int, batch_size: int, lr: float, num_workers: int, weight_decay: float, device: torch.device | str, plot_tsne: bool)",
       "file_path": "alignment/trainer.py",
-      "lineno": 280
+      "lineno": 277
     },
     {
       "id": "alignment.trainer.alternating_refinement",
@@ -199,7 +199,7 @@
       "doc": "Performs an alternating training cycle between the backbone and projectors.\n\nThis function implements a semi-supervised learning strategy where the `backbone`\nand `projectors` are trained in alternation. In each round, the backbone is first\nrefined, then the projectors are trained. After a set number of rounds, more\ninstances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.\nThis cycle continues as long as there are unaligned instances in the dataset.\n\nArgs:\n    dataset: The HTRDataset to be used for training.\n    backbone: The HTRNet model.\n    projectors: A list of projector models.\n    rounds: The number of backbone/projector training cycles per alignment pass.\n    backbone_epochs: The number of epochs for each backbone refinement round.\n    projector_epochs: The number of epochs for each projector training round.\n    refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.\n    projector_kwargs: Additional keyword arguments for `train_projector`.\n    align_kwargs: Additional keyword arguments for `align_more_instances`.",
       "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: List[nn.Module])",
       "file_path": "alignment/trainer.py",
-      "lineno": 427
+      "lineno": 409
     },
     {
       "id": "alignment.alignment_utilities",
@@ -232,7 +232,7 @@
     {
       "id": "alignment.alignment_utilities.OTAligner._get_projector_outputs",
       "type": "method",
-      "doc": "Run projectors on all descriptors and compute OT projections.\n\nReturns:\n    dict: Dictionary containing the OT plan, mean projected features,\n    distance matrix, moved distances, nearest word indices and\n    the ``aligned`` vector from the dataset.",
+      "doc": "Run projectors on all descriptors and compute OT projections.\n\nReturns:\n    dict: Dictionary containing the OT plan, mean projected features,\n    distance matrix, moved distances, nearest word indices,\n    per-sample variance scores and the ``aligned`` vector from the\n    dataset.",
       "signature": "(self)",
       "file_path": "alignment/alignment_utilities.py",
       "lineno": 297
@@ -240,10 +240,10 @@
     {
       "id": "alignment.alignment_utilities.OTAligner._select_candidates",
       "type": "method",
-      "doc": "Choose which dataset indices to pseudo-label this round.\n\nArgs:\n    counts (torch.Tensor): Agreement counts from the projector ensemble.\n    dist_matrix (torch.Tensor): Pairwise distances to word embeddings.\n    plan (torch.Tensor): Optimal transport plan from OT alignment.\n    aligned_all (torch.Tensor): Current alignment vector ``(N,)``.\n\nReturns:\n    torch.Tensor: 1-D tensor of selected dataset indices.",
-      "signature": "(self, counts: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor, aligned_all: torch.Tensor)",
+      "doc": "Choose which dataset indices to pseudo-label this round.\n\nArgs:\n    counts (torch.Tensor): Agreement counts from the projector ensemble.\n    dist_matrix (torch.Tensor): Pairwise distances to word embeddings.\n    plan (torch.Tensor): Optimal transport plan from OT alignment.\n    aligned_all (torch.Tensor): Current alignment vector ``(N,)``.\n    var_scores (torch.Tensor): Per-sample variance scores.\n\nReturns:\n    torch.Tensor: 1-D tensor of selected dataset indices.",
+      "signature": "(self, counts: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor, aligned_all: torch.Tensor, var_scores: torch.Tensor)",
       "file_path": "alignment/alignment_utilities.py",
-      "lineno": 365
+      "lineno": 368
     },
     {
       "id": "alignment.alignment_utilities.OTAligner._update_dataset",
@@ -251,15 +251,15 @@
       "doc": "Write newly aligned indices back into ``dataset.aligned``.\n\nArgs:\n    chosen (torch.Tensor): Dataset indices selected for labelling.\n    nearest_word (torch.Tensor): Predicted word indices for each sample.\n\nReturns:\n    None",
       "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor)",
       "file_path": "alignment/alignment_utilities.py",
-      "lineno": 404
+      "lineno": 412
     },
     {
       "id": "alignment.alignment_utilities.OTAligner._log_results",
       "type": "method",
-      "doc": "Print alignment statistics for the current round.\n\nArgs:\n    chosen (torch.Tensor): Newly aligned dataset indices.\n    nearest_word (torch.Tensor): Predicted word ids for each sample.\n    moved_dist (torch.Tensor): Distances moved by descriptors during OT.\n    dist_matrix (torch.Tensor): Pairwise distances after projection.\n    plan (torch.Tensor): Optimal transport plan used for alignment.\n\nReturns:\n    None",
-      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor, moved_dist: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor)",
+      "doc": "Print alignment statistics for the current round.\n\nArgs:\n    chosen (torch.Tensor): Newly aligned dataset indices.\n    nearest_word (torch.Tensor): Predicted word ids for each sample.\n    moved_dist (torch.Tensor): Distances moved by descriptors during OT.\n    dist_matrix (torch.Tensor): Pairwise distances after projection.\n    plan (torch.Tensor): Optimal transport plan used for alignment.\n    var_scores (torch.Tensor): Variance scores for every dataset sample.\n\nReturns:\n    None",
+      "signature": "(self, chosen: torch.Tensor, nearest_word: torch.Tensor, moved_dist: torch.Tensor, dist_matrix: torch.Tensor, plan: torch.Tensor, var_scores: torch.Tensor)",
       "file_path": "alignment/alignment_utilities.py",
-      "lineno": 420
+      "lineno": 428
     },
     {
       "id": "alignment.alignment_utilities.OTAligner.align",
@@ -267,7 +267,7 @@
       "doc": "Perform one OT pseudo-labelling iteration.\n\nReturns:\n    tuple[torch.Tensor, torch.Tensor, torch.Tensor]:\n        Transport plan, mean projected features and per-sample moved distance.",
       "signature": "(self)",
       "file_path": "alignment/alignment_utilities.py",
-      "lineno": 490
+      "lineno": 505
     },
     {
       "id": "alignment.alignment_utilities.harvest_backbone_features",
@@ -299,7 +299,7 @@
       "doc": "Wrapper over :class:`OTAligner` for backward compatibility.",
       "signature": "(dataset: HTRDataset, backbone: HTRNet, projectors: Sequence[nn.Module])",
       "file_path": "alignment/alignment_utilities.py",
-      "lineno": 523
+      "lineno": 540
     },
     {
       "id": "alignment.ctc_utils",
@@ -1556,6 +1556,11 @@
     {
       "source": "alignment.trainer.alternating_refinement",
       "target": "alignment.trainer.maybe_load_backbone",
+      "type": "call"
+    },
+    {
+      "source": "alignment.trainer.alternating_refinement",
+      "target": "htr_base.utils.htr_dataset.HTRDataset",
       "type": "call"
     },
     {

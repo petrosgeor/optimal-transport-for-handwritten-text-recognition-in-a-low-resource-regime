@@ -2,6 +2,7 @@ import ast
 import json
 from pathlib import Path
 import networkx as nx
+import argparse
 
 
 def parse_module(path: Path):
@@ -275,4 +276,14 @@ def build_repo_graph(root_dirs, graphml_path="overview/knowledge_graph.graphml",
 
 
 if __name__ == "__main__":
-    build_repo_graph(["alignment", "htr_base"])
+    parser = argparse.ArgumentParser(description='Build a knowledge graph from Python source code.')
+    parser.add_argument('--folders_to_consider', nargs='+', default=["alignment", "htr_base"],
+                        help='List of directories to scan for Python files.')
+    parser.add_argument('--graphml_path', default="overview/knowledge_graph.graphml",
+                        help='Path to save the GraphML file.')
+    parser.add_argument('--json_path', default="overview/knowledge_graph.json",
+                        help='Path to save the JSON file.')
+    
+    args = parser.parse_args()
+    
+    build_repo_graph(args.folders_to_consider, args.graphml_path, args.json_path)
