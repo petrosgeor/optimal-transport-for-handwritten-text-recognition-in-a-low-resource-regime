@@ -97,6 +97,56 @@ def test_refine_backbone_with_pretraining(tmp_path):
     assert not net.training
 
 
+def test_refine_epoch_matches_pretraining_len(tmp_path):
+    base = Path("htr_base/data/GW/processed_words")
+
+    class DummyCfg:
+        k_external_words = 0
+        n_aligned = 0
+
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256), config=DummyCfg())
+    ds.external_words = [ds.transcriptions[0].strip()]
+    ds.aligned[0] = 0
+    ds.word_emb_dim = 8
+    ds.external_word_embeddings = torch.zeros(len(ds.external_words), ds.word_emb_dim)
+
+    pre_dir = tmp_path / "pretrain2"
+    pre_dir.mkdir()
+    img_src = ds.data[1][0]
+    img_path1 = pre_dir / "000_word_a.png"
+    img_path2 = pre_dir / "000_word_b.png"
+    shutil.copy(img_src, img_path1)
+    shutil.copy(img_src, img_path2)
+    list_file = pre_dir / "list.txt"
+    with open(list_file, "w") as f:
+        f.write("000_word_a.png\n")
+        f.write("000_word_b.png\n")
+
+    from multiprocessing import Value
+
+    class CountingPretrainingHTRDataset(PretrainingHTRDataset):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.counter = Value("i", 0)
+
+        def __getitem__(self, idx):
+            with self.counter.get_lock():
+                self.counter.value += 1
+            return super().__getitem__(idx)
+
+    pre_ds = CountingPretrainingHTRDataset(str(list_file), fixed_size=(64, 256), base_path=str(pre_dir))
+
+    c2i, _ = load_vocab()
+    pre_cfg = OmegaConf.load("alignment/alignment_configs/pretraining_config.yaml")
+    arch = SimpleNamespace(**pre_cfg["architecture"])
+    net = HTRNet(arch, nclasses=len(c2i) + 1)
+
+    refine_visual_backbone(ds, net, num_epochs=1, batch_size=2, lr=1e-4,
+                           pretrain_ds=pre_ds, syn_batch_ratio=0.5)
+
+    assert pre_ds.counter.value == len(pre_ds)
+
+
 def test_otaligner_shapes():
     base = Path("htr_base/data/GW/processed_words")
     ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(64, 256))

@@ -375,15 +375,18 @@ def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
 * `dataset`: training dataset with alignment information.
 * `backbone`: network to refine.
 * `num_epochs`: number of optimisation epochs (default from `refine_epochs` in `alignment/alignment_configs/trainer_config.yaml`).
+  When `pretrain_ds` is supplied, an epoch corresponds to one pass over the
+  synthetic dataloader.
 * `batch_size`: mini-batch size.
 * `lr`: learning rate.
 * `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
 * `pretrain_ds`: optional `PretrainingHTRDataset` providing synthetic images.
 * `syn_batch_ratio`: fraction of each batch drawn from `pretrain_ds` (0 disables).
   Synthetic samples are always considered aligned.
-  Ground‑truth batches are mixed with synthetic ones using `cycle(pretrain_loader)`
-  according to `syn_batch_ratio`. If no aligned samples are available the routine
-  falls back to training solely on the synthetic dataset.
+  When a synthetic dataset is supplied, epochs are measured by that loader and
+  ground‑truth batches come from `cycle(gt_loader)` so one epoch spans
+  `len(pretrain_loader)` iterations. If no aligned samples are available the
+  routine trains solely on the synthetic dataset.
 * `phoc_weight`: scaling factor for the optional PHOC loss.
 * `enable_phoc`: whether to compute the PHOC loss during refinement.
 * `phoc_levels`: tuple of pyramid levels passed to `build_phoc_description`.
