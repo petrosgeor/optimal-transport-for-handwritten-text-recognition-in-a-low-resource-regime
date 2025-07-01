@@ -478,6 +478,15 @@ def alternating_refinement(
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
 
+    test_dataset = HTRDataset(
+        basefolder=dataset.basefolder,
+        subset='test',
+        fixed_size=dataset.fixed_size,
+        character_classes=dataset.character_classes,
+        config=dataset.config,
+        two_views=False
+    )
+
     # Main loop: continue as long as there are unaligned instances
     while (dataset.aligned == -1).any():
         for r in range(rounds):
@@ -548,7 +557,7 @@ def alternating_refinement(
         # Perform Optimal Transport alignment to pseudo-label more instances
         align_more_instances(dataset, backbone, projectors, **align_kwargs)
         compute_cer(
-            dataset,
+            test_dataset,
             backbone,
             batch_size=cfg.eval_batch_size,
             device=cfg.device,
