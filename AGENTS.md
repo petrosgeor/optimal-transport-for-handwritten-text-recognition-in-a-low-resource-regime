@@ -6,25 +6,13 @@ These rules define how agents must operate on the codebase to ensure it remains 
 
 ---
 
-## 1. 🧠 Understand the Codebase via the Knowledge Graph
-
-Before performing **any** task, you **must** first read and understand the project's structure by consulting the knowledge graph:
-
-*   **File Location**: `overview/knowledge_graph.json`
-
-This file is the single source of truth for the codebase architecture. It contains all the information about modules, classes, functions, and their relationships. Use it to gather context and understand how the project works before making any changes.
-
----
-
-## 2. ✍️ Document All Code with Docstrings
+## 1. ✍️ Document All Code with Docstrings
 
 Whenever you **create or modify** a function or class, you **must** include a concise docstring that follows this structure:
 
 1.  **Purpose**: A brief, one-line summary of what the component does.
 2.  **Arguments** (`Args:`): A list of all arguments, their expected types, and a short description.
 3.  **Returns** (`Returns:`): A description of the value(s) returned by the function.
-
-This practice is essential for keeping the `overview/knowledge_graph.json` accurate and synchronized with the codebase.
 
 ### Example:
 
@@ -44,7 +32,7 @@ def normalize_vector(vector: list[float]) -> list[float]:
 
 ---
 
-## 3. 🧾 Sync Function Documentation with `README.md`
+## 2. 🧾 Sync Function Documentation with `README.md`
 
 To ensure the high-level documentation is always current, every time you **add or modify a function**, you must also update its entry in `README.md`.
 
@@ -53,7 +41,7 @@ To ensure the high-level documentation is always current, every time you **add o
 
 ---
 
-## 4. 🧪 Self-Test All Changes with `pytest`
+## 3. 🧪 Self-Test All Changes with `pytest`
 
 Whenever you **introduce or modify** any functionality:
 
@@ -83,7 +71,7 @@ Whenever you **introduce or modify** any functionality:
 
 ---
 
-## 5. ▶️ Run the Tests and Report Results
+## 4. ▶️ Run the Tests and Report Results
 
 After making any change and writing/updating the tests:
 
@@ -97,7 +85,7 @@ Do **not** consider the task complete until all tests pass and the test suite is
 
 ---
 
-## 6. 🔁 Avoid Redundant Work
+## 5. 🔁 Avoid Redundant Work
 
 Before implementing any change:
 
@@ -107,7 +95,7 @@ Before implementing any change:
 
 ---
 
-## 7. 📋 Propose Specific Tasks with Context
+## 6. 📋 Propose Specific Tasks with Context
 
 When proposing a new task:
 
@@ -122,7 +110,7 @@ This ensures that proposed tasks are **directly actionable**, **context-aware**,
 
 ---
 
-## 8. 🔍 Review Existing Code for Context and Conventions
+## 7. 🔍 Review Existing Code for Context and Conventions
 
 Before making **any modification** to an existing file or introducing new code in an established area:
 
