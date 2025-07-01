@@ -2,7 +2,7 @@
 # Backbone refinement
 # ----------------------------------------------------------------------
 refine_batch_size: 128      # mini-batch size used when fine-tuning the backbone
-refine_lr: 1e-4             # learning rate during backbone refinement
+refine_lr: 1e-3             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
 refine_epochs: 30           # epochs used for backbone refinement
@@ -81,7 +81,7 @@ dataset:
 
 n_aligned: 50               # Number of aligned instances (re-defined, check for redundancy)
 k_external_words: 200       # Number of external words (re-defined, check for redundancy)
-ensemble_size: 3            # Size of the projector ensemble
+ensemble_size: 1            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
 prior_weight: 6             # Weight for prior distribution in alignment
 supervised_weight: 100       # Weight for supervised loss component

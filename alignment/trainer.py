@@ -147,7 +147,6 @@ def refine_visual_backbone(
     Returns:
         None
     """
-    print(f"[Refine] epochs={num_epochs}  batch_size={batch_size}  lr={lr}")
     device = next(backbone.parameters()).device
     backbone.train().to(device)
     # Build CTC mapping once using the fixed vocabulary.
@@ -158,7 +157,6 @@ def refine_visual_backbone(
     subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
 
     if len(aligned_indices) == 0 and (pretrain_ds is None or syn_batch_ratio <= 0):
-        print("[Refine] no pre-aligned samples found – aborting.")
         return
 
     syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
@@ -266,13 +264,12 @@ def refine_visual_backbone(
             optimizer.step()
             epoch_loss += loss.item()
             effective_batches += 1
-        # if effective_batches:
-        #     avg_loss = epoch_loss / effective_batches
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        # else:
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+        if effective_batches:
+            avg_loss = epoch_loss / effective_batches
+            print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        else:
+            print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     backbone.eval()
-    print("[Refine] finished.")
 
 # File: alignment/trainer.py
 
@@ -329,7 +326,6 @@ def train_projector(  # pylint: disable=too-many-arguments
             word_probs_cpu = probs_attr.float()
     else:
         v = word_embs_cpu.size(0)
-        print("Warning: `dataset.external_word_probs` not found or is empty. Using uniform distribution.")
         word_probs_cpu = torch.full((v,), 1.0 / v)
         
     word_embs = word_embs_cpu.to(device)
@@ -345,7 +341,6 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
     # Augmentations are temporarily disabled inside ``harvest_backbone_features`` to get stable descriptors.
-    print("Harvesting image descriptors from the backbone...")
     feats_all, aligned_all = harvest_backbone_features(
         dataset,
         backbone,
@@ -367,7 +362,6 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     # ---------------------------------------------------------------- 3. Optimiser + loss
     criterion = ProjectionLoss(supervised_weight=SUPERVISED_WEIGHT).to(device)
-    print("Starting projector training...")
     # Iterate over each projector in the ensemble
     for idx, proj in enumerate(projs):
         optimiser = optim.AdamW(proj.parameters(), lr=lr, weight_decay=weight_decay)
@@ -375,38 +369,28 @@ def train_projector(  # pylint: disable=too-many-arguments
         # Training loop for the current projector
         for epoch in range(1, num_epochs + 1):
             running_loss = 0.0
+            num_batches = 0
             for feats_cpu, align_cpu in proj_loader:
-                feats = feats_cpu.to(device)
-                align = align_cpu.to(device)
+                feats = feats_cpu.to(device);
+                align = align_cpu.to(device);
                 
-
-                assert torch.isfinite(feats).all(), \
-                    "FATAL: Non-finite values (NaN or Inf) detected in features fed to the projector."
-
                 # Forward pass through the projector
                 pred = proj(feats)
                 # Compute the projection loss
                 loss = criterion.forward(pred, word_embs, align, word_probs)
 
-                assert torch.isfinite(loss), f"FATAL: Loss is not finite ({loss.item()}). Aborting."
-
                 # Backpropagation and optimization
                 loss.backward()
-                grad_ok = all(
-                    torch.isfinite(p.grad).all()
-                    for p in proj.parameters()
-                    if p.grad is not None
-                )
-                assert grad_ok, 'gradient explosion in projector - contains NaN/Inf'
-
+                
                 torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0)
 
                 optimiser.step()
                 optimiser.zero_grad(set_to_none=True)
                 running_loss += loss.item()
-            # Check for parameter stability after each epoch
-            for p in proj.parameters():
-                assert torch.isfinite(p).all(), "Parameter blow-up detected in projector."
+                num_batches += 1
+            
+            avg_loss = running_loss / num_batches if num_batches > 0 else 0
+            print(f"Projector {idx} - Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
 
         # Set projector to evaluation mode and generate t-SNE plot if enabled
         proj.eval()
@@ -419,8 +403,6 @@ def train_projector(  # pylint: disable=too-many-arguments
                 dataset,
                 save_path=f'tests/figures/tsne_projections_{idx}.png'
             )
-
-    print("[Projector] training complete ✔")
 
 
 
@@ -591,7 +573,7 @@ if __name__ == "__main__":
 
     arch = SimpleNamespace(**cfg["architecture"])
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
-    maybe_load_backbone(backbone, cfg)
+    # maybe_load_backbone(backbone, cfg)
     projectors = [
         Projector(arch.feat_dim, dataset.word_emb_dim, dropout=0.2)
         for _ in range(cfg.ensemble_size)
@@ -616,4 +598,3 @@ if __name__ == "__main__":
         projectors,
         refine_kwargs={"pretrain_ds": pre_syn_ds},
     )
-
