@@ -655,7 +655,6 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `k_external_words` (int): Number of external words to consider.
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
-*   `prior_weight` (int): Weight for prior distribution in alignment.
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
