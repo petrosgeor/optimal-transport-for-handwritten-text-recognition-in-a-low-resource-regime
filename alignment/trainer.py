@@ -85,6 +85,36 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     return images[perm], [words[i] for i in perm.tolist()]
 
 
+def log_pseudo_labels(
+    new_indices: torch.Tensor,
+    dataset: HTRDataset,
+    round_idx: int,
+    out_dir: str = "results",
+) -> None:
+    """Write pseudo-labelled words from ``new_indices`` to disk.
+
+    Args:
+        new_indices (torch.Tensor): Dataset positions newly labelled.
+        dataset (HTRDataset): Dataset containing ``external_words`` and ``aligned``.
+        round_idx (int): Index of the refinement cycle that produced the labels.
+        out_dir (str): Directory where the log file is stored.
+
+    Returns:
+        None
+    """
+
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    words = [
+        dataset.external_words[int(dataset.aligned[i])]
+        for i in new_indices.tolist()
+        if int(dataset.aligned[i]) != -1
+    ]
+    file_path = out_path / f"pseudo_labels_round_{round_idx}.txt"
+    with open(file_path, "w", encoding="utf8") as f:
+        f.write("\n".join(words))
+
+
 
 # PHOC configuration defaults
 PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
@@ -298,7 +328,7 @@ def refine_visual_backbone(
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     
-    plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='tests/figures/tsne_backbone.png', device=device)
+    plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')
     backbone.eval()
 
@@ -360,7 +390,7 @@ def train_projector(  # pylint: disable=too-many-arguments
         v = word_embs_cpu.size(0)
         word_probs_cpu = torch.full((v,), 1.0 / v)
         
-    word_embs = word_embs_cpu.to(device)
+    word_embs = word_probs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
 
     if plot_tsne:
@@ -472,6 +502,12 @@ def alternating_refinement(
         align_kwargs: Additional keyword arguments for `align_more_instances`.
     """
 
+    out_dir = "results"
+    out_path = Path(out_dir)
+    if out_path.is_dir():
+        for f in out_path.glob("pseudo_labels_round_*.txt"):
+            f.unlink()
+
     maybe_load_backbone(backbone, cfg)
 
     device = torch.device(cfg.device)
@@ -505,6 +541,7 @@ def alternating_refinement(
         two_views=False
     )
 
+    cycle_idx = 1
     # Main loop: continue as long as there are unaligned instances
     while (dataset.aligned == -1).any():
         for r in range(rounds):
@@ -571,8 +608,14 @@ def alternating_refinement(
         print("[Cycle] Aligning more instances...")
         assert (dataset.aligned != -1).sum() > 0, \
             "Cannot align more instances with zero seeds."
+        # Save current alignment state before pseudo-labelling
+        prev_aligned = dataset.aligned.clone()
         # Perform Optimal Transport alignment to pseudo-label more instances
         align_more_instances(dataset, backbone, projectors, **align_kwargs)
+        changed = torch.nonzero(
+            (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
+        )[0]
+        log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
         compute_cer(
             test_dataset,
             backbone,
@@ -580,6 +623,7 @@ def alternating_refinement(
             device=cfg.device,
             k=4
         )
+        cycle_idx += 1
 
 
 

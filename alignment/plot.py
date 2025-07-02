@@ -73,13 +73,15 @@ def plot_tsne_embeddings(
     save_path: str,
     *,
     device: torch.device = torch.device(cfg.device),
-    max_labels_to_display: int = 1000,
+    n_samples: int = 1000,
 ) -> None:
     """Generate a coloured t-SNE plot of backbone embeddings and save it.
 
-    Features and current alignment labels are harvested from ``dataset`` using
-    ``backbone``. t-SNE then projects the descriptors to 2‑D and the scatter
-    plot colours samples in blue when ``aligned == 1`` and black otherwise.
+    A random subset of ``n_samples`` is drawn from the dataset. Features
+    and current alignment labels are harvested, and t-SNE projects the
+    descriptors to 2-D. The scatter plot colours samples in blue when
+    ``aligned == 1`` and black otherwise. All plotted samples are annotated
+    with their ground-truth transcriptions.
 
     Parameters
     ----------
@@ -91,9 +93,8 @@ def plot_tsne_embeddings(
         Path where the generated t-SNE plot (PNG image) will be saved.
     device : torch.device | str
         Device on which the backbone runs.
-    max_labels_to_display : int, optional
-        Maximum number of transcriptions to display on the plot to avoid clutter.
-        Defaults to 50.
+    n_samples : int, optional
+        The number of random samples to visualise. Defaults to 1000.
     """
     # Determine device
     device = torch.device(device)
@@ -102,8 +103,12 @@ def plot_tsne_embeddings(
     # Custom data loading to get transcriptions
     orig_transforms = getattr(dataset, "transforms", None)
     dataset.transforms = None
+
+    indices = random.sample(range(len(dataset)), min(len(dataset), n_samples))
+    subset = torch.utils.data.Subset(dataset, indices)
+
     loader = torch.utils.data.DataLoader(
-        dataset,
+        subset,
         batch_size=64,  # A reasonable batch size
         shuffle=False,
         num_workers=0,
@@ -145,12 +150,8 @@ def plot_tsne_embeddings(
     colors = ["blue" if int(a.item()) != -1 else "black" for a in aligned]
     ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5, c=colors)
 
-    # Select a random subset of indices for displaying labels
-    num_samples = len(transcriptions_buf)
-    display_indices = random.sample(range(num_samples), min(num_samples, max_labels_to_display))
-
-    for i in display_indices:
-        ax.text(tsne_results[i, 0], tsne_results[i, 1], transcriptions_buf[i].strip(), fontsize=6)
+    for i, txt in enumerate(transcriptions_buf):
+        ax.text(tsne_results[i, 0], tsne_results[i, 1], txt.strip(), fontsize=6)
 
     ax.set_title("t-SNE projection of backbone embeddings")
     ax.set_xlabel("t-SNE dimension 1")
