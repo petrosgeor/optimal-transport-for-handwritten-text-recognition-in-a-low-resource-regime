@@ -70,6 +70,21 @@ def _assert_grad_finite(model: nn.Module, name: str) -> None:
         for p in model.parameters()
     ), f"Gradient explosion in {name}"
 
+def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
+    """Randomly shuffle a mini-batch of images and transcriptions together.
+
+    Args:
+        images (torch.Tensor): Tensor of images in the batch.
+        words (List[str]): Transcriptions corresponding to ``images``.
+
+    Returns:
+        Tuple[torch.Tensor, List[str]]: Shuffled images and transcriptions.
+    """
+    assert len(images) == len(words)
+    perm = torch.randperm(len(words), device=images.device)
+    return images[perm], [words[i] for i in perm.tolist()]
+
+
 
 # PHOC configuration defaults
 PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
@@ -130,6 +145,7 @@ def refine_visual_backbone(
     When ``pretrain_ds`` is given, each epoch iterates over this synthetic
     loader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the
     epoch length matches ``len(pretrain_loader)``.
+    Batches are shuffled after combining synthetic and real samples to randomise ordering.
 
     Args:
         dataset (HTRDataset): Training dataset with alignment information.
@@ -213,6 +229,7 @@ def refine_visual_backbone(
                     imgs_gt, _, aligned = next(gt_iter)
                     imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
                     words = [f" {dataset.external_words[i]} " for i in aligned.tolist()] + words
+                    imgs, words = _shuffle_batch(imgs, words)
                 else:
                     imgs = imgs.to(device)
             else:

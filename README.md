@@ -12,6 +12,7 @@ This repository contains a minimal implementation for handwritten text recogniti
   - [CTC Utilities](#ctc-utilities)
   - [Plotting Utilities](#plotting-utilities)
   - [Vocabulary Utilities](#vocabulary-utilities)
+  - [Training Utilities](#training-utilities)
   - [Configuration Files](#configuration-files)
 - [Requirements](#requirements)
 - [Knowledge Graph](#knowledge-graph)
@@ -611,6 +612,54 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 **Returns:**
 *   `Tuple[Dict[str, int], Dict[int, str]]`: A tuple containing the character-to-index (`c2i`) and index-to-character (`i2c`) dictionaries.
+
+### Training Utilities
+
+#### refine_visual_backbone
+
+Located in: `alignment/trainer.py`
+
+Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled.
+
+```python
+def refine_visual_backbone(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    num_epochs: int = cfg.refine_epochs,
+    *,
+    batch_size: int = cfg.refine_batch_size,
+    lr: float = cfg.refine_lr,
+    main_weight: float = cfg.refine_main_weight,
+    aux_weight: float = cfg.refine_aux_weight,
+    pretrain_ds: PretrainingHTRDataset | None = None,
+    syn_batch_ratio: float = cfg.syn_batch_ratio,
+    phoc_weight: float = cfg.phoc_loss_weight,
+    enable_phoc: bool = cfg.enable_phoc,
+    phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
+    enable_contrastive: bool = CONTRASTIVE_ENABLE,
+    contrastive_weight: float = CONTRASTIVE_WEIGHT,
+    contrastive_tau: float = CONTRASTIVE_TAU,
+    contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+) -> None:
+```
+
+```python
+refine_visual_backbone(ds, backbone, pretrain_ds=synthetic_ds)
+```
+
+#### _shuffle_batch
+
+Located in: `alignment/trainer.py`
+
+Randomly permutes an image tensor and list of transcriptions with the same order.
+
+```python
+def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
+```
+
+```python
+imgs, texts = _shuffle_batch(imgs, texts)
+```
 
 ### Configuration Files
 
