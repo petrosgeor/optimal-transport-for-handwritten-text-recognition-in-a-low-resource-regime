@@ -703,9 +703,9 @@ pip install -r requirements.txt
 ```
 
 ## Knowledge Graph
-Run `python scripts/generate_knowledge_graph.py` to create files `knowledge_graph.graphml` and `knowledge_graph.json` describing module and function relationships. See `docs/knowledge_graph.md` for details.
+Run `python scripts/generate_knowledge_graph.py` to create `knowledge_graph.graphml` describing module and function relationships. See `docs/knowledge_graph.md` for details.
 
-The script exposes `build_repo_graph(root_dirs, graphml_path, json_path)` which returns the generated file paths.
+The script exposes `build_repo_graph(root_dirs, graphml_path)` which returns the generated file path.
 
 ## License
 This project is released under the MIT license.
