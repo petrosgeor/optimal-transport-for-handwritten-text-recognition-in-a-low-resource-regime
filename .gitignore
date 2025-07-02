@@ -21,9 +21,7 @@ htr_base/saved_models/pretrained_backbone.pt
 
 # Test-related ignores
 tests/figures/
-tests/test_projloss.py
-tests/test.py
-tests/dataset_value_range_test.py
+# tests/test.py
 
 # Project-specific directories
 google_drive_upload/
@@ -32,5 +30,6 @@ google_drive_upload/
 *.md
 !/README.md
 !AGENTS.md
+!overview/project_overview.md
 !GEMINI.md
 !docs/knowledge_graph.md

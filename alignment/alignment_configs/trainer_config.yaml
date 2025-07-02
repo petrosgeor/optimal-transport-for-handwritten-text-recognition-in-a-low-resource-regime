@@ -9,17 +9,17 @@ refine_epochs: 10           # epochs used for backbone refinement
 syn_batch_ratio: 0.5        # fraction of each batch drawn from PretrainingHTRDataset
 
 # optional PHOC training
-enable_phoc: true        # turn PHOC loss on/off
+enable_phoc: false        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # descriptor levels for PHOC (Pyramidal Histogram of Characters)
 phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss defaults
 # ----------------------------------------------------------------------
-contrastive_enable: false  # turn on to activate the loss
-contrastive_weight: 0.0    # β – scales the new loss inside total_loss
+contrastive_enable: true  # turn on to activate the loss
+contrastive_weight: 0.3    # β – scales the new loss inside total_loss
 contrastive_tau: 0.07      # τ – temperature for descriptor similarities
-contrastive_text_T: 1.0    # T_txt – softness in edit‑distance space
+contrastive_text_T: 3.0    # T_txt – softness in edit‑distance space
 
 # Default HTRNet architecture configuration
 architecture:
@@ -74,12 +74,11 @@ dataset:
   basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
   subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 300            # Number of initially aligned instances
+  n_aligned: 100            # Number of initially aligned instances
   k_external_words: 200     # Number of external words to consider
   word_emb_dim: 512         # Dimension of word embeddings
   two_views: false          # Enable or disable two-view training
 
-n_aligned: 50               # Number of aligned instances (re-defined, check for redundancy)
 k_external_words: 200       # Number of external words (re-defined, check for redundancy)
 ensemble_size: 1            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling

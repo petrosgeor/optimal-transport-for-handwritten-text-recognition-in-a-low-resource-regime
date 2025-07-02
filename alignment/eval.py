@@ -96,8 +96,9 @@ def compute_cer(
 
     msg = f"[Eval] CER: {total.score():.4f}"
     if k is not None:
-        msg += (
-            f"  <={k}: {le.score():.4f} (n={n_le})  >{k}: {gt.score():.4f} (n={n_gt})"
-        )
+        if n_le > 0:
+            msg += f"  <={k}: {le.score():.4f} (n={n_le})"
+        if n_gt > 0:
+            msg += f"  >{k}: {gt.score():.4f} (n={n_gt})"
     print(msg)
     return total.score()

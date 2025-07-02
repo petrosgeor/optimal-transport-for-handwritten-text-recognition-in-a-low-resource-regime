@@ -544,6 +544,7 @@ def plot_tsne_embeddings(
     save_path: str,
     *,
     device: torch.device = torch.device(cfg.device),
+    max_labels_to_display: int = 50,
 ) -> None:
 ```
 
@@ -551,6 +552,7 @@ def plot_tsne_embeddings(
 *   `backbone` (HTRNet): The visual backbone model to extract embeddings from.
 *   `save_path` (str): Path where the generated t-SNE plot (PNG image) will be saved.
 *   `device` (torch.device | str): Device on which the backbone runs.
+*   `max_labels_to_display` (int): Maximum number of transcriptions to display on the plot to avoid clutter. Defaults to 50.
 
 #### plot_projector_tsne
 

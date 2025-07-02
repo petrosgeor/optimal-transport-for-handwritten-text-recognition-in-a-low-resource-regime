@@ -73,6 +73,7 @@ def plot_tsne_embeddings(
     save_path: str,
     *,
     device: torch.device = torch.device(cfg.device),
+    max_labels_to_display: int = 1000,
 ) -> None:
     """Generate a coloured t-SNE plot of backbone embeddings and save it.
 
@@ -88,32 +89,76 @@ def plot_tsne_embeddings(
         The visual backbone model to extract embeddings from.
     save_path : str
         Path where the generated t-SNE plot (PNG image) will be saved.
+    device : torch.device | str
+        Device on which the backbone runs.
+    max_labels_to_display : int, optional
+        Maximum number of transcriptions to display on the plot to avoid clutter.
+        Defaults to 50.
     """
     # Determine device
     device = torch.device(device)
+    backbone.eval().to(device)
 
-    # print(f"Harvesting features for t-SNE plot on device: {device}")
-    features, aligned = harvest_backbone_features(dataset, backbone, device=device)
+    # Custom data loading to get transcriptions
+    orig_transforms = getattr(dataset, "transforms", None)
+    dataset.transforms = None
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=64,  # A reasonable batch size
+        shuffle=False,
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    feats_buf: list[torch.Tensor] = []
+    aligned_buf: list[torch.Tensor] = []
+    transcriptions_buf: list[str] = []
+
+    with torch.no_grad():
+        for imgs, _txt, aligned_batch in loader:
+            imgs = imgs.to(device)
+            output = backbone(imgs, return_feats=True)
+            if backbone.phoc_head is not None:
+                feats = output[-2]
+            else:
+                feats = output[-1]
+            feats_buf.append(feats.cpu())
+            aligned_buf.append(aligned_batch.cpu())
+            transcriptions_buf.extend(_txt)
+
+    dataset.transforms = orig_transforms
+    backbone.train()  # Set back to train mode
+
+    features = torch.cat(feats_buf, dim=0)
+    aligned = torch.cat(aligned_buf, dim=0)
 
     # print(f"Performing t-SNE transformation on {features.shape[0]} samples...")
     # Ensure features are on CPU and are NumPy arrays for scikit-learn
     features_np = features.cpu().numpy()
 
-    tsne = TSNE(n_components=2, random_state=42, perplexity=30, init='pca', learning_rate='auto')
+    tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(features_np) - 1), init='pca', learning_rate='auto')
     tsne_results = tsne.fit_transform(features_np)
 
     # print("t-SNE transformation complete.")
 
     fig, ax = plt.subplots(figsize=(12, 10))
-    colors = ["blue" if int(a.item()) == 1 else "black" for a in aligned]
+    colors = ["blue" if int(a.item()) != -1 else "black" for a in aligned]
     ax.scatter(tsne_results[:, 0], tsne_results[:, 1], s=5, c=colors)
+
+    # Select a random subset of indices for displaying labels
+    num_samples = len(transcriptions_buf)
+    display_indices = random.sample(range(num_samples), min(num_samples, max_labels_to_display))
+
+    for i in display_indices:
+        ax.text(tsne_results[i, 0], tsne_results[i, 1], transcriptions_buf[i].strip(), fontsize=6)
+
     ax.set_title("t-SNE projection of backbone embeddings")
     ax.set_xlabel("t-SNE dimension 1")
     ax.set_ylabel("t-SNE dimension 2")
 
     print(f"Saving t-SNE plot to {save_path}...")
     # Ensure the directory exists
-    if os.path.dirname(save_path): # Check if there is a directory part
+    if os.path.dirname(save_path):  # Check if there is a directory part
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
     plt.savefig(save_path, bbox_inches='tight')

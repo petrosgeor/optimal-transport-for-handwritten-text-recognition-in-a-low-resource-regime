@@ -35,7 +35,8 @@ from alignment.alignment_utilities import (
 from alignment.eval import compute_cer
 from alignment.plot import (
     plot_tsne_embeddings,
-    plot_projector_tsne
+    plot_projector_tsne,
+    plot_pretrained_backbone_tsne
 )
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
@@ -276,9 +277,12 @@ def refine_visual_backbone(
             effective_batches += 1
         if effective_batches:
             avg_loss = epoch_loss / effective_batches
-            print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        else:
-            print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+            # print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        # else:
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+    
+    plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='tests/figures/tsne_backbone.png', device=device)
+    # print('the backbone TSNE plot is saved')
     backbone.eval()
 
 # File: alignment/trainer.py
@@ -401,8 +405,8 @@ def train_projector(  # pylint: disable=too-many-arguments
                 num_batches += 1
             
             avg_loss = running_loss / num_batches if num_batches > 0 else 0
-            if epoch % 20 == 0:
-                print(f"Projector {idx} - Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+            # if epoch % 20 == 0:
+            #     print(f"Projector {idx} - Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
                 
         # Set projector to evaluation mode and generate t-SNE plot if enabled
 
@@ -557,6 +561,7 @@ def alternating_refinement(
             backbone,
             batch_size=cfg.eval_batch_size,
             device=cfg.device,
+            k=4
         )
 
 
