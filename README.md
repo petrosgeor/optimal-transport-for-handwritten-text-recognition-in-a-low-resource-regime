@@ -1,592 +1,711 @@
-File: README.md
-
-````markdown
 # Handwritten Text Recognition (HTR) tools
 
 This repository contains a minimal implementation for handwritten text recognition using PyTorch. The code is structured around a backbone network with a CTC head, data loading utilities and simple training scripts.
 
-The `htr_base` directory acts mainly as a collection of helper utilities and network components.
-Most of the logic for alignment and model training lives in the `alignment` directory.
+## Table of Contents
+- [Overview](#overview)
+- [API Reference](#api-reference)
+  - [Model Components](#model-components)
+  - [Data Handling](#data-handling)
+  - [Alignment Utilities](#alignment-utilities)
+  - [Loss Functions](#loss-functions)
+  - [CTC Utilities](#ctc-utilities)
+  - [Plotting Utilities](#plotting-utilities)
+  - [Vocabulary Utilities](#vocabulary-utilities)
+  - [Configuration Files](#configuration-files)
+- [Requirements](#requirements)
+- [Knowledge Graph](#knowledge-graph)
+- [License](#license)
 
-## HTRNet
+## Overview
+Most of the logic for alignment and model training lives in the `alignment` directory. The `htr_base` directory acts mainly as a collection of helper utilities and network components.
 
-`htr_base/models.py` defines the main neural network used throughout the codebase. `HTRNet` is composed of a CNN backbone followed by different CTC heads. The architecture is configurable through a YAML file or a small namespace object. All alignment scripts read these parameters from `alignment/alignment_configs/pretraining_config.yaml`.
+## API Reference
 
-Key features:
+### Model Components
 
-- **Configurable CNN** using residual blocks and pooling as defined by `cnn_cfg`.
-- **CTC heads**: `cnn`, `rnn`, `both` or `transf` (transformer-based). See `CTCtopC`, `CTCtopR`, `CTCtopB` and `CTCtopT` in the same file.
-- Optional **feature projection** producing a global feature vector per image (`feat_dim`).
-- **feat_pool**: how to collapse the CNN feature map when `feat_dim` is set.
-  * "avg" (default) – global average + two linear layers (old behaviour)
-  * "attn" – **learned attention pooling** (new)
-- **PHOC branch (optional)** – If the architecture config contains
-  `phoc_levels` (e.g. `(1,2,3,4)`), a small head `ReLU → Linear(feat_dim →
-  |vocab|×Σlevels)` is attached to the global feature vector and the
-  network returns **four** tensors: `(main_logits, aux_logits, features,
-  phoc_logits)`. Use `htr_base.utils.build_phoc_description` to build matching
-  binary targets for a BCE loss.
-- The `forward` method returns CTC logits and optionally image descriptors.
-  For the transformer head, provide `transf_d_model`, `transf_nhead`,
-  `transf_layers` and `transf_dim_ff` in the architecture config.
-- With `flattening='maxpool'`, the CNN collapses the height dimension of its
-  output. For an input batch of width `W`, `t = self.features(x)` has shape
-  `(batch_size, last_cnn_channels, 1, W_out)` where `last_cnn_channels` is the
-  last channel count in `cnn_cfg` and `W_out` is roughly `W/8` with the default
-  configuration.
+#### HTRNet
 
-Example usage:
-```python
-from types import SimpleNamespace
-from htr_base.models import HTRNet
+Located in: `htr_base/models.py`
 
-arch = SimpleNamespace(
-    cnn_cfg=[[2, 64], 'M', [3, 128], 'M', [2, 256]],
-    head_type='both',  # or 'rnn', 'cnn', 'transf'
-    rnn_type='lstm',
-    rnn_layers=3,
-    rnn_hidden_size=256,
-    flattening='maxpool',
-    stn=False,
-    feat_dim=None,
-    feat_pool="attn",
-)
-model = HTRNet(arch, nclasses=80 + 1)
-````
-
-## HTRDataset
-
-Located in `htr_base/utils/htr_dataset.py`, `HTRDataset` loads line images and corresponding transcriptions. When no character list is given it falls back to `load_vocab()` from `htr_base.utils.vocab`. Main arguments include:
-
-* `basefolder`: root folder containing `train/`, `val/` and `test/` subdirectories with a `gt.txt` file inside each.
-
-* `subset`: which portion of the dataset to load (`train`, `val`, `test`, `all` or `train_val`).
-  Using `all` merges the three splits while `train_val` merges the training and validation subsets.
-  Both `train` and `train_val` use the training augmentation policy.
-
-* **Data path**: the default configuration expects processed line images under `./data/IAM/processed_lines`.  A small sample dataset for the unit tests lives in `htr_base/data/GW/processed_words`.
-
-* `fixed_size`: target `(height, width)` used to resize images.
-
-* `transforms`: optional Albumentations augmentation pipeline applied to the images.
-
-* `character_classes`: list of characters. If `None`, the dataset uses the vocabulary from `load_vocab()`.
-
-* `word_emb_dim`: dimensionality of the MDS word embeddings (default `512`).
-
-* `two_views`: if `True`, `__getitem__` returns two randomly augmented views of the same line image.
-
-* The external vocabulary is automatically filtered so that all words only contain characters present in the dataset.
-
-* If none of the dataset's transcriptions overlap with the selected `k_external_words`,
-  the dataset will contain **zero** pre-aligned samples so `n_aligned` has no effect and
-  refinement cannot start.
-
-* External vocabulary words are stored in lowercase.
-
-* `prior_char_probs`: mapping of character frequencies computed from the 50,000 most common English words.
-
-`letter_priors(transcriptions=None, n_words=50000)` builds this mapping. If no transcriptions are provided it relies on `wordfreq` to return probabilities for `a-z0-9`.
-
-If `two_views` is `False`, `__getitem__` returns `(img_tensor, transcription, alignment_id)`.
-Otherwise it returns `((img1, img2), transcription, alignment_id)` where `img1` and `img2` are independent views of the same image.
-
-## PretrainingHTRDataset
-
-Located in `htr_base/utils/htr_dataset.py`, this lightweight `Dataset`:
-
-* **list\_file**: path to a `.txt` listing relative image paths (one per line).
-* **fixed\_size**: `(height, width)` for resizing.
-* **base\_path**: root to prepend (defaults to `/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px`).
-* **transforms**: optional Albumentations augmentation pipeline.
-* **n\_random**: if given, keep only this many random entries after filtering.
-* **random\_seed**: deterministic subset selection when using `n_random`.
-* **preload\_images**: load all images into memory (default `False`).
-
-When `n_random` is set, using the same `random_seed` yields the
-same subset across dataset initialisations.
-When `preload_images` is `True` each path is loaded once at
-initialisation so subsequent indexing avoids disk access.
-
-It filters out any entries whose “description” token (between the first and second underscore)
-
-1. is all uppercase, or
-2. contains non-alphanumeric characters.
-
-It exposes:
-
-* `img_paths`: full filesystem paths.
-* `transcriptions`: lowercase description tokens.
-* `save_image(index, out_dir, filename=None)` – identical helper to `HTRDataset.save_image`; saves the pre-processed image *index* as a PNG in *out\_dir*.
-
-`__getitem__` mimics `HTRDataset` in **train** mode (random jitter, preprocess, optional transforms) and returns `(img_tensor, transcription)`.
-
-The helper `refine_visual_model` in `tests/train_by_length.py` can mix ground‑truth words with this dataset via the `syn_batch_ratio` parameter. Setting `syn_batch_ratio=0` disables synthetic samples, while `syn_batch_ratio=1` trains purely on the pretraining dataset. During training it periodically calls `compute_cer` on a separate `HTRDataset` instantiated with ``subset='test'``.
-
-## pretraining.py
-
-`alignment/pretraining.py` trains a small backbone on an image list. Most
-hyperparameters are read from `alignment/alignment_configs/pretraining_config.yaml`
-so runs are reproducible. You may still pass a dictionary to `pretraining.main`
-to override any entry. The YAML configuration controls the dataset sizes,
-batch size, learning rate, augmentations and whether the backbone is saved.
-GPU selection is configured only in `alignment/alignment_configs/trainer_config.yaml`.
-The script evaluates CER on a 10k-sample test subset every ten epochs.
-
-
-The optimiser's learning rate is halved every 1000 epochs. Every five epochs ten
-random samples are decoded using greedy and beam search (`beam5:`).
+HTRNet backbone with optional global feature projection.
 
 ```python
-from alignment import pretraining
-
-cfg = {"base_path": "/data/images"}  # GPU selection is set in alignment/alignment_configs/trainer_config.yaml
-pretraining.main(cfg)
+class HTRNet(nn.Module):
+    def __init__(self, arch_cfg, nclasses):
 ```
 
-* **PHOC optional loss** – Set `enable_phoc: true` in `alignment/alignment_configs/pretraining_config.yaml` to let *pretraining.py* build PHOC targets on-the-fly (`build_phoc_description`) and optimise an extra BCE-with-logits term weighted by `phoc_loss_weight`. The PHOC head is enabled automatically when `feat_dim` and `phoc_levels` are present in the architecture config.
+*   `arch_cfg`: Configuration object containing architecture parameters (e.g., `cnn_cfg`, `head_type`, `rnn_type`, `feat_dim`, `feat_pool`, `phoc_levels`).
+*   `nclasses`: Number of output classes for the CTC head (including the blank token).
 
-> **Pretraining optional losses**
-> You can now activate a *soft contrastive* objective that encourages global image descriptors to respect lexical similarity.
-> Add the following keys to `alignment/alignment_configs/pretraining_config.yaml`:
->
-> ```yaml
-> contrastive_enable: true        # turn on
-> contrastive_weight: 0.2         # β in total loss
-> contrastive_tau: 0.07           # τ for descriptor space
-> contrastive_text_T: 1.0         # temperature for edit‑distance kernel
-> ```
->
-> The loss is computed automatically on the third tensor returned by `HTRNet.forward`.
 
-## encode\_for\_ctc
 
-Defined in `alignment/ctc_utils.py`. This helper converts a batch of strings into the flattened `(targets, lengths)` representation required by `torch.nn.CTCLoss`.
+#### Projector
+
+Located in: `htr_base/models.py`
+
+A simple MLP used to map backbone descriptors to the word embedding space.
 
 ```python
-def encode_for_ctc(transcriptions, c2i, device=None):
-    """Convert a batch of texts to CTC targets and per-sample lengths."""
+class Projector(nn.Module):
+    def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.2) -> None:
 ```
 
-* `transcriptions`: list of strings **already padded with spaces** (the dataset wraps each line with leading and trailing spaces).
-* `c2i`: dictionary mapping characters to indices where index `0` is reserved for the CTC blank.
-* `device`: optional torch device for the returned tensors.
+*   `input_dim`: Dimensionality of the input features from the backbone.
+*   `output_dim`: Dimensionality of the target embedding space (e.g., word embedding dimension).
+*   `dropout`: Dropout rate applied after the first two activations.
 
-Returns `targets` (concatenated label indices) and `lengths` (original length of each transcription).
 
-## _unflatten_targets
 
-Defined in `alignment/ctc_utils.py`. This helper converts a flattened CTC target tensor and a corresponding lengths tensor into a list of lists of integers.
+#### BasicBlock
+
+Located in: `htr_base/models.py`
+
+A basic building block for the CNN, typically used in ResNet-like architectures.
+
+```python
+class BasicBlock(nn.Module):
+    def __init__(self, in_planes, planes, stride=1):
+```
+
+*   `in_planes`: Number of input channels.
+*   `planes`: Number of output channels.
+*   `stride`: Stride for the convolutional layers.
+
+#### CNN
+
+Located in: `htr_base/models.py`
+
+Configurable Convolutional Neural Network (CNN) backbone.
+
+```python
+class CNN(nn.Module):
+    def __init__(self, cnn_cfg, flattening='maxpool'):
+```
+
+*   `cnn_cfg`: Configuration list defining the CNN layers (e.g., `[[2, 64], "M", [3, 128]]`).
+*   `flattening`: Method to flatten the CNN output (`'maxpool'` or `'concat'`).
+
+#### AttentivePool
+
+Located in: `htr_base/models.py`
+
+Collapses a feature map via learnable attention weights.
+
+```python
+class AttentivePool(nn.Module):
+    def __init__(self, ch: int, dim_out: int) -> None:
+```
+
+*   `ch`: Number of input channels.
+*   `dim_out`: Output dimension after pooling.
+
+#### CTCtopC
+
+Located in: `htr_base/models.py`
+
+CTC head using a convolutional layer.
+
+```python
+class CTCtopC(nn.Module):
+    def __init__(self, input_size, nclasses, dropout=0.0):
+```
+
+*   `input_size`: Number of input features.
+*   `nclasses`: Number of output classes.
+*   `dropout`: Dropout rate.
+
+#### CTCtopR
+
+Located in: `htr_base/models.py`
+
+CTC head using a Recurrent Neural Network (RNN).
+
+```python
+class CTCtopR(nn.Module):
+    def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
+```
+
+*   `input_size`: Number of input features.
+*   `rnn_cfg`: Tuple containing `(hidden_size, num_layers)` for the RNN.
+*   `nclasses`: Number of output classes.
+*   `rnn_type`: Type of RNN (`'gru'` or `'lstm'`).
+
+#### CTCtopB
+
+Located in: `htr_base/models.py`
+
+CTC head combining both RNN and CNN components.
+
+```python
+class CTCtopB(nn.Module):
+    def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
+```
+
+*   `input_size`: Number of input features.
+*   `rnn_cfg`: Tuple containing `(hidden_size, num_layers)` for the RNN.
+*   `nclasses`: Number of output classes.
+*   `rnn_type`: Type of RNN (`'gru'` or `'lstm'`).
+
+#### CTCtopT
+
+Located in: `htr_base/models.py`
+
+Transformer-based CTC head.
+
+```python
+class CTCtopT(nn.Module):
+    def __init__(self, input_size, transf_cfg, nclasses):
+```
+
+*   `input_size`: Number of input features.
+*   `transf_cfg`: Tuple containing `(d_model, nhead, nlayers, dim_ff)` for the Transformer.
+*   `nclasses`: Number of output classes.
+
+### Data Handling
+
+#### HTRDataset
+
+Located in: `htr_base/utils/htr_dataset.py`
+
+Loads handwritten text images and optional alignment info.
+
+```python
+class HTRDataset(Dataset):
+    def __init__(
+        self,
+        basefolder: str = 'IAM/',
+        subset: str = 'train',
+        fixed_size: tuple =(128, None),
+        transforms: list = None,
+        character_classes: list = None,
+        config=None,
+        two_views: bool = False,
+        ):
+```
+
+*   `basefolder` (str): Root folder containing `train/`, `val/` and `test/`.
+*   `subset` (str): Portion of the dataset to load (`'train'`, `'val'`, `'test'`, `'all'`, `'train_val'`).
+*   `fixed_size` (tuple): `(height, width)` used to resize images.
+*   `transforms` (list | None): Optional Albumentations pipeline.
+*   `character_classes` (list | None): Characters making up the vocabulary.
+*   `config` (Any): Optional configuration object with alignment parameters.
+*   `two_views` (bool): Return two augmented views when `True`.
+
+
+
+#### PretrainingHTRDataset
+
+Located in: `htr_base/utils/htr_dataset.py`
+
+Lightweight dataset for image-only pretraining.
+
+```python
+class PretrainingHTRDataset(Dataset):
+    def __init__(
+        self,
+        list_file: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt',
+        fixed_size: tuple = (64, 256),
+        base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
+        transforms: list = None,
+        n_random: int = None,
+        random_seed: int = 0,
+        preload_images: bool = False,
+    ):
+```
+
+*   `list_file` (str): Path to a text file with relative image paths.
+*   `fixed_size` (tuple): `(height, width)` for resizing.
+*   `base_path` (str): Root directory prepended to each path in `list_file`.
+*   `transforms` (list | None): Optional Albumentations pipeline.
+*   `n_random` (int | None): If given, keep only `n_random` entries.
+*   `random_seed` (int): Seed controlling the random subset selection.
+*   `preload_images` (bool): Load all images into memory on init.
+
+
+
+### Alignment Utilities
+
+#### OTAligner
+
+Located in: `alignment/alignment_utilities.py`
+
+Helper class implementing the Optimal Transport (OT) pseudo-labelling routine.
+
+```python
+class OTAligner:
+    def __init__(
+        self,
+        dataset: HTRDataset,
+        backbone: HTRNet,
+        projectors: Sequence[nn.Module],
+        *,
+        batch_size: int = 512,
+        device: str = cfg.device,
+        reg: float = 0.1,
+        unbalanced: bool = False,
+        reg_m: float = 1.0,
+        sinkhorn_kwargs: Optional[dict] = None,
+        k: int = 0,
+        metric: str = "entropy",
+        agree_threshold: int = 1,
+    ) -> None:
+```
+
+*   `dataset` (HTRDataset): Dataset providing images and alignment information.
+*   `backbone` (HTRNet): Visual encoder used to extract per-image descriptors.
+*   `projectors` (Sequence[nn.Module]): List of projector modules.
+*   `batch_size` (int): Mini-batch size when forwarding the dataset.
+*   `device` (str): Device on which the backbone runs.
+*   `reg` (float): Entropic regularisation strength.
+*   `unbalanced` (bool): Use unbalanced OT formulation if `True`.
+*   `reg_m` (float): Unbalanced mass regularisation.
+*   `sinkhorn_kwargs` (dict): Additional arguments for the OT solver.
+*   `k` (int): Number of least-moved descriptors to pseudo-label.
+*   `metric` (str): Uncertainty measure (`'gap'`, `'entropy'`, or `'variance'`).
+*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
+
+
+
+#### align_more_instances
+
+Located in: `alignment/alignment_utilities.py`
+
+Automatically assigns dataset images to external words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility.
+
+```python
+def align_more_instances(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    projectors: Sequence[nn.Module],
+    *,
+    batch_size: int = 512,
+    device: str = cfg.device,
+    reg: float = 0.1,
+    unbalanced: bool = False,
+    reg_m: float = 1.0,
+    sinkhorn_kwargs: Optional[dict] = None,
+    k: int = 0,
+    metric: str = "entropy",
+    agree_threshold: int = 1,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+```
+
+*   `dataset` (HTRDataset): Dataset providing images and `external_word_embeddings`.
+*   `backbone` (HTRNet): `HTRNet` used to extract visual descriptors.
+*   `projectors` (Sequence[nn.Module]): List of projectors mapping descriptors to the embedding space.
+*   `batch_size` (int): Mini-batch size when harvesting descriptors.
+*   `device` (str): Device used for feature extraction, descriptor processing and the projector.
+*   `reg` (float): Entropic regularisation for Sinkhorn.
+*   `unbalanced` (bool): Use unbalanced OT formulation.
+*   `reg_m` (float): Additional unbalanced regularisation parameter.
+*   `sinkhorn_kwargs` (dict): Extra arguments for the Sinkhorn solver.
+*   `k` (int): Number of least-moved descriptors to pseudo-label.
+*   `metric` (str): `'gap'`, `'entropy'` or `'variance'` selecting the uncertainty measure.
+*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
+
+**Returns:**
+*   `torch.Tensor`: The OT transport plan.
+*   `torch.Tensor`: The projected descriptors after OT.
+*   `torch.Tensor`: The distance moved by each descriptor.
+
+#### harvest_backbone_features
+
+Located in: `alignment/alignment_utilities.py`
+
+Harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
+
+```python
+def harvest_backbone_features(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    *,
+    batch_size: int = 64,
+    num_workers: int = 0,
+    device: torch.device = torch.device(cfg.device),
+) -> tuple[torch.Tensor, torch.Tensor]:
+```
+
+*   `dataset` (HTRDataset): Dataset providing images and `aligned` flags.
+*   `backbone` (HTRNet): Network used to compute descriptors.
+*   `batch_size` (int): Mini-batch size during feature extraction.
+*   `num_workers` (int): Data loader workers used while harvesting.
+*   `device` (torch.device | str): Computation device for feature extraction.
+
+**Returns:**
+*   `torch.Tensor`: Tensor of descriptors with shape `(N, D)` where `N` is the dataset size.
+*   `torch.Tensor`: Alignment tensor of shape `(N,)` copied from the dataset.
+
+#### select_uncertain_instances
+
+Located in: `alignment/alignment_utilities.py`
+
+Returns indices of the `m` most uncertain dataset instances.
+
+```python
+def select_uncertain_instances(
+    m: int,
+    *,
+    transport_plan: Optional[np.ndarray] = None,
+    dist_matrix: Optional[np.ndarray] = None,
+    metric: str = "gap",
+) -> np.ndarray:
+```
+
+*   `m` (int): Number of indices to return.
+*   `transport_plan` (np.ndarray | None): OT plan of shape `(N, V)`. Required for `metric='entropy'`.
+*   `dist_matrix` (np.ndarray | None): Pre-computed pairwise distances `(N, V)`. Required for `metric='gap'`.
+*   `metric` (str): Either `'gap'` or `'entropy'` selecting the uncertainty measure. Also supports `'variance'`.
+
+**Returns:**
+*   `np.ndarray`: Array of `m` indices sorted by decreasing uncertainty.
+
+### Loss Functions
+
+#### ProjectionLoss
+
+Located in: `alignment/losses.py`
+
+Combines Optimal Transport with a supervised distance term for descriptors that have known word alignments.
+
+```python
+class ProjectionLoss(torch.nn.Module):
+    def __init__(
+        self,
+        reg: float = 0.1,
+        *,
+        unbalanced: bool = False,
+        reg_m: float = 1.0,
+        supervised_weight: float = 1.0,
+        **sinkhorn_kwargs,
+    ):
+```
+
+*   `reg` (float): Entropic regularisation strength.
+*   `unbalanced` (bool): If `True` use the unbalanced OT formulation.
+*   `reg_m` (float): Unbalanced mass regularisation.
+*   `supervised_weight` (float): Scale for the supervised descriptor distance term.
+*   `sinkhorn_kwargs` (dict): Extra keyword arguments forwarded to the solver.
+
+#### SoftContrastiveLoss
+
+Located in: `alignment/losses.py`
+
+InfoNCE‑style loss that pulls together image descriptors whose transcripts have small Levenshtein distance.
+
+```python
+class SoftContrastiveLoss(torch.nn.Module):
+    def __init__(self, tau: float = .07, T_txt: float = 1.0, eps: float = 1e-8):
+```
+
+*   `tau` (float): Temperature in image space (distance → similarity).
+*   `T_txt` (float): Temperature in transcript space (controls softness).
+*   `eps` (float): Numeric stability.
+
+
+
+### CTC Utilities
+
+#### encode_for_ctc
+
+Located in: `alignment/ctc_utils.py`
+
+Converts a batch of raw string transcriptions to the `(targets, lengths)` format expected by `nn.CTCLoss`.
+
+```python
+def encode_for_ctc(
+    transcriptions: List[str],
+    c2i: Dict[str, int],
+    device: torch.device | str = None
+) -> Tuple[torch.IntTensor, torch.IntTensor]:
+```
+
+*   `transcriptions` (list[str]): Each element is a single line/word already wrapped with leading and trailing spaces.
+*   `c2i` (dict[str, int]): Character-to-index mapping where index 0 is reserved for CTC blank.
+*   `device` (torch.device, optional): If given, the returned tensors are moved to this device.
+
+**Returns:**
+*   `targets` (torch.IntTensor): All label indices concatenated in batch order.
+*   `lengths` (torch.IntTensor): The original length (in characters) of every element in `transcriptions`.
+
+#### _ctc_loss_fn
+
+Located in: `alignment/losses.py`
+
+A thin wrapper around `torch.nn.functional.ctc_loss` that takes `logits`.
+
+```python
+def _ctc_loss_fn(
+    logits: torch.Tensor,
+    targets: torch.IntTensor,
+    inp_lens: torch.IntTensor,
+    tgt_lens: torch.IntTensor,
+) -> torch.Tensor:
+```
+
+*   `logits` (torch.Tensor): Input logits from the CTC head.
+*   `targets` (torch.IntTensor): Ground truth targets for CTC loss.
+*   `inp_lens` (torch.IntTensor): Lengths of the input sequences.
+*   `tgt_lens` (torch.IntTensor): Lengths of the target sequences.
+
+**Returns:**
+*   `torch.Tensor`: The computed CTC loss.
+
+#### _unflatten_targets
+
+Located in: `alignment/ctc_utils.py`
+
+Converts flattened CTC targets to a list of lists.
 
 ```python
 def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[list[int]]:
-    """Convert flattened CTC targets to a list of lists."""
 ```
 
-* `targets`: A 1D tensor of concatenated label indices.
-* `lengths`: A 1D tensor specifying the length of each sequence in the batch.
+*   `targets` (torch.Tensor): A 1D tensor of concatenated label indices.
+*   `lengths` (torch.Tensor): A 1D tensor specifying the length of each sequence in the batch.
 
-Returns a list of lists, where each inner list is a sequence of integer labels.
+**Returns:**
+*   `list[list[int]]`: A list of lists, where each inner list is a sequence of integer labels.
 
+#### greedy_ctc_decode
 
-## greedy\_ctc\_decode
+Located in: `alignment/ctc_utils.py`
 
-Also in `alignment/ctc_utils.py`. This performs a simple best‑path decoding of CTC logits.
+Greedy-decodes a batch of CTC network outputs.
 
 ```python
-def greedy_ctc_decode(logits, i2c, blank_id=0, time_first=True):
-    """Greedy decode a batch of CTC outputs."""
+def greedy_ctc_decode(
+    logits: torch.Tensor,
+    i2c: Dict[int, str],
+    blank_id: int = 0,
+    time_first: bool = True,
+) -> List[str]:
 ```
 
-* `logits`: tensor either `(T, B, C)` or `(B, T, C)`; only the `argmax` over `C` is used.
-* `i2c`: mapping from class index to character (excluding the blank).
-* `blank_id`: id reserved for the CTC blank (default `0`).
-* `time_first`: set to `True` if the tensor is `(T, B, C)`.
+*   `logits` (torch.Tensor): Tensor shaped either `(T, B, C)` if `time_first` is `True` or `(B, T, C)` if `time_first` is `False`.
+*   `i2c` (dict[int, str]): Index-to-character mapping that complements the `c2i` used during encoding. It must not contain the blank id.
+*   `blank_id` (int, optional): Integer assigned to the CTC blank (defaults to 0).
+*   `time_first` (bool, optional): Set `True` if logits are `(T, B, C)`; otherwise set `False` for `(B, T, C)`.
 
-Returns a list of decoded strings, one for each element in the batch.
+**Returns:**
+*   `List[str]`: One decoded string per element in the mini-batch.
 
-## beam_search_ctc_decode
+#### beam_search_ctc_decode
 
-Uses `pyctcdecode` to perform beam-search decoding of CTC logits. The
-internal logger from `pyctcdecode` is silenced so that missing kenlm
-bindings do not emit warnings.
+Located in: `alignment/ctc_utils.py`
+
+Beam-search decoding for CTC outputs using `pyctcdecode`.
 
 ```python
-def beam_search_ctc_decode(logits, i2c, *, beam_width=10, blank_id=0,
-                           time_first=True):
-    """Beam-search decoding with optional language model."""
+def beam_search_ctc_decode(
+    logits: torch.Tensor,
+    i2c: Dict[int, str],
+    *,
+    beam_width: int = 10,
+    blank_id: int = 0,
+    time_first: bool = True,
+) -> List[str]:
 ```
 
-* `logits`: tensor shaped `(T, B, C)` or `(B, T, C)`.
-* `i2c`: mapping from class index to character (excluding the blank).
-* `beam_width`: number of prefixes kept after each time step.
-* `blank_id`: index used for the CTC blank symbol.
-* `time_first`: set `True` if the tensor is `(T, B, C)`.
+*   `logits` (torch.Tensor): Network output – either `(T, B, C)` if `time_first` or `(B, T, C)`.
+*   `i2c` (dict[int, str]): Index-to-character map excluding the blank id.
+*   `beam_width` (int, optional): Number of prefixes kept after every time-step.
+*   `blank_id` (int, optional): Integer assigned to the CTC blank (defaults to `0`).
+*   `time_first` (bool, optional): `True` if `logits` are `(T, B, C)`, else `False` for `(B, T, C)`.
 
-Returns one decoded string per batch element.
+**Returns:**
+*   `list[str]`: Best-scoring transcription for every element in the mini-batch.
 
-## align\_more\_instances
+### Plotting Utilities
 
-Located in `alignment/alignment_utilities.py`. This routine automatically assigns dataset images to external words via optimal transport.  Internally it now instantiates an :class:`OTAligner`:
+#### plot_dataset_augmentations
+
+Located in: `alignment/plot.py`
+
+Saves a figure showing three images and their augmentations side by side.
 
 ```python
-from alignment.alignment_utilities import OTAligner
-
-aligner = OTAligner(dataset, backbone, projectors, batch_size=512)
-plan, projections, moved = aligner.align()
+def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
 ```
 
-The function `align_more_instances(dataset, backbone, projectors, **kwargs)` remains as a thin wrapper for backward compatibility.
+*   `dataset` (HTRDataset): Dataset providing images and augmentation transforms.
+*   `save_path` (str): Where to write the PNG figure.
 
-* `dataset`: instance of `HTRDataset` providing images and `external_word_embeddings`.
-* `backbone`: `HTRNet` used to extract visual descriptors.
-* `projectors`: list of projectors mapping descriptors to the embedding space.
-* `batch_size`: mini-batch size when harvesting descriptors.
-* `device`: device used for feature extraction, descriptor processing and
-  the projector.
-* `reg`: entropic regularisation for Sinkhorn.
-* `unbalanced`: use unbalanced OT formulation.
-* `reg_m`: additional unbalanced regularisation parameter.
-* `sinkhorn_kwargs`: extra arguments for the Sinkhorn solver.
-* `k`: number of least-moved descriptors to pseudo-label.
-* `agree_threshold`: minimum number of agreeing projectors for a pseudo-label.
+#### plot_tsne_embeddings
 
-After each call, the function now reports round-wise pseudo-labelling accuracy
-and the cumulative accuracy over all aligned samples. It also prints up to ten
-sample pairs showing the ground-truth transcription and the predicted external
-word, followed by the mean and standard deviation of the moved distance for the
-newly pseudo-labelled items.
+Located in: `alignment/plot.py`
 
-The underlying OT projection step handles rows with zero mass safely, avoiding
-`inf` or `nan` values when some descriptors receive no transport mass.
-
-Returns the OT transport plan, the projected descriptors after OT and the distance moved by each descriptor.
-
-## OTAligner
-
-`OTAligner` exposes the same functionality as `align_more_instances` in a reusable class form. It takes the dataset, backbone and projectors during construction and exposes a single `align()` method returning the OT plan, the averaged projections and the moved distances.
-
-## select\_uncertain\_instances
-
-Located in `alignment/alignment_utilities.py`. Given either a distance matrix or a transport plan, this helper returns the indices of the most uncertain dataset instances.
+Generates a coloured t-SNE plot of backbone embeddings and saves it.
 
 ```python
-def select_uncertain_instances(m, *, transport_plan=None, dist_matrix=None, metric="gap"):
-    """Return indices of the ``m`` most uncertain dataset items."""
+def plot_tsne_embeddings(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    save_path: str,
+    *,
+    device: torch.device = torch.device(cfg.device),
+) -> None:
 ```
 
-* `m`: how many indices to return.
-* `transport_plan`: OT matrix used when `metric="entropy"`.
-* `dist_matrix`: pairwise distances used when `metric="gap"`.
-* `metric`: either `'gap'` (smallest nearest-neighbour gap) or `'entropy'`.
-* **variance** – ranks samples by the summed variance of their ensemble
-  projection vectors (lower = higher agreement).  Requires `ensemble_size > 1`.
-  Works with `agree_threshold` exactly like the existing metrics.
+*   `dataset` (HTRDataset): Dataset instance providing the images.
+*   `backbone` (HTRNet): The visual backbone model to extract embeddings from.
+*   `save_path` (str): Path where the generated t-SNE plot (PNG image) will be saved.
+*   `device` (torch.device | str): Device on which the backbone runs.
 
-## plot\_dataset\_augmentations
+#### plot_projector_tsne
 
-Located in `alignment/plot.py`. Saves a figure with three dataset
-images and their augmented versions side by side.
+Located in: `alignment/plot.py`
+
+Plots t-SNE of projector outputs and word embeddings.
 
 ```python
-def plot_dataset_augmentations(dataset, save_path):
-    """Save a figure of three images and their augmentations."""
+def plot_projector_tsne(
+    projections: torch.Tensor, dataset: HTRDataset, save_path: str
+) -> None:
 ```
 
-* `dataset`: `HTRDataset` instance with augmentation transforms.
-* `save_path`: where to write the resulting PNG file.
+*   `projections` (torch.Tensor): Output of the projector with shape `(N, E)`.
+*   `dataset` (HTRDataset): Provides `external_word_embeddings` of shape `(V, E)`.
+*   `save_path` (str): Destination path for the PNG figure.
 
-## plot\_projector\_tsne
+#### plot_pretrained_backbone_tsne
 
-Located in `alignment/plot.py`. Creates a 2‑D t‑SNE plot of
-projector outputs alongside the external word embeddings.
+Located in: `alignment/plot.py`
+
+Plots t-SNE embeddings from the pretrained backbone.
 
 ```python
-def plot_projector_tsne(projections, dataset, save_path):
-    """Visualise projector outputs against word embeddings."""
+def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path: str) -> None:
 ```
 
-* `projections`: tensor of projector outputs `(N, E)`.
-* `dataset`: `HTRDataset` providing `external_word_embeddings`.
-* `save_path`: destination PNG path.
+*   `dataset` (HTRDataset): Dataset instance providing images and alignment labels.
+*   `n_samples` (int): Number of random samples to visualise.
+*   `save_path` (str): Path where the PNG figure will be saved.
 
-## Plotting Utilities
+### Vocabulary Utilities
 
-### plot_tsne_embeddings
+#### create_vocab
 
-Located in `alignment/plot.py`. Generates a coloured t-SNE plot of backbone embeddings and saves it.
+Located in: `htr_base/utils/vocab.py`
+
+Creates the default vocabulary pickles and returns the dictionaries.
 
 ```python
-def plot_tsne_embeddings(dataset, backbone, save_path, *, device):
-    """Generate a coloured t-SNE plot of backbone embeddings and save it."""
+def create_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 ```
 
-* `dataset`: `HTRDataset` instance providing the images.
-* `backbone`: The visual backbone model to extract embeddings from.
-* `save_path`: Path where the generated t-SNE plot (PNG image) will be saved.
-* `device`: Device on which the backbone runs.
+**Returns:**
+*   `Tuple[Dict[str, int], Dict[int, str]]`: A tuple containing the character-to-index (`c2i`) and index-to-character (`i2c`) dictionaries.
 
-### plot_pretrained_backbone_tsne
+#### load_vocab
 
-Located in `alignment/plot.py`. Plots t-SNE embeddings from the pretrained backbone.
+Located in: `htr_base/utils/vocab.py`
 
-```python
-def plot_pretrained_backbone_tsne(dataset, n_samples, save_path):
-    """Plot t-SNE embeddings from the pretrained backbone."""
-```
-
-* `dataset`: `HTRDataset` instance providing images and alignment labels.
-* `n_samples`: Number of random samples to visualise.
-* `save_path`: Path where the PNG figure will be saved.
-
-
-
-## harvest\_backbone\_features
-
-Also in `alignment/alignment_utilities.py`. This routine harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
-
-```python
-def harvest_backbone_features(dataset, backbone, *, batch_size=512,
-                              num_workers=0, device="cuda"):
-    """Return (descriptors, alignment) tensors for the whole dataset."""
-```
-
-* `dataset`: dataset providing images and `aligned` flags.
-* `backbone`: network used to compute descriptors.
-* `batch_size`: mini-batch size during feature extraction.
-* `num_workers`: data loader workers used while harvesting.
-* `device`: computation device for feature extraction.
-
-Dataset augmentations are disabled while features are harvested.
-
-## refine\_visual\_backbone
-
-Defined in `alignment/trainer.py`. It fine-tunes the visual backbone on the subset of images already aligned to external words. Only those pre-aligned samples are loaded during training.
-
-```python
-def refine_visual_backbone(dataset, backbone, num_epochs=10, *, batch_size=128,
-                           lr=1e-4, main_weight=1.0, aux_weight=0.1,
-                           pretrain_ds=None, syn_batch_ratio=0.0,
-                           phoc_weight=0.1, enable_phoc=False,
-                           phoc_levels=(1, 2, 3, 4)):
-    """Fine‑tune *backbone* only on words already aligned to external words."""
-```
-
-* `dataset`: training dataset with alignment information.
-* `backbone`: network to refine.
-* `num_epochs`: number of optimisation epochs (default from `refine_epochs` in `alignment/alignment_configs/trainer_config.yaml`).
-  When `pretrain_ds` is supplied, an epoch corresponds to one pass over the
-  synthetic dataloader.
-* `batch_size`: mini-batch size.
-* `lr`: learning rate.
-* `main_weight`/`aux_weight`: weights for the main and auxiliary CTC losses.
-* `pretrain_ds`: optional `PretrainingHTRDataset` providing synthetic images.
-* `syn_batch_ratio`: fraction of each batch drawn from `pretrain_ds` (0 disables).
-  Synthetic samples are always considered aligned.
-  When a synthetic dataset is supplied, epochs are measured by that loader and
-  ground‑truth batches come from `cycle(gt_loader)` so one epoch spans
-  `len(pretrain_loader)` iterations. If no aligned samples are available the
-  routine trains solely on the synthetic dataset.
-* `phoc_weight`: scaling factor for the optional PHOC loss.
-* `enable_phoc`: whether to compute the PHOC loss during refinement.
-* `phoc_levels`: tuple of pyramid levels passed to `build_phoc_description`.
-* External words are automatically wrapped with spaces before encoding so that
-  no persistent changes are made to `dataset.external_words`.
-
-## train\_projector
-
-Also in `alignment/trainer.py`. This freezes the backbone, collects image descriptors and trains a separate projector using an OT-based loss.
-
-```python
-def train_projector(dataset, backbone, projector, num_epochs=150,
-                    batch_size=512, lr=1e-4, num_workers=0,
-                    weight_decay=1e-4, device="cuda", plot_tsne=True):
-    """Freeze *backbone*, collect image descriptors → train *projector*.
-    ``projector`` may also be a list which will be trained sequentially."""
-```
-
-* `dataset`: dataset with `external_word_embeddings`.
-* `backbone`: frozen encoder producing descriptors.
-* `projector`: learnable mapping to the embedding space. Can be a list for
-  ensemble training.
-* `num_epochs`, `batch_size`, `lr`: training hyperparameters. The default value
-  for `num_epochs` comes from `projector_epochs` in `alignment/alignment_configs/trainer_config.yaml`.
-* `num_workers`: data loading workers during descriptor harvesting.
-* `weight_decay`: weight decay for the optimiser.
-* `device`: computation device for training.
-* `plot_tsne`: whether to generate t-SNE plots of backbone and projector outputs.
-
-## Projector
-
-Located in `htr_base/models.py`, the `Projector` class is a simple MLP used to
-map backbone descriptors to the word embedding space. Its constructor now
-accepts a `dropout` argument controlling `nn.Dropout` layers inserted after the
-first two activations:
-
-```python
-Projector(input_dim, output_dim, dropout=0.2)
-```
-
-When generating pseudo labels (e.g. inside `align_more_instances`), the
-projector must run in evaluation mode via `proj.eval()` so that dropout is
-disabled.
-
-## ProjectionLoss
-
-Located in `alignment/losses.py`, this loss combines Optimal Transport with a
-supervised distance term for descriptors that have known word alignments.
-
-```python
-ProjectionLoss(reg=0.1, unbalanced=False, reg_m=1.0,
-               supervised_weight=1.0, **kwargs)
-```
-
-`supervised_weight` scales the MSE distance between aligned descriptors and
-their corresponding word embeddings.
-
-## maybe_load_backbone
-
-Also in `alignment/trainer.py`. This helper loads pretrained weights for a backbone if configured.
-
-```python
-def maybe_load_backbone(backbone, cfg):
-    """Load pretrained backbone weights when `cfg.load_pretrained_backbone` is true."""
-```
-
-* `backbone`: `HTRNet` instance whose parameters will be updated.
-* `cfg.load_pretrained_backbone`: boolean toggle controlling the behaviour.
-* `cfg.pretrained_backbone_path`: path to the `.pt` checkpoint file.
-* Prints a short message when loading occurs.
-
-## alternating\_refinement
-
-Also in `alignment/trainer.py`. This helper repeatedly refines the
-visual backbone and projector while progressively aligning more dataset
-instances using Optimal Transport.
-
-```python
-def alternating_refinement(dataset, backbone, projectors, *, rounds=4,
-                           backbone_epochs=10, projector_epochs=100,
-                           refine_kwargs=None, projector_kwargs=None,
-                           align_kwargs=None):
-    """Alternately train ``backbone`` and multiple projectors with OT alignment."""
-```
-
-* `rounds`: number of backbone/projector cycles per alignment pass.
-* `backbone_epochs`: epochs for each backbone refinement round (default from `refine_epochs`).
-* `projector_epochs`: epochs for each projector training round.
-  This value is also used as the default when calling `train_projector`.
-* `refine_kwargs`: extra keyword arguments forwarded to
-  `refine_visual_backbone`.
-* `projector_kwargs`: keyword arguments for `train_projector`.
-* `align_kwargs`: parameters for `align_more_instances`.
-  When `trainer_config.yaml` defines a `synthetic_dataset` section,
-  `alternating_refinement` will instantiate a `PretrainingHTRDataset` using those
-  values and pass it as `pretrain_ds` to `refine_visual_backbone`.
-  After each alignment cycle the routine calls `compute_cer` on the dataset
-  using `eval_batch_size` from the configuration and prints the score.
-
-
-
-## alignment/alignment_configs
-
-Configuration files for the alignment workflow live under
-`alignment/alignment_configs/`.
-
-* `trainer_config.yaml` – hyperparameters for backbone refinement,
-  projector training and overall alignment. It can optionally load a pretrained
-  backbone via `load_pretrained_backbone` and `pretrained_backbone_path`.
-* `pretraining_config.yaml` – architecture and pretraining options used by
-  `pretraining.py`. Besides the network architecture it defines the dataset
-  sizes, batch size, learning rate, augmentation toggle and whether the trained
-  backbone should be saved. These values are loaded by `pretraining.py` at
-  import time.
-
-The following keys from `trainer_config.yaml` are loaded at import time:
-
-* `refine_batch_size` – mini-batch size for backbone fine-tuning.
-* `refine_lr` – learning rate used during backbone refinement.
-* `refine_main_weight` – weight for the main CTC loss branch.
-* `refine_aux_weight` – weight for the auxiliary CTC loss.
-* `refine_epochs` – epochs spent refining the backbone.
-* `syn_batch_ratio` – fraction of each batch drawn from `PretrainingHTRDataset`.
-* `projector_epochs` – number of epochs for projector training.
-* `projector_batch_size` – mini-batch size when harvesting descriptors.
-* `projector_lr` – learning rate for projector optimisation.
-* `projector_workers` – dataloader workers used during descriptor caching.
-* `projector_weight_decay` – weight decay for the projector optimiser.
-* `plot_tsne` – save t-SNE plots during projector training.
-* `device` – compute device (`cpu` or `cuda`).
-* `gpu_id` – CUDA device index (set only in `trainer_config.yaml`).
-* `alt_rounds` – backbone/projector cycles per alternating pass.
-* `align_batch_size` – mini-batch size for alignment descriptor caching.
-* `align_device` – device used for the alignment step.
-* `align_reg` – entropic regularisation for Sinkhorn.
-* `align_unbalanced` – use unbalanced Optimal Transport.
-* `align_reg_m` – mass regularisation term for unbalanced OT.
-* `align_k` – pseudo-label this many least-moved descriptors.
-* `eval_batch_size` – mini-batch size used for CER evaluation cycles.
-* `n_aligned` – number of pre-aligned samples for warm start.
-* `k_external_words` – number of external words to use in HTRDataset.
-* `ensemble_size` – how many projectors to train in parallel.
-* `agree_threshold` – votes required before pseudo-labelling.
-* `prior_weight` – strength of the Wasserstein prior loss.
-* `supervised_weight` – scale of the supervised term in `ProjectionLoss`.
-* `load_pretrained_backbone` – whether to load backbone weights from disk.
-* `pretrained_backbone_path` – path to the pretrained backbone checkpoint.
-* `synthetic_dataset` – dictionary with `list_file`, `base_path`, `n_random` and
-  `fixed_size` used to build the optional `PretrainingHTRDataset`.
-* `architecture` – dictionary defining the HTRNet backbone parameters (see
-  `pretraining_config.yaml`): `cnn_cfg`, `head_type`, `rnn_type`,
-  `rnn_layers`, `rnn_hidden_size`, `flattening`, `stn`, `feat_dim`,
-  `feat_pool` and `phoc_levels`.
-
-
-## Utilities / Metrics
-
-* **CER** – accumulates character error rate over multiple predictions.
-* **WER** – accumulates word error rate; supports tokeniser and space modes.
-* **compute_cer(dataset, model)** – evaluate a model on a dataset and print CER.
-* **predicted\_char\_distribution(logits)** – average probability of each character excluding the CTC blank.
-* **wasserstein\_L2(p, q)** – L2 distance between two distributions.
-* **_ctc_loss_fn(logits, targets, inp_lens, tgt_lens)** – wrapper around PyTorch's CTC loss with log-softmax and zero-infinity handling.
-* **build_phoc_description(words, c2i, levels=(1,2,3,4))** – convert a list of words into binary PHOC descriptors. The descriptor size is ``len(c2i) × Σlevels`` and index ``0`` is reserved for the CTC blank.
-* **load_vocab()** – fetch the `c2i` and `i2c` dictionaries from `htr_base/saved_models`, calling `create_vocab()` if the pickles are missing.
-
-Example usage:
-```python
-from htr_base.utils import build_phoc_description
-words = ["hello", "world"]
-c2i, _ = load_vocab()
-phoc = build_phoc_description(words, c2i)
-```
-
-## load_vocab
-
-Located in `htr_base/utils/vocab.py`. Loads the character vocabulary used throughout the codebase.
+Loads `c2i` and `i2c` dictionaries from `saved_models`. If the pickle files do not exist, `create_vocab` is called to generate them first.
 
 ```python
 def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Load ``c2i`` and ``i2c`` dictionaries, creating them on first use."""
 ```
 
-* Returns ``c2i`` and ``i2c`` dictionaries for encoding and decoding characters.
+**Returns:**
+*   `Tuple[Dict[str, int], Dict[int, str]]`: A tuple containing the character-to-index (`c2i`) and index-to-character (`i2c`) dictionaries.
+
+### Configuration Files
+
+#### trainer_config.yaml
+
+Located in: `alignment/alignment_configs/trainer_config.yaml`
+
+Hyperparameters for backbone refinement, projector training, and overall alignment.
+
+**Key parameters:**
+*   `refine_batch_size` (int): Mini-batch size for backbone fine-tuning.
+*   `refine_lr` (float): Learning rate during backbone refinement.
+*   `refine_main_weight` (float): Weight for the main CTC loss branch.
+*   `refine_aux_weight` (float): Weight for the auxiliary CTC loss.
+*   `refine_epochs` (int): Epochs spent refining the backbone.
+*   `syn_batch_ratio` (float): Fraction of each batch drawn from `PretrainingHTRDataset`.
+*   `enable_phoc` (bool): Turn PHOC loss on/off.
+*   `phoc_levels` (list): Descriptor levels for PHOC.
+*   `phoc_loss_weight` (float): Scaling factor for the PHOC loss.
+*   `contrastive_enable` (bool): Turn on to activate the soft-contrastive loss.
+*   `contrastive_weight` (float): Scales the soft-contrastive loss inside total_loss.
+*   `contrastive_tau` (float): Temperature for descriptor similarities.
+*   `contrastive_text_T` (float): Softness in edit-distance space.
+*   `architecture` (dict): Defines the HTRNet backbone parameters (e.g., `cnn_cfg`, `head_type`, `rnn_type`, `feat_dim`, `feat_pool`, `phoc_levels`).
+*   `projector_epochs` (int): Number of epochs for the projector network.
+*   `projector_batch_size` (int): Mini-batch size when collecting descriptors.
+*   `projector_lr` (float): Learning rate for projector optimisation.
+*   `projector_workers` (int): Dataloader workers used during descriptor caching.
+*   `projector_weight_decay` (float): Weight decay for the projector optimiser.
+*   `plot_tsne` (bool): Save t-SNE plots during projector training.
+*   `device` (str): Target device for training (e.g., `'cuda'`, `'cpu'`).
+*   `gpu_id` (int): Which CUDA device index to use.
+*   `alt_rounds` (int): Number of backbone/projector cycles per pass.
+*   `align_batch_size` (int): Mini-batch size when harvesting descriptors for alignment.
+*   `align_device` (str): Device used during alignment post-processing.
+*   `align_reg` (float): Entropic regularisation for Sinkhorn algorithm.
+*   `align_unbalanced` (bool): Use unbalanced Optimal Transport (OT) formulation.
+*   `align_reg_m` (float): Mass regularisation when unbalanced OT is used.
+*   `align_k` (int): Pseudo-label this many least-moved descriptors.
+*   `metric` (str): Use projection-variance agreement.
+*   `eval_batch_size` (int): Mini-batch size during CER evaluation.
+*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `k_external_words`, `word_emb_dim`, `two_views`).
+*   `n_aligned` (int): Number of initially aligned instances.
+*   `k_external_words` (int): Number of external words to consider.
+*   `ensemble_size` (int): Size of the projector ensemble.
+*   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
+*   `prior_weight` (int): Weight for prior distribution in alignment.
+*   `supervised_weight` (int): Weight for supervised loss component.
+*   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
+*   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
+*   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
+
+#### pretraining_config.yaml
+
+Located in: `alignment/alignment_configs/pretraining_config.yaml`
+
+Architecture and pretraining options used by `pretraining.py`.
+
+**Key parameters:**
+*   `enable_phoc` (bool): Turn PHOC loss on/off.
+*   `phoc_levels` (list): Same default as HTRNet.
+*   `phoc_loss_weight` (float): Loss scaling factor.
+*   `architecture` (dict): Defines the HTRNet backbone parameters (e.g., `cnn_cfg`, `head_type`, `rnn_type`, `feat_dim`, `feat_pool`, `phoc_levels`).
+*   `contrastive_enable` (bool): Turn on to activate the soft-contrastive loss.
+*   `contrastive_weight` (float): Scales the new loss inside total_loss.
+*   `contrastive_tau` (float): Temperature for descriptor similarities.
+*   `contrastive_text_T` (float): Softness in edit-distance space.
+*   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
+*   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
+*   `device` (str): Target device.
+*   `gpu_id` (int): CUDA device index.
+*   `list_file` (str): Path to the image list file.
+*   `train_set_size` (int): Number of random training images.
+*   `test_set_size` (int): Number of random test images.
+*   `batch_size` (int): Batch size.
+*   `num_epochs` (int): Number of training epochs.
+*   `learning_rate` (float): Learning rate.
+*   `fixed_size` (list): Fixed size for images `[height, width]`.
+*   `base_path` (str): Base path for images (defaults to list_file directory if null).
+*   `use_augmentations` (bool): Whether to use augmentations.
+*   `main_loss_weight` (float): Weight for the main CTC loss.
+*   `aux_loss_weight` (float): Weight for the auxiliary CTC loss.
+*   `save_path` (str): Path to save the trained model.
+*   `save_backbone` (bool): Whether the trained backbone should be saved.
+*   `results_file` (bool): Whether to save results to a file.
 
 ## Requirements
-
 Python dependencies are listed in `requirements.txt`. Install them with:
 
 ```bash
 pip install -r requirements.txt
 ```
+
 ## Knowledge Graph
 Run `python scripts/generate_knowledge_graph.py` to create files `knowledge_graph.graphml` and `knowledge_graph.json` describing module and function relationships. See `docs/knowledge_graph.md` for details.
 
 The script exposes `build_repo_graph(root_dirs, graphml_path, json_path)` which returns the generated file paths.
 
 ## License
-
 This project is released under the MIT license.
-
-```
-```
