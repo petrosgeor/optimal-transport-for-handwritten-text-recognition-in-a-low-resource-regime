@@ -56,7 +56,7 @@ class Projector(nn.Module):
 *   `output_dim`: Dimensionality of the target embedding space (e.g., word embedding dimension).
 *   `dropout`: Dropout rate applied after the first two activations.
 
-#### DomainHead  <!-- NEW -->
+#### DomainHead 
 
 **File:** `htr_base/models.py`
 
@@ -71,7 +71,7 @@ dom_logits = backbone.domain_head(feats, lam)  # (B,)
 ```
 
 The `lam` scalar scales the gradient-reversal layer; typical schedules
-ramp it from 0\u202F\u2192\u03bb\u2098\u2093 across epochs.
+
 
 #### BasicBlock
 
