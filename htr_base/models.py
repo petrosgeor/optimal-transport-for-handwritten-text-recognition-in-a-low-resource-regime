@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Function
 
 
 ###############################################################################
@@ -24,6 +25,41 @@ class Projector(nn.Module):
 
     def forward(self, x):
         return self.sequential(x)
+
+
+###############################################################################
+#                   ─────  Gradient‑Reversal Layer (GRL)  ─────              #
+###############################################################################
+class GRL(Function):
+    """Applies identity forward and scales gradient by ``-lam`` in backward."""
+
+    @staticmethod
+    def forward(ctx, x: torch.Tensor, lam: float) -> torch.Tensor:
+        ctx.lam = lam
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, g: torch.Tensor):
+        return -ctx.lam * g, None
+
+
+###############################################################################
+#                        ─────  Domain‑classification head  ─────            #
+###############################################################################
+class DomainHead(nn.Module):
+    """Three-layer MLP predicting domain logits from backbone features."""
+
+    def __init__(self, in_dim: int):
+        super().__init__()
+        mid = in_dim // 2
+        self.mlp = nn.Sequential(
+            nn.Linear(in_dim, mid),
+            nn.ReLU(inplace=True),
+            nn.Linear(mid, 1),
+        )
+
+    def forward(self, feat: torch.Tensor, lam: float) -> torch.Tensor:
+        return self.mlp(GRL.apply(feat, lam)).squeeze(1)
 
 
 ###############################################################################
@@ -237,7 +273,15 @@ class HTRNet(nn.Module):
                 raise ValueError(
                     f"Unknown feat_pool '{self.feat_pool}'. Supported: 'avg', 'attn'"
                 )
-        
+
+        # ------------------------------------------------------------------
+        # Domain-adversarial head (only created when per-image descriptor exists)
+        # ------------------------------------------------------------------
+        if self.feat_dim:
+            self.domain_head = DomainHead(self.feat_dim)
+        else:
+            self.domain_head = None
+
         self.phoc_levels = getattr(arch_cfg, 'phoc_levels', None)
         if self.feat_dim and self.phoc_levels:
             phoc_dim = (nclasses - 1) * sum(self.phoc_levels)

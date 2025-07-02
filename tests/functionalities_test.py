@@ -7,6 +7,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.trainer import _shuffle_batch
+from htr_base.models import HTRNet
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -33,4 +34,21 @@ def test_shuffle_batch():
     ]
     assert observed_pairs == expected_pairs
     assert not torch.equal(imgs, shuffled_imgs)
+
+
+def test_domain_head():
+    """DomainHead outputs a (B,) logit tensor."""
+    from types import SimpleNamespace
+
+    arch = SimpleNamespace(
+        cnn_cfg=[[2, 64], 'M', [3, 128], 'M', [2, 256]],
+        head_type='both', rnn_type='gru', rnn_layers=3,
+        rnn_hidden_size=256, flattening='maxpool',
+        feat_dim=512, feat_pool='avg', stn=False,
+    )
+    net = HTRNet(arch, nclasses=38)
+    x = torch.rand(4, 1, 128, 512)
+    main, aux, feats = net(x, return_feats=True)
+    dom = net.domain_head(feats, 1.0)
+    assert dom.shape == (4,)
 
