@@ -41,7 +41,6 @@ SYN_BATCH_RATIO = 0.5 # if 0 then we only use gt samples. If 1 then we use only 
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
-PRIOR_WEIGHT = 0
 DATASET_FIXED_SIZE = (64, 256)
 ARCHITECTURE_CONFIG = {
     "cnn_cfg": [[2, 64], "M", [3, 128], "M", [2, 256]],
@@ -258,7 +257,6 @@ def refine_visual_model(dataset: HTRDataset,
                         eval_k: int | None = None,
                         *,
                         prior: torch.Tensor | None = None,
-                        prior_weight: float = 0.1,
                         pretrain_ds: PretrainingHTRDataset | None = None,
                         syn_batch_ratio: float | None = None) -> None:
     """Fine-tune *backbone* on a subset of ground-truth words.
@@ -389,7 +387,7 @@ def refine_visual_model(dataset: HTRDataset,
             else:
                 loss_prior = torch.tensor(0.0, device=main_logits.device)
             total_loss = (
-                main_weight * loss_m + aux_weight * loss_a + prior_weight * loss_prior
+                main_weight * loss_m + aux_weight * loss_a + loss_prior
             )
             opt.zero_grad(set_to_none=True)
             total_loss.backward()
@@ -464,7 +462,6 @@ if __name__ == "__main__":
         min_length=MIN_LENGTH,
         eval_k=EVAL_K,
         prior=Q,
-        prior_weight=PRIOR_WEIGHT,
         pretrain_ds=pretrain_set,
         syn_batch_ratio=SYN_BATCH_RATIO,
     )

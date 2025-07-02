@@ -83,7 +83,6 @@ n_aligned: 50               # Number of aligned instances (re-defined, check for
 k_external_words: 200       # Number of external words (re-defined, check for redundancy)
 ensemble_size: 1            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
-prior_weight: 6             # Weight for prior distribution in alignment
 supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------
