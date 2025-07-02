@@ -145,4 +145,4 @@ The overall training proceeds in alternating cycles of three phases, tightly cou
 
 ## End Goal
 
-The ultimate outcome is a trained backbone network (HTRNet) that achieves **robust character-level recognition** well beyond the initial external vocabulary. The network can transcribe historical or out-of-vocabulary words, enabling new research and applications in digital humanities, archival transcription, and beyond.
+The ultimate outcome is to achieve a **low character error rate (CER) on the `HTRDataset` test split**. To reach this target we first pretrain the HTRNet backbone on a large synthetic dataset, providing a strong initialization. We then iteratively pseudo-label images from the `train_val` portion of `HTRDataset`&mdash;only a fraction of which has ground-truth labels&mdash;expanding the training set at each round. This cycle of pretraining, pseudo-labeling, and refinement yields a backbone capable of transcribing historical or out-of-vocabulary words and enables new research in digital humanities, archival transcription, and beyond.
