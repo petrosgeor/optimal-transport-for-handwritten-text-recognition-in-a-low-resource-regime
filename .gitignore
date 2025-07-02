@@ -25,6 +25,8 @@ tests/figures/
 
 # Project-specific directories
 google_drive_upload/
+results/
+
 
 # Markdown files (except specific ones)
 *.md
