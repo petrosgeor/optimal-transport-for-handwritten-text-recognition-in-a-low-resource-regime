@@ -20,6 +20,10 @@ contrastive_enable: true  # turn on to activate the loss
 contrastive_weight: 0.3    # β – scales the new loss inside total_loss
 contrastive_tau: 0.07      # τ – temperature for descriptor similarities
 contrastive_text_T: 3.0    # T_txt – softness in edit‑distance space
+# --- Domain‑adversarial backbone refinement ---------------------------
+domain_adv_enable: true       # turn on gradient reversal
+domain_adv_weight: 0.5        # β  – scales BCE loss inside total_loss
+domain_adv_schedule: "dann"   # one of {'linear','dann','constant'}
 
 # Default HTRNet architecture configuration
 architecture:

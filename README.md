@@ -655,6 +655,9 @@ def refine_visual_backbone(
     contrastive_weight: float = CONTRASTIVE_WEIGHT,
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+    enable_domain_adv: bool = DOMAIN_ADV_ENABLE,
+    domain_adv_weight: float = DOMAIN_ADV_WEIGHT,
+    domain_adv_schedule: str = DOMAIN_ADV_SCHED,
 ) -> None:
 ```
 
@@ -669,11 +672,15 @@ Located in: `alignment/trainer.py`
 Randomly permutes an image tensor and list of transcriptions with the same order.
 
 ```python
-def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
+def _shuffle_batch(
+    images: torch.Tensor,
+    words: List[str],
+    extra: torch.Tensor | None = None,
+) -> Tuple[torch.Tensor, List[str], torch.Tensor | None]:
 ```
 
 ```python
-imgs, texts = _shuffle_batch(imgs, texts)
+imgs, texts, extra = _shuffle_batch(imgs, texts, labels)
 ```
 
 ### Configuration Files
@@ -698,6 +705,9 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `contrastive_weight` (float): Scales the soft-contrastive loss inside total_loss.
 *   `contrastive_tau` (float): Temperature for descriptor similarities.
 *   `contrastive_text_T` (float): Softness in edit-distance space.
+*   `domain_adv_enable` (bool): Turn on gradient reversal during refinement.
+*   `domain_adv_weight` (float): Scales the domain-adversarial BCE loss.
+*   `domain_adv_schedule` (str): Lambda schedule {'linear','dann','constant'}.
 *   `architecture` (dict): Defines the HTRNet backbone parameters (e.g., `cnn_cfg`, `head_type`, `rnn_type`, `feat_dim`, `feat_pool`, `phoc_levels`).
 *   `projector_epochs` (int): Number of epochs for the projector network.
 *   `projector_batch_size` (int): Mini-batch size when collecting descriptors.

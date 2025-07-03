@@ -8,6 +8,8 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.trainer import _shuffle_batch
 from htr_base.models import HTRNet
+from alignment.trainer import DOMAIN_ADV_ENABLE, refine_visual_backbone
+import inspect
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -21,7 +23,8 @@ def test_shuffle_batch():
     torch.manual_seed(0)
     imgs = torch.arange(6).view(3, 2)
     words = ["a", "b", "c"]
-    shuffled_imgs, shuffled_words = _shuffle_batch(imgs.clone(), list(words))
+    shuffled_imgs, shuffled_words, extra = _shuffle_batch(imgs.clone(), list(words))
+    assert extra is None
 
     expected_pairs = [
         ((4, 5), "c"),
@@ -34,6 +37,28 @@ def test_shuffle_batch():
     ]
     assert observed_pairs == expected_pairs
     assert not torch.equal(imgs, shuffled_imgs)
+
+
+def test_shuffle_batch_with_extra():
+    """_shuffle_batch shuffles an additional tensor consistently."""
+    torch.manual_seed(0)
+    imgs = torch.arange(6).view(3, 2)
+    words = ["a", "b", "c"]
+    extra = torch.tensor([10, 11, 12])
+    s_imgs, s_words, s_extra = _shuffle_batch(imgs.clone(), list(words), extra.clone())
+
+    assert [w for w in s_words] == ["c", "a", "b"]
+    assert s_extra.tolist() == [12, 10, 11]
+    assert not torch.equal(extra, s_extra)
+
+
+def test_grl_lambda_linear():
+    """_grl_lambda returns linear ramp when mode='linear'."""
+    from alignment.trainer import _grl_lambda
+
+    assert _grl_lambda(0, 10, mode="linear") == 0.0
+    assert abs(_grl_lambda(5, 10, mode="linear") - 0.5) < 1e-6
+    assert _grl_lambda(10, 10, mode="linear") == 1.0
 
 
 def test_domain_head():
@@ -51,4 +76,16 @@ def test_domain_head():
     main, aux, feats = net(x, return_feats=True)
     dom = net.domain_head(feats, 1.0)
     assert dom.shape == (4,)
+
+
+def test_domain_adv_flag_loaded():
+    """DOMAIN_ADV_ENABLE should match YAML setting."""
+    cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
+    assert DOMAIN_ADV_ENABLE == cfg.domain_adv_enable
+
+
+def test_refine_visual_backbone_defaults():
+    """Function defaults use the parsed domain-adversarial flag."""
+    sig = inspect.signature(refine_visual_backbone)
+    assert sig.parameters["enable_domain_adv"].default == DOMAIN_ADV_ENABLE
 

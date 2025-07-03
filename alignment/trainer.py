@@ -14,6 +14,7 @@ cfg = OmegaConf.load(cfg_file)
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 
 from typing import Dict, Tuple, List
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -70,19 +71,26 @@ def _assert_grad_finite(model: nn.Module, name: str) -> None:
         for p in model.parameters()
     ), f"Gradient explosion in {name}"
 
-def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
-    """Randomly shuffle a mini-batch of images and transcriptions together.
+def _shuffle_batch(
+    images: torch.Tensor,
+    words:  List[str],
+    extra:  torch.Tensor | None = None,
+) -> Tuple[torch.Tensor, List[str], torch.Tensor | None]:
+    """Randomly permute ``images`` and ``words`` with an optional tensor.
 
     Args:
-        images (torch.Tensor): Tensor of images in the batch.
+        images (torch.Tensor): Mini-batch of images.
         words (List[str]): Transcriptions corresponding to ``images``.
+        extra (torch.Tensor | None): Optional tensor shuffled with ``images``.
 
     Returns:
-        Tuple[torch.Tensor, List[str]]: Shuffled images and transcriptions.
+        Tuple[torch.Tensor, List[str], torch.Tensor | None]: Shuffled outputs.
     """
-    assert len(images) == len(words)
     perm = torch.randperm(len(words), device=images.device)
-    return images[perm], [words[i] for i in perm.tolist()]
+    imgs  = images[perm]
+    words = [words[i] for i in perm.tolist()]
+    extra = extra[perm] if extra is not None else None
+    return imgs, words, extra
 
 
 def log_pseudo_labels(
@@ -128,6 +136,21 @@ CONTRASTIVE_WEIGHT = float(cfg.get("contrastive_weight", 0.0))
 CONTRASTIVE_TAU = float(cfg.get("contrastive_tau", 0.07))
 CONTRASTIVE_TEXT_T = float(cfg.get("contrastive_text_T", 1.0))
 
+# --- Domain-adversarial defaults -------------------------------------
+DOMAIN_ADV_WEIGHT   = float(cfg.get("domain_adv_weight", 0.0))
+DOMAIN_ADV_SCHED    = str  (cfg.get("domain_adv_schedule", "constant"))
+DOMAIN_ADV_ENABLE   = bool(cfg.get("domain_adv_enable", DOMAIN_ADV_WEIGHT > 0))
+assert DOMAIN_ADV_SCHED in {"linear", "dann", "constant"}
+
+def _grl_lambda(step: int, total: int, mode: str = DOMAIN_ADV_SCHED) -> float:
+    """Return λ∈[0,1] at the given global *step* according to *mode*."""
+    p = step / total
+    if mode == "linear":
+        return p
+    if mode == "dann":
+        return 2.0 / (1 + math.exp(-10 * p)) - 1.0
+    return 1.0
+
 # Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if str(cfg.device).startswith("cuda"):
@@ -165,6 +188,9 @@ def refine_visual_backbone(
     contrastive_weight: float = CONTRASTIVE_WEIGHT,
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+    enable_domain_adv: bool = DOMAIN_ADV_ENABLE,
+    domain_adv_weight: float = DOMAIN_ADV_WEIGHT,
+    domain_adv_schedule: str = DOMAIN_ADV_SCHED,
 ) -> None:
     """Fine-tune ``backbone`` on words aligned to external vocabulary.
 
@@ -195,6 +221,9 @@ def refine_visual_backbone(
         contrastive_weight (float): Weight of the contrastive term.
         contrastive_tau (float): Temperature for descriptor similarities.
         contrastive_text_T (float): Temperature in edit-distance space.
+        enable_domain_adv (bool): Turn on the adversarial domain head.
+        domain_adv_weight (float): Scale for the domain loss term.
+        domain_adv_schedule (str): Lambda schedule {'linear','dann','constant'}.
 
     Returns:
         None
@@ -247,6 +276,9 @@ def refine_visual_backbone(
     contr_fn = None
     if enable_contrastive:
         contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
+    # -- GRL schedule --------------------------------------------------
+    total_steps = num_epochs * len(epoch_loader)
+    global_step = 0
     # Training loop for backbone refinement
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
@@ -259,13 +291,21 @@ def refine_visual_backbone(
                     imgs_gt, _, aligned = next(gt_iter)
                     imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
                     words = [f" {dataset.external_words[i]} " for i in aligned.tolist()] + words
-                    imgs, words = _shuffle_batch(imgs, words)
+                    # Domain labels: 0 = synthetic, 1 = real
+                    dom_labels = torch.cat([
+                        torch.ones(len(imgs_gt),  device=device),          # real
+                        torch.zeros(len(imgs) - len(imgs_gt), device=device)  # synthetic
+                    ])
+                    imgs, words, dom_labels = _shuffle_batch(imgs, words, dom_labels)
                 else:
                     imgs = imgs.to(device)
+                    dom_labels = torch.zeros(len(imgs), device=device)
             else:
                 imgs, _, aligned = batch
                 words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
                 imgs = imgs.to(device)
+                # Domain labels: all real when only ground truth available
+                dom_labels = torch.ones(len(imgs), device=device)
 
             _assert_finite(imgs, "images")
 
@@ -306,13 +346,29 @@ def refine_visual_backbone(
                 loss_contr = contr_fn(feats, targets, tgt_lens)
                 _assert_finite(loss_contr, "contrastive loss")
 
+            # ---------------------------------------------------------
+            # Domain-adversarial head (only if enabled & backbone has it)
+            # ---------------------------------------------------------
+            loss_dom = torch.tensor(0.0, device=device)
+            if enable_domain_adv and getattr(backbone, "domain_head", None) is not None:
+                lam = _grl_lambda(global_step, total_steps, domain_adv_schedule)
+                dom_logits = backbone.domain_head(feats, lam)          # (B,)
+                pos_w = None
+                if dom_labels.sum() not in {0, len(dom_labels)}:       # balance check
+                    r = (len(dom_labels) - dom_labels.sum()) / (dom_labels.sum() + 1e-5)
+                    if r > 1.5:
+                        pos_w = torch.tensor(r, device=device)
+                loss_dom = F.binary_cross_entropy_with_logits(dom_logits, dom_labels, pos_weight=pos_w)
+
             # Combine losses with configured weights
             loss = (
                 main_weight * loss_main +
                 aux_weight * loss_aux +
                 phoc_weight * loss_phoc +
-                contrastive_weight * loss_contr
+                contrastive_weight * loss_contr +
+                domain_adv_weight * loss_dom
             )
+            _assert_finite(loss_dom, "domain loss")
             _assert_finite(loss, "loss")
 
             # Optimization step
@@ -320,6 +376,7 @@ def refine_visual_backbone(
             loss.backward()
             _assert_grad_finite(backbone, "backbone")
             optimizer.step()
+            global_step += 1
             epoch_loss += loss.item()
             effective_batches += 1
         if effective_batches:
