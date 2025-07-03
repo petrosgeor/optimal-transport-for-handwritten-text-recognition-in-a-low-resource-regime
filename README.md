@@ -679,6 +679,30 @@ def beam_search_ctc_decode(
 **Returns:**
 *   `list[str]`: Best-scoring transcription for every element in the mini-batch.
 
+#### ctc_target_probability
+
+Located in: `alignment/ctc_utils.py`
+
+Probability that a single logit sequence collapses to a given transcription.
+
+```python
+def ctc_target_probability(
+    logits: torch.Tensor,
+    target: str,
+    c2i: Dict[str, int],
+    *,
+    blank_id: int = 0,
+) -> float:
+```
+
+*   `logits` (torch.Tensor): Two-dimensional `(T, C)` tensor with raw scores for one sample.
+*   `target` (str): String whose probability we wish to compute.
+*   `c2i` (dict[str, int]): Character-to-index map used to encode the string.
+*   `blank_id` (int, optional): Index of the CTC blank (defaults to `0`).
+
+**Returns:**
+*   `float`: Probability that `logits` decode to `target` according to CTC.
+
 ### Plotting Utilities
 
 #### plot_dataset_augmentations
