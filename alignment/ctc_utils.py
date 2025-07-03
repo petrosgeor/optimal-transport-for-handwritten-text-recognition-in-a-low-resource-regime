@@ -199,3 +199,68 @@ def beam_search_ctc_decode(
 
     return results
 
+
+def ctc_target_probability(
+    logits: torch.Tensor,
+    target: str,
+    c2i: Dict[str, int],
+    *,
+    blank_id: int = 0,
+) -> float:
+    """Return the probability of *target* under the CTC model.
+
+    Parameters
+    ----------
+    logits : torch.Tensor
+        Two-dimensional tensor ``(T, C)`` containing raw network scores for
+        a **single** sample. ``T`` is the time dimension and ``C`` includes
+        the blank class.
+    target : str
+        Decoded transcription consisting of characters present in ``c2i``.
+    c2i : dict[str, int]
+        Mapping from characters to label indices. The blank id is **not**
+        expected to be present.
+    blank_id : int, optional
+        Integer assigned to the CTC blank (defaults to ``0``).
+
+    Returns
+    -------
+    float
+        Probability that ``logits`` collapse to ``target`` according to the
+        CTC formulation.
+    """
+
+    log_probs = logits.log_softmax(dim=1)
+
+    # Extended label sequence with blanks inserted between characters and
+    # at the beginning and end as per the CTC forward algorithm.
+    ext_labels = [blank_id]
+    for ch in target:
+        ext_labels.append(c2i[ch])
+        ext_labels.append(blank_id)
+
+    T = log_probs.size(0)
+    S = len(ext_labels)
+
+    # Forward variables initialised in log-space for numerical stability
+    alpha = torch.full((T, S), float("-inf"), device=log_probs.device)
+    alpha[0, 0] = log_probs[0, ext_labels[0]]
+    if S > 1:
+        alpha[0, 1] = log_probs[0, ext_labels[1]]
+
+    for t in range(1, T):
+        for s in range(S):
+            prev = alpha[t - 1, s]
+            if s > 0:
+                prev = torch.logaddexp(prev, alpha[t - 1, s - 1])
+            if (
+                s > 1
+                and ext_labels[s] != blank_id
+                and ext_labels[s] != ext_labels[s - 2]
+            ):
+                prev = torch.logaddexp(prev, alpha[t - 1, s - 2])
+            alpha[t, s] = prev + log_probs[t, ext_labels[s]]
+
+    log_prob = torch.logaddexp(alpha[T - 1, S - 1], alpha[T - 1, S - 2])
+    return float(log_prob.exp().item())
+

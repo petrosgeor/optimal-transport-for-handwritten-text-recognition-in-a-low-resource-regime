@@ -4,8 +4,10 @@ from pathlib import Path
 import sys
 from omegaconf import OmegaConf
 import torch
+import itertools
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from alignment.ctc_utils import ctc_target_probability
 from alignment.trainer import _shuffle_batch
 
 
@@ -33,4 +35,60 @@ def test_shuffle_batch():
     ]
     assert observed_pairs == expected_pairs
     assert not torch.equal(imgs, shuffled_imgs)
+
+
+def test_ctc_target_probability():
+    """Probability of a short target via dynamic programming."""
+    logits = torch.tensor([
+        [0.1, 0.7, 0.2],
+        [0.6, 0.2, 0.2],
+        [0.1, 0.8, 0.1],
+    ])
+    c2i = {"a": 1, "b": 2}
+    prob = ctc_target_probability(logits, "a", c2i)
+
+    log_probs = logits.log_softmax(dim=1).exp()
+    brute = 0.0
+    for path in itertools.product(range(3), repeat=3):
+        p = 1.0
+        prev = None
+        collapsed = []
+        for t, idx in enumerate(path):
+            p *= log_probs[t, idx].item()
+            if idx != prev and idx != 0:
+                collapsed.append("a" if idx == 1 else "b")
+            prev = idx
+        if "".join(collapsed) == "a":
+            brute += p
+    assert abs(prob - brute) < 1e-6
+
+
+def test_ctc_target_probability_longer():
+    """Dynamic vs brute force probability for a longer string."""
+    logits = torch.tensor([
+        [0.6, 0.2, 0.2],
+        [0.1, 0.8, 0.1],
+        [0.1, 0.1, 0.8],
+        [0.6, 0.2, 0.2],
+        [0.1, 0.8, 0.1],
+        [0.6, 0.2, 0.2],
+    ])
+    c2i = {"a": 1, "b": 2}
+    target = "aaba"
+    prob = ctc_target_probability(logits, target, c2i)
+
+    log_probs = logits.log_softmax(dim=1).exp()
+    brute = 0.0
+    for path in itertools.product(range(3), repeat=6):
+        p = 1.0
+        prev = None
+        collapsed = []
+        for t, idx in enumerate(path):
+            p *= log_probs[t, idx].item()
+            if idx != prev and idx != 0:
+                collapsed.append("a" if idx == 1 else "b")
+            prev = idx
+        if "".join(collapsed) == target:
+            brute += p
+    assert abs(prob - brute) < 1e-6
 
