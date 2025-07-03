@@ -176,6 +176,8 @@ def refine_visual_backbone(
     loader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the
     epoch length matches ``len(pretrain_loader)``.
     Batches are shuffled after combining synthetic and real samples to randomise ordering.
+    Setting ``syn_batch_ratio=1`` yields purely synthetic batches, while a value
+    of ``0`` disables the synthetic loader entirely.
 
     Args:
         dataset (HTRDataset): Training dataset with alignment information.
@@ -188,6 +190,7 @@ def refine_visual_backbone(
         aux_weight (float): Scale for the auxiliary CTC loss.
         pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.
         syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.
+            ``1`` means only synthetic data is used, ``0`` only real data.
         phoc_weight (float): Scale for the PHOC loss.
         enable_phoc (bool): Whether to include the PHOC loss.
         phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.
@@ -215,13 +218,15 @@ def refine_visual_backbone(
     syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
     gt_bs = batch_size - syn_bs
 
-    gt_loader = DataLoader(
-        subset,
-        batch_size=gt_bs if gt_bs > 0 else 1,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=(device.type == "cuda"),
-    )
+    gt_loader = None
+    if gt_bs > 0 and len(aligned_indices) > 0:
+        gt_loader = DataLoader(
+            subset,
+            batch_size=gt_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
 
     pretrain_loader = None
     if pretrain_ds is not None and syn_bs > 0:
@@ -233,12 +238,9 @@ def refine_visual_backbone(
             pin_memory=(device.type == "cuda"),
         )
 
-    if len(aligned_indices) == 0:
-        gt_loader = pretrain_loader
-
     if pretrain_loader is not None:
         epoch_loader = pretrain_loader
-        gt_iter = cycle(gt_loader) if len(aligned_indices) > 0 else None
+        gt_iter = cycle(gt_loader) if gt_loader is not None else None
     else:
         epoch_loader = gt_loader
         gt_iter = None

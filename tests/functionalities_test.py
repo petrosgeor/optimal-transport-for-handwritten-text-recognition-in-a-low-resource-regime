@@ -92,3 +92,111 @@ def test_ctc_target_probability_longer():
             brute += p
     assert abs(prob - brute) < 1e-6
 
+
+class DummyHTRDataset(torch.utils.data.Dataset):
+    """Minimal real dataset with alignment flags."""
+
+    def __init__(self):
+        self.external_words = ["gt1", "gt2"]
+        self.aligned = torch.tensor([0, 1], dtype=torch.int64)
+        self.imgs = [torch.zeros(1, 2, 2), torch.ones(1, 2, 2)]
+        self.trans = ["gt1", "gt2"]
+
+    def __len__(self):
+        return len(self.imgs)
+
+    def __getitem__(self, idx):
+        return self.imgs[idx], self.trans[idx], self.aligned[idx]
+
+
+class DummyPretrainDataset(torch.utils.data.Dataset):
+    """Synthetic dataset used for backbone refinement."""
+
+    def __init__(self):
+        self.imgs = [torch.full((1, 2, 2), 2.0), torch.full((1, 2, 2), 3.0)]
+        self.trans = ["syn1", "syn2"]
+
+    def __len__(self):
+        return len(self.imgs)
+
+    def __getitem__(self, idx):
+        return self.imgs[idx], self.trans[idx]
+
+
+class DummyBackbone(torch.nn.Module):
+    """Record images fed during refinement."""
+
+    def __init__(self):
+        super().__init__()
+        class FakeParam(torch.nn.Parameter):
+            @property
+            def device(self):
+                return torch.device("cuda")
+
+        self.param = FakeParam(torch.zeros(1, requires_grad=True))
+        self.calls = []
+        self.phoc_head = None
+
+    def forward(self, x, *, return_feats=True):
+        self.calls.append(x.detach().clone())
+        B = x.size(0)
+        logits = torch.zeros(1, B, 38, requires_grad=True)
+        return logits, logits
+
+    def parameters(self, recurse=True):
+        yield self.param
+
+    def to(self, device):
+        return self
+
+
+def test_refine_visual_backbone_syn_only(monkeypatch):
+    """Synthetic-only batches when ``syn_batch_ratio=1``."""
+
+    dataset = DummyHTRDataset()
+    pre_ds = DummyPretrainDataset()
+    backbone = DummyBackbone()
+
+    from alignment import trainer
+    refine_visual_backbone = trainer.refine_visual_backbone
+
+    orig_to = torch.Tensor.to
+    orig_full = torch.full
+    orig_tensor = torch.tensor
+
+    def fake_to(self, *args, **kwargs):
+        if args and (args[0] == torch.device("cuda") or args[0] == "cuda"):
+            return self
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_to(self, *args, **kwargs)
+
+    def fake_full(size, fill_value, **kwargs):
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_full(size, fill_value, **kwargs)
+
+    def fake_tensor(*args, **kwargs):
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_tensor(*args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to, raising=False)
+    monkeypatch.setattr(torch, "full", fake_full, raising=False)
+    monkeypatch.setattr(torch, "tensor", fake_tensor, raising=False)
+    monkeypatch.setattr(trainer, "plot_tsne_embeddings", lambda *a, **k: None)
+
+    refine_visual_backbone(
+        dataset,
+        backbone,
+        num_epochs=1,
+        batch_size=2,
+        pretrain_ds=pre_ds,
+        syn_batch_ratio=1.0,
+        enable_phoc=False,
+        enable_contrastive=False,
+    )
+
+    for batch in backbone.calls:
+        assert batch.min() >= 2
+

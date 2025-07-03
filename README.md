@@ -805,7 +805,7 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 Located in: `alignment/trainer.py`
 
-Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled.
+Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled. Setting `syn_batch_ratio=1` yields purely synthetic batches, while `syn_batch_ratio=0` uses only real data.
 
 ```python
 def refine_visual_backbone(
