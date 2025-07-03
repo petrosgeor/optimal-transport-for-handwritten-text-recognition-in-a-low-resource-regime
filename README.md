@@ -9,6 +9,7 @@ This repository contains a minimal implementation for handwritten text recogniti
   - [Data Handling](#data-handling)
   - [Alignment Utilities](#alignment-utilities)
   - [Loss Functions](#loss-functions)
+  - [Metrics](#metrics)
   - [CTC Utilities](#ctc-utilities)
   - [Plotting Utilities](#plotting-utilities)
   - [Vocabulary Utilities](#vocabulary-utilities)
@@ -39,6 +40,16 @@ class HTRNet(nn.Module):
 *   `arch_cfg`: Configuration object containing architecture parameters (e.g., `cnn_cfg`, `head_type`, `rnn_type`, `feat_dim`, `feat_pool`, `phoc_levels`).
 *   `nclasses`: Number of output classes for the CTC head (including the blank token).
 
+**Attributes:**
+*   `features` (CNN): Convolutional feature extractor.
+*   `top` (nn.Module): CTC head chosen by `arch_cfg.head_type`.
+*   `feat_head` (nn.Module | None): Global descriptor pooling module.
+*   `phoc_head` (nn.Module | None): Optional PHOC prediction layer.
+
+**Methods:**
+*   `forward(x, *, return_feats=True)`: returns logits and optional descriptors; does not modify state.
+
+
 
 
 #### Projector
@@ -55,6 +66,15 @@ class Projector(nn.Module):
 *   `input_dim`: Dimensionality of the input features from the backbone.
 *   `output_dim`: Dimensionality of the target embedding space (e.g., word embedding dimension).
 *   `dropout`: Dropout rate applied after the first two activations.
+
+**Attributes:**
+*   `input_dim` (int): Stored input dimension.
+*   `output_dim` (int): Stored output dimension.
+*   `sequential` (nn.Sequential): Three-layer MLP.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Passes `x` through the MLP without altering state.
+
 
 
 
@@ -86,6 +106,14 @@ class CNN(nn.Module):
 
 *   `cnn_cfg`: Configuration list defining the CNN layers (e.g., `[[2, 64], "M", [3, 128]]`).
 *   `flattening`: Method to flatten the CNN output (`'maxpool'` or `'concat'`).
+**Attributes:**
+*   `k` (int): Fixed temporal kernel size used during max-pooling.
+*   `flattening` (str): Output flattening mode.
+*   `features` (nn.ModuleList): Sequence of convolutional blocks.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Returns the CNN feature map.
+
 
 #### AttentivePool
 
@@ -115,6 +143,13 @@ class CTCtopC(nn.Module):
 *   `input_size`: Number of input features.
 *   `nclasses`: Number of output classes.
 *   `dropout`: Dropout rate.
+**Attributes:**
+*   `dropout` (nn.Dropout): Dropout layer.
+*   `cnn_top` (nn.Conv2d): Convolutional classifier.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Returns network logits.
+
 
 #### CTCtopR
 
@@ -131,6 +166,13 @@ class CTCtopR(nn.Module):
 *   `rnn_cfg`: Tuple containing `(hidden_size, num_layers)` for the RNN.
 *   `nclasses`: Number of output classes.
 *   `rnn_type`: Type of RNN (`'gru'` or `'lstm'`).
+**Attributes:**
+*   `rec` (nn.Module): Bidirectional RNN encoder.
+*   `fnl` (nn.Sequential): Final linear classifier.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Returns sequence logits.
+
 
 #### CTCtopB
 
@@ -147,6 +189,14 @@ class CTCtopB(nn.Module):
 *   `rnn_cfg`: Tuple containing `(hidden_size, num_layers)` for the RNN.
 *   `nclasses`: Number of output classes.
 *   `rnn_type`: Type of RNN (`'gru'` or `'lstm'`).
+**Attributes:**
+*   `rec` (nn.Module): Bidirectional RNN encoder.
+*   `fnl` (nn.Sequential): Linear classifier after the RNN.
+*   `cnn` (nn.Sequential): Auxiliary convolutional head.
+
+**Methods:**
+*   `forward(x) -> Tuple[torch.Tensor, torch.Tensor]`: Returns main and auxiliary logits.
+
 
 #### CTCtopT
 
@@ -162,6 +212,14 @@ class CTCtopT(nn.Module):
 *   `input_size`: Number of input features.
 *   `transf_cfg`: Tuple containing `(d_model, nhead, nlayers, dim_ff)` for the Transformer.
 *   `nclasses`: Number of output classes.
+**Attributes:**
+*   `proj` (nn.Linear): Linear projection before the Transformer.
+*   `encoder` (nn.TransformerEncoder): Transformer encoder.
+*   `fc` (nn.Linear): Final classification layer.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Returns sequence logits.
+
 
 ### Data Handling
 
@@ -192,6 +250,24 @@ class HTRDataset(Dataset):
 *   `character_classes` (list | None): Characters making up the vocabulary.
 *   `config` (Any): Optional configuration object with alignment parameters.
 *   `two_views` (bool): Return two augmented views when `True`.
+**Attributes:**
+*   `data` (list[tuple]): Pairs of image paths and transcriptions.
+*   `transcriptions` (list[str]): Text strings for each image.
+*   `character_classes` (list[str]): Dataset vocabulary of characters.
+*   `external_words` (list[str]): Optional external vocabulary.
+*   `external_word_probs` (list[float]): Frequency estimate for each external word.
+*   `external_word_embeddings` (torch.Tensor): Embeddings for external words.
+*   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `external_words`.
+*   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
+    If ``aligned[i] = k`` and ``k != -1``, ``image[i]`` is aligned with ``external_words[k]``.
+
+**Methods:**
+*   `__len__()` -> int: Dataset size.
+*   `__getitem__(index)` -> tuple: Returns processed image(s), text and alignment id.
+*   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
+*   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
+*   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of vocabulary usage.
+
 
 
 
@@ -222,6 +298,18 @@ class PretrainingHTRDataset(Dataset):
 *   `n_random` (int | None): If given, keep only `n_random` entries.
 *   `random_seed` (int): Seed controlling the random subset selection.
 *   `preload_images` (bool): Load all images into memory on init.
+
+**Attributes:**
+*   `img_paths` (list[str]): Absolute paths to images.
+*   `transcriptions` (list[str]): Corresponding labels.
+*   `preload_images` (bool): Whether images were loaded into memory.
+
+**Methods:**
+*   `process_paths(filtered_list)` -> tuple: Returns absolute paths and labels.
+*   `__len__()` -> int: Number of items.
+*   `__getitem__(index)` -> tuple: Returns an image tensor and transcription.
+*   `save_image(index, out_dir, filename=None)` -> str: Save preprocessed image.
+*   `loaded_image_shapes()` -> List[tuple]: Shapes of cached images.
 
 
 
@@ -265,6 +353,16 @@ class OTAligner:
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
 *   `metric` (str): Uncertainty measure (`'gap'`, `'entropy'`, or `'variance'`).
 *   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
+**Attributes:**
+*   `dataset` (HTRDataset): Dataset being aligned.
+*   `backbone` (HTRNet): Visual backbone network.
+*   `projectors` (list[nn.Module]): Projector ensemble.
+*   `word_embs` (torch.Tensor): External word embeddings on device.
+*   `k` (int): Number of pseudo-labels to add per call.
+
+**Methods:**
+*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: performs one OT iteration, updates `dataset.aligned` and prints statistics.
+
 
 
 
@@ -387,6 +485,15 @@ class ProjectionLoss(torch.nn.Module):
 *   `reg_m` (float): Unbalanced mass regularisation.
 *   `supervised_weight` (float): Scale for the supervised descriptor distance term.
 *   `sinkhorn_kwargs` (dict): Extra keyword arguments forwarded to the solver.
+**Attributes:**
+*   `reg` (float): OT regularisation strength.
+*   `unbalanced` (bool): Flag for unbalanced OT formulation.
+*   `reg_m` (float): Mass regularisation when unbalanced.
+*   `supervised_weight` (float): Weight for supervised term.
+
+**Methods:**
+*   `forward(descriptors, word_embeddings, aligned, tgt_probs) -> torch.Tensor`: returns the combined loss without side effects.
+
 
 #### SoftContrastiveLoss
 
@@ -402,6 +509,61 @@ class SoftContrastiveLoss(torch.nn.Module):
 *   `tau` (float): Temperature in image space (distance → similarity).
 *   `T_txt` (float): Temperature in transcript space (controls softness).
 *   `eps` (float): Numeric stability.
+**Attributes:**
+*   `tau` (float): Temperature for descriptor similarity.
+*   `T_txt` (float): Temperature for transcript similarity.
+*   `eps` (float): Numerical stability term.
+
+**Methods:**
+*   `forward(feats, targets, lengths) -> torch.Tensor`: Computes the contrastive loss; no side effects.
+### Metrics
+
+#### CER
+
+Located in: `htr_base/utils/metrics.py`
+
+Character error rate accumulator.
+
+```python
+class CER:
+    def __init__(self) -> None:
+```
+
+*   No arguments. Initializes counters to zero.
+
+**Attributes:**
+*   `total_dist` (float): Accumulated edit distance.
+*   `total_len` (int): Total target length.
+
+**Methods:**
+*   `update(prediction, target) -> None`: Adds edit distance of a new sample.
+*   `score() -> float`: Returns current CER.
+*   `reset() -> None`: Clears accumulated statistics.
+
+#### WER
+
+Located in: `htr_base/utils/metrics.py`
+
+Word error rate metric with optional tokenization.
+
+```python
+class WER:
+    def __init__(self, mode: str = 'tokenizer') -> None:
+```
+
+*   `mode` (str): Either `tokenizer` or `space` controlling tokenization.
+
+**Attributes:**
+*   `mode` (str): Tokenization mode.
+*   `total_dist` (float): Cumulative edit distance.
+*   `total_len` (int): Total number of reference words.
+
+**Methods:**
+*   `update(prediction, target) -> None`: Update statistics with one sample.
+*   `score() -> float`: Return current WER.
+*   `reset() -> None`: Reset internal counters.
+
+
 
 
 
