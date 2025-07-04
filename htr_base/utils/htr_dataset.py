@@ -275,6 +275,24 @@ class HTRDataset(Dataset):
         plt.close()
         print(f"[external_word_histogram] Figure saved to: {save_path}")
 
+    def word_frequencies(self) -> tuple[list[str], list[float]]:
+        """Return unique words and their empirical probabilities.
+
+        Returns:
+            tuple[list[str], list[float]]: First element is the list of unique
+            transcriptions. The second element gives the probability of each
+            corresponding word.
+        """
+
+        from collections import Counter
+
+        words = [t.strip().lower() for t in self.transcriptions]
+        counts = Counter(words)
+        total = sum(counts.values())
+        unique = list(counts.keys())
+        probs = [counts[w] / total for w in unique]
+        return unique, probs
+
 
 class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining.

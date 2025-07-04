@@ -9,6 +9,7 @@ import itertools
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
 from alignment.trainer import _shuffle_batch
+from htr_base.utils.htr_dataset import HTRDataset
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -199,4 +200,18 @@ def test_refine_visual_backbone_syn_only(monkeypatch):
 
     for batch in backbone.calls:
         assert batch.min() >= 2
+
+
+def test_word_frequencies():
+    """Unique words and probabilities from transcriptions."""
+
+    dataset = HTRDataset.__new__(HTRDataset)
+    dataset.transcriptions = ["cat", "cat", "dog"]
+
+    words, probs = HTRDataset.word_frequencies(dataset)
+
+    assert set(words) == {"cat", "dog"}
+    mapping = dict(zip(words, probs))
+    assert abs(mapping["cat"] - 2 / 3) < 1e-6
+    assert abs(mapping["dog"] - 1 / 3) < 1e-6
 
