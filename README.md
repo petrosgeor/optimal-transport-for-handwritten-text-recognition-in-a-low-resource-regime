@@ -267,6 +267,8 @@ class HTRDataset(Dataset):
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
 *   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of vocabulary usage.
+*   `word_frequencies()` -> tuple[list[str], list[float]]: returns unique words
+    and their probabilities, e.g. `dataset.word_frequencies()`.
 
 
 
