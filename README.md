@@ -47,7 +47,7 @@ class HTRNet(nn.Module):
 *   `phoc_head` (nn.Module | None): Optional PHOC prediction layer.
 
 **Methods:**
-*   `forward(x, *, return_feats=True)`: returns logits and optional descriptors; does not modify state.
+*   `forward(x, *, return_feats=True)`: Returns a tuple containing logits and, optionally, features and PHOC logits. The exact output depends on the model configuration and the `return_feats` flag.
 
 
 
@@ -254,6 +254,7 @@ class HTRDataset(Dataset):
 *   `data` (list[tuple]): Pairs of image paths and transcriptions.
 *   `transcriptions` (list[str]): Text strings for each image.
 *   `character_classes` (list[str]): Dataset vocabulary of characters.
+*   `prior_char_probs` (dict): Prior probabilities for each character in the vocabulary.
 *   `external_words` (list[str]): Optional external vocabulary.
 *   `external_word_probs` (list[float]): Frequency estimate for each external word.
 *   `external_word_embeddings` (torch.Tensor): Embeddings for external words.
@@ -264,6 +265,7 @@ class HTRDataset(Dataset):
 **Methods:**
 *   `__len__()` -> int: Dataset size.
 *   `__getitem__(index)` -> tuple: Returns processed image(s), text and alignment id.
+*   `letter_priors(transcriptions=None, n_words=50000)`: returns prior probabilities for characters.
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
 *   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of vocabulary usage.

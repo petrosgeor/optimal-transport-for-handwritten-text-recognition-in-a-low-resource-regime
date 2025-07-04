@@ -26,17 +26,17 @@ from pathlib import Path
 #   dataset_base_folder_name – dataset folder containing processed words.
 #   figure_output_dir/filename – where to write diagnostic figures.
 # ------------------------------------------------------------------
-GPU_ID = 0
+GPU_ID = 1
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
 
-MAX_LENGTH = 4
+MAX_LENGTH = 3
 MIN_LENGTH = 0
 EVAL_K = 4
-N_ALIGNED = 100
+N_ALIGNED = 30
 K_EXTERNAL_WORDS = 200
 NUM_EPOCHS = 600
 BATCH_SIZE = 128
-SYN_BATCH_RATIO = 0.5 # if 0 then we only use gt samples. If 1 then we use only synthetic samples
+SYN_BATCH_RATIO = 0.7 # if 0 then we only use gt samples. If 1 then we use only synthetic samples
 LEARNING_RATE = 1e-3
 MAIN_LOSS_WEIGHT = 1.0
 AUX_LOSS_WEIGHT = 0.1
@@ -293,6 +293,12 @@ def refine_visual_model(dataset: HTRDataset,
         f"[Refine] training on {len(subset_idx)} samples "
         f"containing {len(unique_words)} unique words"
     )
+
+    print("\nSelected transcriptions for training:")
+    for i in subset_idx:
+        print(f"  - {transcrs[i]}")
+    print("-" * 20)
+
     pretrain_only = False
     if pretrain_ds is not None and syn_batch_ratio is not None:
         syn_bs = int(batch_size * syn_batch_ratio)
@@ -396,6 +402,14 @@ def refine_visual_model(dataset: HTRDataset,
             cer = _evaluate_cer(backbone, test_loader, i2c, device, k=k_eval)
             print(f"[Eval] CER @ epoch {epoch}: {cer:.4f}")
     print("[Refine] finished.")
+def count_transcriptions_by_length(dataset: HTRDataset, k: int) -> int:
+    """Counts the number of transcriptions in the dataset with length <= k."""
+    count = 0
+    for transcription in dataset.transcriptions:
+        if len(transcription.strip().replace(" ", "")) <= k:
+            count += 1
+    return count
+
 if __name__ == "__main__":
     proj_root = Path(__file__).resolve().parents[1]  # repository root
     gw_folder = proj_root / "htr_base" / "data" / DATASET_BASE_FOLDER_NAME / "processed_words"
@@ -408,7 +422,7 @@ if __name__ == "__main__":
 
     train_set = HTRDataset(
         str(gw_folder),
-        subset="train",
+        subset="train_val",
         fixed_size=DATASET_FIXED_SIZE,
         transforms=aug_transforms,
         config=DummyCfg(),

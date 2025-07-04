@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------
 # Pretraining PHOC
 # ----------------------------------------------------------------------
-enable_phoc: true        # turn PHOC loss on/off
+enable_phoc: false        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # same default as HTRNet
 phoc_loss_weight: 0.1     # loss scaling factor
 
@@ -23,10 +23,10 @@ architecture:
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss 
 # ----------------------------------------------------------------------
-contrastive_enable: true   # turn on to activate the loss
-contrastive_weight: 0.2     # β – scales the new loss inside total_loss
+contrastive_enable: false   # turn on to activate the loss
+contrastive_weight: 0.3     # β – scales the new loss inside total_loss
 contrastive_tau: 0.07       # τ – temperature for descriptor similarities
-contrastive_text_T: 1.0     # T_txt – softness in edit‑distance space
+contrastive_text_T: 3.0     # T_txt – softness in edit‑distance space
 
 # ----------------------------------------------------------------------
 # Optional pretrained backbone
@@ -40,7 +40,7 @@ pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
 # Dataset and training parameters are now configured here so that
 # ``pretraining.py`` and other scripts use the same values.
 device: cuda           # target device
-gpu_id: 0              # CUDA device index
+gpu_id: 1              # CUDA device index
 list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
 train_set_size: 30000  # number of random training images
 test_set_size: 10000   # number of random test images

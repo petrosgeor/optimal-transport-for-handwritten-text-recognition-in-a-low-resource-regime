@@ -50,7 +50,7 @@ cer_score = compute_cer(
     model=model,
     device=device,
     decode="beam",
-    beam_width=5
+    beam_width=10
 )
 
 print(f"\nFinal CER on the test set: {cer_score:.4f}")

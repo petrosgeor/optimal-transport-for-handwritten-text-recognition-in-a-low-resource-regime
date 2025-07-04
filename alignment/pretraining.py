@@ -63,10 +63,7 @@ from torch.utils.data import DataLoader
 
 yaml_cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml")
 GPU_ID = int(yaml_cfg.get("gpu_id", 0))
-DEVICE = str(yaml_cfg.get("device", "cuda"))
-os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
-if DEVICE.startswith("cuda"):
-    DEVICE = f"cuda:{GPU_ID}"
+DEVICE = "cuda"
 ENABLE_PHOC = bool(yaml_cfg.get("enable_phoc", False))
 PHOC_LEVELS = tuple(yaml_cfg.get("phoc_levels", (1, 2, 3, 4)))
 PHOC_W = float(yaml_cfg.get("phoc_loss_weight", 0.1))

@@ -392,7 +392,7 @@ def train_projector(  # pylint: disable=too-many-arguments
         v = word_embs_cpu.size(0)
         word_probs_cpu = torch.full((v,), 1.0 / v)
         
-    word_embs = word_probs_cpu.to(device)
+    word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
 
     if plot_tsne:
