@@ -133,10 +133,6 @@ class HTRDataset(Dataset):
     def __len__(self):
         """Return the number of items in the dataset."""
         return len(self.data)
-    def _filter_external_words(self, words: List[str]) -> List[str]:
-        """Return words containing only known dataset characters."""
-        allowed = set(self.character_classes)
-        return [w for w in words if all(ch in allowed for ch in w)]
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):

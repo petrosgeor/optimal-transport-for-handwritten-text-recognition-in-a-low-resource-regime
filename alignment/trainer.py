@@ -166,7 +166,7 @@ def refine_visual_backbone(
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
 ) -> None:
-    """Fine-tune ``backbone`` on words aligned to external vocabulary.
+    """Fine-tune ``backbone`` on words aligned to the dataset vocabulary.
 
     The routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.
     Synthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and
@@ -382,7 +382,7 @@ def train_projector(  # pylint: disable=too-many-arguments
             "FATAL: dataset.unique_word_embeddings is required but was not found."
         )
         
-    # Target probability for each external word – use uniform if absent
+    # Target probability for each unique word – use uniform if absent
     # --- THIS BLOCK IS NOW FIXED ---
     probs_attr = getattr(dataset, "unique_word_probs", None)
     if probs_attr is not None and len(probs_attr) > 0:

@@ -16,7 +16,7 @@ Traditional HTR approaches require extensive character-level annotations, but we
 
 The project’s core solution is a bootstrapping framework that:
 
-1. **Seeds the process with a small set of confidently aligned word instances** (i.e., words that exactly match a known external vocabulary),
+1. **Seeds the process with a small set of confidently aligned word instances** (i.e., words that match the dataset vocabulary),
 2. **Leverages language priors** from modern English (or other target languages) to inform alignment,
 3. **Uses optimal transport theory** to match distributions of visual features and word semantics,
 4. **Iteratively expands the set of aligned images** (pseudo-labeling new instances based on model confidence),
@@ -34,13 +34,13 @@ The project’s core solution is a bootstrapping framework that:
 - Assumes a **uniform distribution** over the visual feature manifold to make optimal transport (OT) calculations tractable.
 - The network architecture, data flow, and all training parameters are highly configurable for research flexibility【7†README.md】.
 
-### 2. External Vocabulary & Language Priors
+### 2. Dataset Vocabulary & Language Priors
 
-- Employs a list of the top-k most frequent English words as the **external vocabulary** (k typically 200+; can be adjusted).
-- **Word frequency statistics** from modern English corpora provide prior probabilities for each word.
+- Builds a vocabulary from the words observed in the dataset itself, capturing their empirical frequency.
+- **Word frequency statistics** from the dataset provide prior probabilities for each word.
 - **Word embeddings** for vocabulary are computed using Multi-Dimensional Scaling (MDS) on pairwise Levenshtein (edit) distances, preserving semantic similarity in embedding space.
-- The vocabulary is filtered so that every external word consists only of characters present in the training set, ensuring compatibility with the dataset at hand.
-- This design allows the model to benefit from statistical language knowledge even when the dataset’s actual vocabulary is unknown【7†README.md】.
+- The vocabulary reflects only words composed of characters present in the training set.
+- This design lets the model leverage language structure even with limited annotations【7†README.md】.
 
 ### 3. Iterative Refinement Loop
 
@@ -48,7 +48,7 @@ The overall training proceeds in alternating cycles of three phases, tightly cou
 
 #### Phase A: Backbone Refinement
 
-- Fine-tune the visual backbone **only on currently aligned word instances** (i.e., images whose transcriptions match an external vocabulary word).
+- Fine-tune the visual backbone **only on currently aligned word instances** (i.e., images whose transcriptions match the dataset vocabulary).
 - Trains with standard CTC loss (main and auxiliary heads if applicable).
 - Increases the backbone’s ability to recognize “known” words with high certainty【7†README.md】.
 
