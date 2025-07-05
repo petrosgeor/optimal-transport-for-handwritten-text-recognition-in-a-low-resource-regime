@@ -41,11 +41,9 @@ class HTRDataset(Dataset):
         self.character_classes = character_classes
         self.config = config
         self.two_views = two_views
-        self.k_external_words = 0
         self.n_aligned = 0
         self.word_emb_dim = 512
         if self.config is not None:
-            self.k_external_words = int(getattr(self.config, 'k_external_words', 0))
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
         # Load gt.txt from basefolder - each line contains image path and transcription

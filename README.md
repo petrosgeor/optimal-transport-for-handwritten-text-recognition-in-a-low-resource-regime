@@ -891,9 +891,8 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `align_k` (int): Pseudo-label this many least-moved descriptors.
 *   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
-*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `k_external_words`, `word_emb_dim`, `two_views`).
+*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
 *   `n_aligned` (int): Number of initially aligned instances.
-*   `k_external_words` (int): Number of external words to consider.
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
 *   `supervised_weight` (int): Weight for supervised loss component.

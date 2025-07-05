@@ -75,11 +75,8 @@ dataset:
   subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
   n_aligned: 10            # Number of initially aligned instances
-  k_external_words: 200     # Number of external words to consider
   word_emb_dim: 512         # Dimension of word embeddings
   two_views: false          # Enable or disable two-view training
-
-k_external_words: 200       # Number of external words (re-defined, check for redundancy)
 ensemble_size: 1            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
 supervised_weight: 100       # Weight for supervised loss component
