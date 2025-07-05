@@ -259,3 +259,33 @@ def test_pretraining_dataset_length_filter(tmp_path):
         n = len(t.strip())
         assert 4 <= n <= 5
 
+
+def test_preload_skips_corrupted_images(tmp_path):
+    """Preloading ignores unreadable files and cleans up paths."""
+
+    base_path = tmp_path
+    list_file = tmp_path / "list.txt"
+
+    # create a valid image
+    img_good = np.zeros((2, 2), dtype=np.uint8)
+    good_name = "0_good_0.png"
+    imageio.imwrite(base_path / good_name, img_good)
+
+    # create a corrupted image (zero bytes)
+    bad_name = "1_bad_0.png"
+    open(base_path / bad_name, "wb").close()
+
+    list_file.write_text("\n".join([good_name, bad_name]))
+
+    ds = PretrainingHTRDataset(
+        list_file=str(list_file),
+        fixed_size=(32, 32),
+        base_path=str(base_path),
+        preload_images=True,
+    )
+
+    assert len(ds) == 1
+    assert ds.transcriptions == ["good"]
+    assert ds.img_paths[0].endswith(good_name)
+    assert len(ds.images) == 1
+

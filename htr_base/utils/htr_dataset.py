@@ -308,7 +308,8 @@ class PretrainingHTRDataset(Dataset):
             min_length (int): Keep only labels with length ``>=`` this value.
             max_length (int): Keep only labels with length ``<=`` this value.
             random_seed (int): Seed controlling the random subset selection.
-            preload_images (bool): Load all images into memory on init.
+            preload_images (bool): Load all images into memory on init,
+                skipping any paths that fail to load.
         """
         if min_length > max_length:
             raise ValueError("min_length must not exceed max_length")
@@ -338,7 +339,17 @@ class PretrainingHTRDataset(Dataset):
             filtered = rng.sample(filtered, min(n_random, len(filtered)))
         self.img_paths, self.transcriptions = self.process_paths(filtered)
         if self.preload_images:
-            self.images = [load_image(p) for p in self.img_paths]
+            self.images = []
+            good_paths, good_labels = [], []
+            for path, label in zip(self.img_paths, self.transcriptions):
+                try:
+                    self.images.append(load_image(path))
+                    good_paths.append(path)
+                    good_labels.append(label)
+                except (OSError, IOError) as e:
+                    print(f"[Warn] skipped {path}: {e}")
+            self.img_paths = good_paths
+            self.transcriptions = good_labels
 
     def process_paths(self, filtered_list):
         """Convert relative image paths to absolute ones and extract labels.

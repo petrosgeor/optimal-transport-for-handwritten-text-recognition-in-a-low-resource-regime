@@ -306,6 +306,10 @@ class PretrainingHTRDataset(Dataset):
 *   `max_length` (int): Keep only labels with length ≤ this value.
 *   `random_seed` (int): Seed controlling the random subset selection.
 *   `preload_images` (bool): Load all images into memory on init.
+*   When `preload_images=True`, any image that raises an `OSError/IOError`
+    during loading (e.g. *"Truncated File Read"* JPEGs) is automatically
+    skipped.  The path is dropped from `img_paths`, the label is removed
+    from `transcriptions`, and a warning is printed.
 
 **Attributes:**
 *   `img_paths` (list[str]): Absolute paths to images.
