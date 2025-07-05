@@ -94,6 +94,8 @@ synthetic_dataset:
   list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt" # Path to the list file for synthetic dataset
   base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px" # Base path for synthetic dataset images
   n_random: 7000            # Number of random samples to use from the synthetic dataset
+  min_length: 0      # same semantics as in PretrainingHTRDataset
+  max_length: 100
   fixed_size: [64, 256]     # Fixed size for synthetic images [height, width]
   preload_images: true      # Preload images into memory for faster access
   random_seed: 0            # Random seed for reproducibility

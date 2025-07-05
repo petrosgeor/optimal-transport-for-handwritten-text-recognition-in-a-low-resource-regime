@@ -281,7 +281,8 @@ class PretrainingHTRDataset(Dataset):
     If ``n_random`` is provided, ``random_seed`` ensures the same
     subset of images is selected each time.  When ``preload_images``
     is ``True`` the raw images are cached in memory for faster
-    access.
+    access. Labels can be filtered by length using ``min_length``
+    and ``max_length`` before random subsampling occurs.
     """
 
     def __init__(
@@ -291,6 +292,8 @@ class PretrainingHTRDataset(Dataset):
         base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
         transforms: list = None,
         n_random: int = None,
+        min_length: int = 0,
+        max_length: int = 100,
         random_seed: int = 0,
         preload_images: bool = False,
     ):
@@ -302,6 +305,8 @@ class PretrainingHTRDataset(Dataset):
             base_path (str): Root directory prepended to each path in ``list_file``.
             transforms (list | None): Optional Albumentations pipeline.
             n_random (int | None): If given, keep only ``n_random`` entries.
+            min_length (int): Lower bound on label length to keep.
+            max_length (int): Upper bound on label length to keep.
             random_seed (int): Seed controlling the random subset selection.
             preload_images (bool): Load all images into memory on init.
         """
@@ -309,12 +314,20 @@ class PretrainingHTRDataset(Dataset):
         self.base_path = base_path
         self.transforms = transforms
         self.preload_images = preload_images
+        if min_length > max_length:
+            raise ValueError("min_length cannot exceed max_length")
+        self.min_length = max(0, min_length)
+        self.max_length = max_length
 
         with open(list_file, 'r') as f:
             rel_paths = [line.strip() for line in f if line.strip()]
 
         def _valid(p):
             desc = os.path.basename(p).split('_')[1]
+            lbl = desc.lower()
+            n_chars = len(lbl.replace(" ", ""))
+            if not (self.min_length <= n_chars <= self.max_length):
+                return False
             return (not desc.isupper()) and desc.isalnum()
 
         filtered = [p for p in rel_paths if _valid(p)]
