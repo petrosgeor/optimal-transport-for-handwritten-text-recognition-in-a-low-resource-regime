@@ -290,8 +290,6 @@ class PretrainingHTRDataset(Dataset):
         base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
         transforms: list = None,
         n_random: int = None,
-        min_length: int = 0,
-        max_length: int = 100,
         random_seed: int = 0,
         preload_images: bool = False,
     ):
@@ -302,13 +300,10 @@ class PretrainingHTRDataset(Dataset):
 *   `base_path` (str): Root directory prepended to each path in `list_file`.
 *   `transforms` (list | None): Optional Albumentations pipeline.
 *   `n_random` (int | None): If given, keep only `n_random` entries.
-*   `min_length` (int, default `0`): Lower bound (inclusive) on the label length to keep.
-*   `max_length` (int, default `100`): Upper bound (inclusive) on the label length to keep.
 *   `random_seed` (int): Seed controlling the random subset selection.
 *   `preload_images` (bool): Load all images into memory on init.
 
-If `n_random` is given, the subset is drawn **after** applying the
-`[min_length, max_length]` filter.
+
 
 **Attributes:**
 *   `img_paths` (list[str]): Absolute paths to images.
@@ -358,8 +353,8 @@ class OTAligner:
 *   `batch_size` (int): Mini-batch size when forwarding the dataset.
 *   `device` (str): Device on which the backbone runs.
 *   `reg` (float): Entropic regularisation strength.
-*   `unbalanced` (bool): Use unbalanced OT formulation if `True`.
-*   `reg_m` (float): Unbalanced mass regularisation.
+*   `unbalanced` (bool): Use unbalanced OT formulation.
+*   `reg_m` (float): Additional mass regularisation when unbalanced OT is used.
 *   `sinkhorn_kwargs` (dict): Additional arguments for the OT solver.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
 *   `metric` (str): Uncertainty measure (`'gap'`, `'entropy'`, or `'variance'`).
@@ -368,11 +363,24 @@ class OTAligner:
 *   `dataset` (HTRDataset): Dataset being aligned.
 *   `backbone` (HTRNet): Visual backbone network.
 *   `projectors` (list[nn.Module]): Projector ensemble.
-*   `word_embs` (torch.Tensor): External word embeddings on device.
-*   `k` (int): Number of pseudo-labels to add per call.
+*   `batch_size` (int): Mini-batch size used during feature harvesting.
+*   `device` (torch.device): Device used during descriptor extraction.
+*   `reg` (float): Entropic regularisation parameter.
+*   `unbalanced` (bool): Whether unbalanced OT is used.
+*   `reg_m` (float): Mass regularisation for unbalanced OT.
+*   `sinkhorn_kwargs` (dict): Extra arguments forwarded to the Sinkhorn solver.
+*   `k` (int): Number of descriptors to pseudo-label per iteration.
+*   `metric` (str): Measure to rank candidate descriptors.
+*   `agree_threshold` (int): Required number of agreeing projectors.
+*   `word_embs` (torch.Tensor): Word embeddings stored on `device`.
 
 **Methods:**
-*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: performs one OT iteration, updates `dataset.aligned` and prints statistics.
+*   `_calculate_ot(proj_feats)` -> Tuple[torch.Tensor, np.ndarray]: Compute OT projection and transport plan.
+*   `_get_projector_outputs()` -> dict: Run projectors on the dataset and gather OT statistics.
+*   `_select_candidates(counts, dist_matrix, plan, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
+*   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
+*   `_log_results(chosen, nearest_word, moved_dist, dist_matrix, plan, var_scores)` -> None: Print alignment statistics.
+*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one OT iteration and return the transport plan, projected descriptors and moved distances.
 
 
 
@@ -905,7 +913,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
-*   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `min_length`, `max_length`, `fixed_size`, `preload_images`, `random_seed`).
+*   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
 
 #### pretraining_config.yaml
 
@@ -929,8 +937,6 @@ Architecture and pretraining options used by `pretraining.py`.
 *   `list_file` (str): Path to the image list file.
 *   `train_set_size` (int): Number of random training images.
 *   `test_set_size` (int): Number of random test images.
-*   `min_length` (int): Lower bound on label length for the synthetic dataset.
-*   `max_length` (int): Upper bound on label length for the synthetic dataset.
 *   `batch_size` (int): Batch size.
 *   `num_epochs` (int): Number of training epochs.
 *   `learning_rate` (float): Learning rate.

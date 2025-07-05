@@ -91,28 +91,41 @@ def log_pseudo_labels(
     round_idx: int,
     out_dir: str = "results",
 ) -> None:
-    """Write pseudo-labelled words from ``new_indices`` to disk.
-
-    Args:
-        new_indices (torch.Tensor): Dataset positions newly labelled.
-        dataset (HTRDataset): Dataset containing ``unique_words`` and ``aligned``.
-        round_idx (int): Index of the refinement cycle that produced the labels.
-        out_dir (str): Directory where the log file is stored.
-
-    Returns:
-        None
     """
+    Save pseudo‑labeled examples for the current refinement round.
 
+    The output file has **three tab‑separated columns**:
+        1) Dataset index of the sample (integer)
+        2) Predicted transcription (pseudo‑label)
+        3) Ground‑truth transcription (original label)
+
+    Parameters
+    ----------
+    new_indices : torch.Tensor
+        1‑D tensor with the positions in `dataset` that were newly pseudo‑labeled.
+    dataset : HTRDataset
+        Must expose `unique_words`, `transcriptions` and `aligned` as in this repo.
+    round_idx : int
+        Index of the refinement cycle (used to name the log file).
+    out_dir : str, default "results"
+        Directory where the file `pseudo_labels_round_<round_idx>.txt` is saved.
+    """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    words = [
-        dataset.unique_words[int(dataset.aligned[i])]
-        for i in new_indices.tolist()
-        if int(dataset.aligned[i]) != -1
-    ]
+
+    rows: list[str] = []
+    for idx in new_indices.tolist():
+        word_id = int(dataset.aligned[idx])
+        if word_id == -1:        # skip if still unaligned (safety check)
+            continue
+        pred_word = dataset.unique_words[word_id]
+        true_word = dataset.transcriptions[idx]
+        rows.append(f"{idx}\t{pred_word}\t{true_word}")
+
     file_path = out_path / f"pseudo_labels_round_{round_idx}.txt"
-    with open(file_path, "w", encoding="utf8") as f:
-        f.write("\n".join(words))
+    with open(file_path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(rows))
+
 
 
 
@@ -326,9 +339,9 @@ def refine_visual_backbone(
             effective_batches += 1
         if effective_batches:
             avg_loss = epoch_loss / effective_batches
-            # print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        # else:
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+            print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        else:
+            print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     
     plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')

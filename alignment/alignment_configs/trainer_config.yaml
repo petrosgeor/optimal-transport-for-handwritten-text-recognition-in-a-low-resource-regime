@@ -5,7 +5,7 @@ refine_batch_size: 128      # mini-batch size used when fine-tuning the backbone
 refine_lr: 1e-3             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
-refine_epochs: 30           # epochs used for backbone refinement
+refine_epochs: 100           # epochs used for backbone refinement
 syn_batch_ratio: 0.8        # fraction of each batch drawn from PretrainingHTRDataset. 1 for only synthetic and 0 for only real
 
 # optional PHOC training
@@ -53,7 +53,7 @@ gpu_id: 0                   # which CUDA device index to use
 # ----------------------------------------------------------------------
 # Alternating training cycle
 # ----------------------------------------------------------------------
-alt_rounds: 4               # number of backbone/projector cycles per pass
+alt_rounds: 1               # number of backbone/projector cycles per pass
 
 # ----------------------------------------------------------------------
 # Align-more-instances defaults
@@ -64,7 +64,7 @@ align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
 align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
-metric: variance          # use projection-variance agreement
+metric: gap          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
 
 # ----------------------------------------------------------------------
@@ -74,7 +74,7 @@ dataset:
   basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
   subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 10            # Number of initially aligned instances
+  n_aligned: 200            # Number of initially aligned instances
   word_emb_dim: 512         # Dimension of word embeddings
   two_views: false          # Enable or disable two-view training
 ensemble_size: 1            # Size of the projector ensemble
@@ -94,8 +94,6 @@ synthetic_dataset:
   list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt" # Path to the list file for synthetic dataset
   base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px" # Base path for synthetic dataset images
   n_random: 7000            # Number of random samples to use from the synthetic dataset
-  min_length: 0      # same semantics as in PretrainingHTRDataset
-  max_length: 100
   fixed_size: [64, 256]     # Fixed size for synthetic images [height, width]
   preload_images: true      # Preload images into memory for faster access
   random_seed: 0            # Random seed for reproducibility
