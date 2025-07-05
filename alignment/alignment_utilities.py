@@ -269,12 +269,14 @@ class OTAligner:
                 The projected features as a tensor and the OT plan as a NumPy array.
         """
         N, V = proj_feats.size(0), self.word_embs.size(0)
+        # uniform distribution over descriptors
         a = np.full((N,), 1.0 / N, dtype=np.float64)
         if getattr(self.dataset, "unique_word_probs", None):
             b = np.asarray(self.dataset.unique_word_probs, dtype=np.float64)
             if not self.unbalanced:
                 b /= b.sum()
         else:
+            # uniform distribution over vocabulary
             b = np.full((V,), 1.0 / V, dtype=np.float64)
 
         proj_np, plan = calculate_ot_projections(
@@ -290,6 +292,7 @@ class OTAligner:
 
         assert np.isfinite(proj_np).all(), "NaNs in OT projections"
         assert plan.shape == (N, V), "OT plan shape wrong"
+        # convert OT projections back to torch
         proj_feats_ot = torch.from_numpy(proj_np).float()
         return proj_feats_ot, plan
 
@@ -303,6 +306,7 @@ class OTAligner:
             per-sample variance scores and the ``aligned`` vector from the
             dataset.
         """
+        # collect image descriptors from the backbone
         feats_all, aligned_all = harvest_backbone_features(
             self.dataset,
             self.backbone,
@@ -321,6 +325,7 @@ class OTAligner:
         moved_list: list[torch.Tensor] = []
         plan: np.ndarray | None = None
 
+        # process each projector in the ensemble
         for proj in self.projectors:
             proj.eval().to(self.device)
             proj_feats = proj(feats_all.to(self.device)).cpu()
@@ -329,6 +334,7 @@ class OTAligner:
             )
             assert torch.isfinite(proj_feats).all(), "Non-finite projector output"
 
+            # project descriptors onto the word embedding space using OT
             proj_feats_ot, plan = self._calculate_ot(proj_feats)
 
             moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)
@@ -386,6 +392,7 @@ class OTAligner:
             torch.Tensor: 1-D tensor of selected dataset indices.
         """
         assert self.k >= 0, "k must be non-negative"
+        # rank samples by uncertainty according to the chosen metric
         if self.metric == "variance":
             order_unc = torch.argsort(var_scores).cpu().numpy()
         else:
@@ -400,6 +407,7 @@ class OTAligner:
         assert self.agree_threshold > 0, "agree_threshold must be positive"
         assert order_cert.size > 0, "No candidates produced"
 
+        # keep samples that are still unlabelled and meet the agreement threshold
         chosen: list[int] = []
         for idx in order_cert:
             if mask_new[idx] and counts[idx].item() >= self.agree_threshold:
@@ -421,6 +429,7 @@ class OTAligner:
         """
         if chosen.numel() > 0:
             prev_vals = self.dataset.aligned[chosen]
+            # ensure we only label previously unaligned samples
             assert (prev_vals == -1).all(), "About to overwrite existing labels!"
             self.dataset.aligned[chosen] = nearest_word[chosen].to(torch.int32)
 
@@ -447,6 +456,7 @@ class OTAligner:
         Returns:
             None
         """
+        # report statistics for the newly pseudo-labelled samples
         chosen_list = chosen.tolist()
         if self.k > 0 and chosen_list:
             correct_new = sum(
@@ -488,6 +498,7 @@ class OTAligner:
                     f"[Align] mean row entropy: {ent.mean():.4f} ± {ent.std():.4f}"
                 )
 
+        # track running accuracy over all pseudo-labelled samples
         aligned_idx = torch.nonzero(self.dataset.aligned != -1, as_tuple=True)[0]
         if aligned_idx.numel():
             correct_tot = sum(
@@ -509,6 +520,7 @@ class OTAligner:
             tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
                 Transport plan, mean projected features and per-sample moved distance.
         """
+        # gather features and OT statistics for the current dataset state
         out = self._get_projector_outputs()
 
         chosen = self._select_candidates(
@@ -529,6 +541,7 @@ class OTAligner:
             out["var_scores"],
         )
 
+        # switch networks back to training mode
         for proj in self.projectors:
             proj.train()
         self.backbone.train()
