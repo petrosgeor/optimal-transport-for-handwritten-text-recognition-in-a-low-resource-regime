@@ -250,3 +250,40 @@ def test_pretraining_dataset_length_filter(tmp_path):
 
     assert sorted(ds.transcriptions) == ["ab", "abc", "abcdef"]
 
+
+def test_model_components_forward():
+    """Instantiate small modules and run a dummy forward pass."""
+
+    from htr_base.models import (
+        Projector,
+        BasicBlock,
+        CNN,
+        CTCtopC,
+        CTCtopR,
+        CTCtopB,
+    )
+
+    proj = Projector(4, 2)
+    out = proj(torch.randn(3, 4))
+    assert out.shape == (3, 2)
+
+    block = BasicBlock(3, 3)
+    out = block(torch.randn(1, 3, 8, 8))
+    assert out.shape == (1, 3, 8, 8)
+
+    cnn = CNN([[1, 32], "M", [1, 64]], flattening="maxpool")
+    feats = cnn(torch.randn(1, 1, 32, 32))
+    assert feats.shape == (1, 64, 1, 8)
+
+    ctc_c = CTCtopC(64, 5)
+    out = ctc_c(torch.randn(1, 64, 1, 10))
+    assert out.shape == (10, 1, 5)
+
+    ctc_r = CTCtopR(64, (32, 2), 5)
+    out = ctc_r(torch.randn(1, 64, 1, 10))
+    assert out.shape == (10, 1, 5)
+
+    ctc_b = CTCtopB(64, (32, 2), 5)
+    main, aux = ctc_b(torch.randn(1, 64, 1, 10))
+    assert main.shape == aux.shape == (10, 1, 5)
+

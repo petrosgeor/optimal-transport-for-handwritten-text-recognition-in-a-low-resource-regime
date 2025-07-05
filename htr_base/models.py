@@ -7,6 +7,17 @@ import torch.nn.functional as F
 #                            ─────  MLP Projector  ─────                       #
 ###############################################################################
 class Projector(nn.Module):
+    """Map CNN descriptors to an embedding space using a small MLP.
+
+    Args:
+        input_dim (int): Dimensionality of the input features.
+        output_dim (int): Size of the target embedding space.
+        dropout (float): Dropout rate applied after activations.
+
+    Returns:
+        torch.Tensor: Projected descriptors of shape ``(N, output_dim)``.
+    """
+
     def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.2) -> None:
         super(Projector, self).__init__()
         self.input_dim = input_dim
@@ -30,7 +41,19 @@ class Projector(nn.Module):
 #                        ─────  CNN building blocks  ─────                    #
 ###############################################################################
 class BasicBlock(nn.Module):
+    """Residual CNN block with two convolutions and an optional shortcut.
+
+    Args:
+        in_planes (int): Number of input channels.
+        planes (int): Number of output channels.
+        stride (int): Convolution stride for ``conv1``.
+
+    Returns:
+        torch.Tensor: Output tensor with ``planes`` channels.
+    """
+
     expansion = 1
+
     def __init__(self, in_planes, planes, stride=1):
         super().__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, 3, stride, 1, bias=False)
@@ -49,6 +72,16 @@ class BasicBlock(nn.Module):
         return F.relu(out)
 
 class CNN(nn.Module):
+    """Configurable convolutional feature extractor for handwriting images.
+
+    Args:
+        cnn_cfg (list): List describing convolutional layers and pooling.
+        flattening (str): Output flattening mode, ``'maxpool'`` or ``'concat'``.
+
+    Returns:
+        torch.Tensor: Feature map after optional flattening.
+    """
+
     def __init__(self, cnn_cfg, flattening='maxpool'):
         super().__init__()
         self.k = 1
@@ -99,6 +132,17 @@ class AttentivePool(nn.Module):
 #                    ─────  CTC recognition heads  ─────               #
 ###############################################################################
 class CTCtopC(nn.Module):
+    """CTC head implemented with a single convolutional layer.
+
+    Args:
+        input_size (int): Number of input channels.
+        nclasses (int): Number of output classes.
+        dropout (float): Dropout rate before the convolution.
+
+    Returns:
+        torch.Tensor: Sequence logits of shape ``(T, B, nclasses)``.
+    """
+
     def __init__(self, input_size, nclasses, dropout=0.0):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
@@ -109,6 +153,18 @@ class CTCtopC(nn.Module):
         return y.permute(2,3,0,1)[0]
 
 class CTCtopR(nn.Module):
+    """Recurrent CTC head using GRU or LSTM layers.
+
+    Args:
+        input_size (int): Number of input channels.
+        rnn_cfg (Tuple[int, int]): ``(hidden_size, num_layers)`` for the RNN.
+        nclasses (int): Number of output classes.
+        rnn_type (str): ``'gru'`` or ``'lstm'``.
+
+    Returns:
+        torch.Tensor: Sequence logits of shape ``(T, B, nclasses)``.
+    """
+
     def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
         super().__init__()
         hidden, num_layers = rnn_cfg
@@ -127,6 +183,18 @@ class CTCtopR(nn.Module):
         return self.fnl(y)
 
 class CTCtopB(nn.Module):
+    """CTC head with both recurrent and convolutional branches.
+
+    Args:
+        input_size (int): Number of input channels.
+        rnn_cfg (Tuple[int, int]): ``(hidden_size, num_layers)`` for the RNN.
+        nclasses (int): Number of output classes.
+        rnn_type (str): ``'gru'`` or ``'lstm'``.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: Main and auxiliary logits.
+    """
+
     def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
         super().__init__()
         hidden, num_layers = rnn_cfg
