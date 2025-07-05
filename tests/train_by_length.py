@@ -14,7 +14,6 @@ from pathlib import Path
 #   n_aligned           – maximum number of aligned ground
 # truth words
 #                          sampled for training.P
-#   k_external_words    – number of external words to align against.
 #   num_epochs          – number of fine
 # tuning epochs.
 #   batch_size          – mini
@@ -33,7 +32,6 @@ MAX_LENGTH = 3
 MIN_LENGTH = 0
 EVAL_K = 4
 N_ALIGNED = 30
-K_EXTERNAL_WORDS = 200
 NUM_EPOCHS = 600
 BATCH_SIZE = 128
 SYN_BATCH_RATIO = 0.7 # if 0 then we only use gt samples. If 1 then we use only synthetic samples
@@ -417,7 +415,6 @@ if __name__ == "__main__":
         raise RuntimeError("GW processed dataset not found – generate it first!")
     class DummyCfg:
         def __init__(self):
-            self.k_external_words = K_EXTERNAL_WORDS
             self.n_aligned = N_ALIGNED
 
     train_set = HTRDataset(

@@ -1,4 +1,4 @@
-"""Utility functions for aligning dataset instances to external words."""
+"""Utility functions for aligning dataset instances to unique words."""
 
 from typing import Optional, Tuple, List, Sequence
 from pathlib import Path
@@ -248,14 +248,14 @@ class OTAligner:
         assert agree_threshold <= len(self.projectors), (
             "agree_threshold bigger than ensemble size"
         )
-        assert hasattr(dataset, "external_word_embeddings"), (
-            "Dataset missing external_word_embeddings"
+        assert hasattr(dataset, "unique_word_embeddings"), (
+            "Dataset missing unique_word_embeddings"
         )
         assert (
-            dataset.external_word_embeddings.ndim == 2
-            and dataset.external_word_embeddings.size(0) > 0
+            dataset.unique_word_embeddings.ndim == 2
+            and dataset.unique_word_embeddings.size(0) > 0
         ), "Word-embedding matrix empty or wrong shape"
-        self.word_embs = dataset.external_word_embeddings.to(self.device)
+        self.word_embs = dataset.unique_word_embeddings.to(self.device)
 
     # ------------------------------------------------------------------
     def _calculate_ot(self, proj_feats: torch.Tensor) -> tuple[torch.Tensor, np.ndarray]:
@@ -270,8 +270,8 @@ class OTAligner:
         """
         N, V = proj_feats.size(0), self.word_embs.size(0)
         a = np.full((N,), 1.0 / N, dtype=np.float64)
-        if getattr(self.dataset, "external_word_probs", None):
-            b = np.asarray(self.dataset.external_word_probs, dtype=np.float64)
+        if getattr(self.dataset, "unique_word_probs", None):
+            b = np.asarray(self.dataset.unique_word_probs, dtype=np.float64)
             if not self.unbalanced:
                 b /= b.sum()
         else:
@@ -450,7 +450,7 @@ class OTAligner:
         chosen_list = chosen.tolist()
         if self.k > 0 and chosen_list:
             correct_new = sum(
-                self.dataset.external_words[self.dataset.aligned[i].item()] ==
+                self.dataset.unique_words[self.dataset.aligned[i].item()] ==
                 self.dataset.transcriptions[i].strip()
                 for i in chosen_list
             )
@@ -462,7 +462,7 @@ class OTAligner:
 
             for idx in random.sample(chosen_list, min(10, len(chosen_list))):
                 gt = self.dataset.transcriptions[idx].strip()
-                pred = self.dataset.external_words[self.dataset.aligned[idx].item()]
+                pred = self.dataset.unique_words[self.dataset.aligned[idx].item()]
                 print(f"[Align] sample: '{gt}' → '{pred}'")
 
             md = moved_dist[chosen]
@@ -491,7 +491,7 @@ class OTAligner:
         aligned_idx = torch.nonzero(self.dataset.aligned != -1, as_tuple=True)[0]
         if aligned_idx.numel():
             correct_tot = sum(
-                self.dataset.external_words[self.dataset.aligned[i].item()] ==
+                self.dataset.unique_words[self.dataset.aligned[i].item()] ==
                 self.dataset.transcriptions[i].strip()
                 for i in aligned_idx.tolist()
             )

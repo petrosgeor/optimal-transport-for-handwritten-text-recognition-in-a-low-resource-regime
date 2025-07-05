@@ -41,11 +41,9 @@ class HTRDataset(Dataset):
         self.character_classes = character_classes
         self.config = config
         self.two_views = two_views
-        self.k_external_words = 0
         self.n_aligned = 0
         self.word_emb_dim = 512
         if self.config is not None:
-            self.k_external_words = int(getattr(self.config, 'k_external_words', 0))
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
         # Load gt.txt from basefolder - each line contains image path and transcription
@@ -83,37 +81,25 @@ class HTRDataset(Dataset):
         if self.character_classes is None:
             c2i, _ = load_vocab()
             self.character_classes = list(c2i.keys())
-        # External vocabulary and probabilities
-        self.external_words = []
-        self.external_word_probs = []
-        if self.k_external_words > 0:
-            words = [w for w in top_n_list('en', self.k_external_words)]
-            words = [w.lower() for w in words]
-            words = self._filter_external_words(words)
-            self.external_words = words[: self.k_external_words]
-            self.external_word_probs = [word_frequency(w.strip(), 'en') for w in self.external_words]
-        self.external_word_embeddings = self.find_word_embeddings(self.external_words)
-        # Check if each transcription is in external vocab
-        self.is_in_dict = torch.zeros(len(self.transcriptions), dtype=torch.int32)
-        for i, t in enumerate(self.transcriptions):
-            if t in self.external_words:
-                self.is_in_dict[i] = 1
+        # Vocabulary derived from dataset transcriptions
+        self.unique_words, self.unique_word_probs = self.word_frequencies()
+        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
+
+        # All transcriptions are present in ``unique_words``
+        self.is_in_dict = torch.ones(len(self.transcriptions), dtype=torch.int32)
         # Alignment tensor
         self.aligned = torch.full((len(self.transcriptions),), fill_value=-1, dtype=torch.int32)
         if self.n_aligned > 0:
-            dict_indices = torch.nonzero(self.is_in_dict).view(-1)
+            dict_indices = torch.arange(len(self.transcriptions))
             if len(dict_indices) < self.n_aligned:
                 print(f'Warning: reducing n_aligned from {self.n_aligned} to {len(dict_indices)}')
                 self.n_aligned = len(dict_indices)
-            if self.n_aligned > 0 and len(dict_indices) > 0:
+            if self.n_aligned > 0:
                 perm = torch.randperm(len(dict_indices))[:self.n_aligned]
                 chosen = dict_indices[perm]
                 for idx in chosen.tolist():
                     word = self.transcriptions[idx]
-                    if word in self.external_words:
-                        self.aligned[idx] = self.external_words.index(word)
-                    else:
-                        print(f'Warning: word {word} not found in external vocabulary')
+                    self.aligned[idx] = self.unique_words.index(word)
     def __getitem__(self, index):
         """Return one or two processed image tensors and its transcription.
 
@@ -223,7 +209,7 @@ class HTRDataset(Dataset):
     ) -> None:
         """
         Plot a histogram showing how many ground-truth transcriptions
-        exactly match each external vocabulary word and save it under
+        exactly match each word in ``unique_words`` and save it under
         *tests/figures/* by default.
 
         Parameters
@@ -237,14 +223,13 @@ class HTRDataset(Dataset):
 
         Notes
         -----
-        • The method **returns nothing**; its side-effect is a saved PNG.  
-        • An exception is raised if the dataset was built without
-            ``external_words``.
+        • The method **returns nothing**; its side-effect is a saved PNG.
+        • An exception is raised if the dataset contains no ``unique_words``.
         """
         # ── sanity check ────────────────────────────────────────────────
-        if not getattr(self, "external_words", None):
+        if not getattr(self, "unique_words", None):
             raise RuntimeError(
-                "Dataset was created without external words – nothing to plot."
+                "Dataset has no unique words – nothing to plot."
             )
         # ── count matches ───────────────────────────────────────────────
         from collections import Counter
@@ -253,23 +238,23 @@ class HTRDataset(Dataset):
         hits = Counter()
         for t in self.transcriptions:                  # list of GT strings
             w = t.lower()
-            if w in self.external_words:               # external vocab list
+            if w in self.unique_words:               # dataset vocab list
                 hits[w] += 1
-        counts = [hits.get(w, 0) for w in self.external_words]
+        counts = [hits.get(w, 0) for w in self.unique_words]
 
         # ── build & save plot ───────────────────────────────────────────
         os.makedirs(save_dir, exist_ok=True)
         save_path = os.path.join(save_dir, filename)
-        plt.figure(figsize=(max(8, len(self.external_words) * 0.25), 4))
-        plt.bar(range(len(self.external_words)), counts)
+        plt.figure(figsize=(max(8, len(self.unique_words) * 0.25), 4))
+        plt.bar(range(len(self.unique_words)), counts)
         plt.xticks(
-            range(len(self.external_words)),
-            self.external_words,
+            range(len(self.unique_words)),
+            self.unique_words,
             rotation=90,
             fontsize=8,
         )
         plt.ylabel("Frequency in dataset")
-        plt.title("Ground-truth matches per external word")
+        plt.title("Ground-truth matches per unique word")
         plt.tight_layout()
         plt.savefig(save_path, dpi=dpi)
         plt.close()

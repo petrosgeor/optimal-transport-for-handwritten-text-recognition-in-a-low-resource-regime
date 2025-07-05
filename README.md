@@ -255,12 +255,12 @@ class HTRDataset(Dataset):
 *   `transcriptions` (list[str]): Text strings for each image.
 *   `character_classes` (list[str]): Dataset vocabulary of characters.
 *   `prior_char_probs` (dict): Prior probabilities for each character in the vocabulary.
-*   `external_words` (list[str]): Optional external vocabulary.
-*   `external_word_probs` (list[float]): Frequency estimate for each external word.
-*   `external_word_embeddings` (torch.Tensor): Embeddings for external words.
-*   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `external_words`.
+*   `unique_words` (list[str]): Unique words present in the dataset.
+*   `unique_word_probs` (list[float]): Empirical probability of each unique word.
+*   `unique_word_embeddings` (torch.Tensor): Embeddings for the unique words.
+*   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `unique_words`.
 *   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
-    If ``aligned[i] = k`` and ``k != -1``, ``image[i]`` is aligned with ``external_words[k]``.
+    If ``aligned[i] = k`` and ``k != -1``, ``image[i]`` is aligned with ``unique_words[k]``.
 
 **Methods:**
 *   `__len__()` -> int: Dataset size.
@@ -268,7 +268,7 @@ class HTRDataset(Dataset):
 *   `letter_priors(transcriptions=None, n_words=50000)`: returns prior probabilities for characters.
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
-*   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of vocabulary usage.
+*   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of unique-word usage.
 *   `word_frequencies()` -> tuple[list[str], list[float]]: returns unique words
     and their probabilities, e.g. `dataset.word_frequencies()`.
 
@@ -374,7 +374,7 @@ class OTAligner:
 
 Located in: `alignment/alignment_utilities.py`
 
-Automatically assigns dataset images to external words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility.
+Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility.
 
 ```python
 def align_more_instances(
@@ -394,7 +394,7 @@ def align_more_instances(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 ```
 
-*   `dataset` (HTRDataset): Dataset providing images and `external_word_embeddings`.
+*   `dataset` (HTRDataset): Dataset providing images and `unique_word_embeddings`.
 *   `backbone` (HTRNet): `HTRNet` used to extract visual descriptors.
 *   `projectors` (Sequence[nn.Module]): List of projectors mapping descriptors to the embedding space.
 *   `batch_size` (int): Mini-batch size when harvesting descriptors.
@@ -758,7 +758,7 @@ def plot_projector_tsne(
 ```
 
 *   `projections` (torch.Tensor): Output of the projector with shape `(N, E)`.
-*   `dataset` (HTRDataset): Provides `external_word_embeddings` of shape `(V, E)`.
+*   `dataset` (HTRDataset): Provides `unique_word_embeddings` of shape `(V, E)`.
 *   `save_path` (str): Destination path for the PNG figure.
 
 #### plot_pretrained_backbone_tsne
@@ -891,9 +891,8 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `align_k` (int): Pseudo-label this many least-moved descriptors.
 *   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
-*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `k_external_words`, `word_emb_dim`, `two_views`).
+*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
 *   `n_aligned` (int): Number of initially aligned instances.
-*   `k_external_words` (int): Number of external words to consider.
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
 *   `supervised_weight` (int): Weight for supervised loss component.

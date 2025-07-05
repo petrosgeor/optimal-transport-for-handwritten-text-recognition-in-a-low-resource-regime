@@ -95,7 +95,7 @@ def log_pseudo_labels(
 
     Args:
         new_indices (torch.Tensor): Dataset positions newly labelled.
-        dataset (HTRDataset): Dataset containing ``external_words`` and ``aligned``.
+        dataset (HTRDataset): Dataset containing ``unique_words`` and ``aligned``.
         round_idx (int): Index of the refinement cycle that produced the labels.
         out_dir (str): Directory where the log file is stored.
 
@@ -106,7 +106,7 @@ def log_pseudo_labels(
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
     words = [
-        dataset.external_words[int(dataset.aligned[i])]
+        dataset.unique_words[int(dataset.aligned[i])]
         for i in new_indices.tolist()
         if int(dataset.aligned[i]) != -1
     ]
@@ -260,13 +260,13 @@ def refine_visual_backbone(
                 if gt_iter is not None:
                     imgs_gt, _, aligned = next(gt_iter)
                     imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
-                    words = [f" {dataset.external_words[i]} " for i in aligned.tolist()] + words
+                    words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()] + words
                     imgs, words = _shuffle_batch(imgs, words)
                 else:
                     imgs = imgs.to(device)
             else:
                 imgs, _, aligned = batch
-                words = [f" {dataset.external_words[i]} " for i in aligned.tolist()]
+                words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()]
                 imgs = imgs.to(device)
 
             _assert_finite(imgs, "images")
@@ -376,13 +376,15 @@ def train_projector(  # pylint: disable=too-many-arguments
     projs = projector if isinstance(projector, (list, tuple)) else [projector]
     projs = [p.to(device).train() for p in projs]
     
-    word_embs_cpu = dataset.external_word_embeddings
+    word_embs_cpu = dataset.unique_word_embeddings
     if word_embs_cpu is None:
-        raise RuntimeError("FATAL: dataset.external_word_embeddings is required but was not found.")
+        raise RuntimeError(
+            "FATAL: dataset.unique_word_embeddings is required but was not found."
+        )
         
     # Target probability for each external word – use uniform if absent
     # --- THIS BLOCK IS NOW FIXED ---
-    probs_attr = getattr(dataset, "external_word_probs", None)
+    probs_attr = getattr(dataset, "unique_word_probs", None)
     if probs_attr is not None and len(probs_attr) > 0:
         if isinstance(probs_attr, list):
             word_probs_cpu = torch.tensor(probs_attr, dtype=torch.float)
@@ -573,11 +575,11 @@ def alternating_refinement(
 
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
-                # Temporarily handle external_word_probs format for projector training
+                # Temporarily handle unique_word_probs format for projector training
                 _probs_backup = None
-                if isinstance(getattr(dataset, "external_word_probs", None), list):
-                    _probs_backup = dataset.external_word_probs
-                    dataset.external_word_probs = torch.tensor(
+                if isinstance(getattr(dataset, "unique_word_probs", None), list):
+                    _probs_backup = dataset.unique_word_probs
+                    dataset.unique_word_probs = torch.tensor(
                         _probs_backup, dtype=torch.float
                     )
 
@@ -590,9 +592,9 @@ def alternating_refinement(
                     **projector_kwargs,
                 )
 
-                # Restore original external_word_probs format if it was changed
+                # Restore original unique_word_probs format if it was changed
                 if _probs_backup is not None:
-                    dataset.external_word_probs = _probs_backup
+                    dataset.unique_word_probs = _probs_backup
 
             # Unfreeze backbone and freeze projectors for next round or alignment
             for param in backbone.parameters():
@@ -633,7 +635,7 @@ if __name__ == "__main__":
     """Run a *tiny* end‑to‑end refinement cycle to verify code execution."""
     from types import SimpleNamespace
 
-    # ── 1. Dataset with 200 external words and a handful of alignments ─────
+    # ── 1. Dataset with 200 unique words and a handful of alignments ─────
     proj_root = Path(__file__).resolve().parents[1]
     
     ds_cfg = cfg.dataset

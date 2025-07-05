@@ -98,7 +98,7 @@ class DummyHTRDataset(torch.utils.data.Dataset):
     """Minimal real dataset with alignment flags."""
 
     def __init__(self):
-        self.external_words = ["gt1", "gt2"]
+        self.unique_words = ["gt1", "gt2"]
         self.aligned = torch.tensor([0, 1], dtype=torch.int64)
         self.imgs = [torch.zeros(1, 2, 2), torch.ones(1, 2, 2)]
         self.trans = ["gt1", "gt2"]
@@ -214,4 +214,16 @@ def test_word_frequencies():
     mapping = dict(zip(words, probs))
     assert abs(mapping["cat"] - 2 / 3) < 1e-6
     assert abs(mapping["dog"] - 1 / 3) < 1e-6
+
+
+def test_unique_word_embeddings_attribute():
+    """Word embeddings tensor is stored under ``unique_word_embeddings``."""
+
+    dataset = HTRDataset.__new__(HTRDataset)
+    dataset.word_emb_dim = 2
+    emb = HTRDataset.find_word_embeddings(dataset, ["aa", "ab"], n_components=2)
+    dataset.unique_word_embeddings = emb
+
+    assert hasattr(dataset, "unique_word_embeddings")
+    assert dataset.unique_word_embeddings.shape == (2, 2)
 
