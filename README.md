@@ -92,6 +92,15 @@ class BasicBlock(nn.Module):
 *   `in_planes`: Number of input channels.
 *   `planes`: Number of output channels.
 *   `stride`: Stride for the convolutional layers.
+**Attributes:**
+*   `conv1` (nn.Conv2d): First convolution.
+*   `bn1` (nn.BatchNorm2d): Batch norm after ``conv1``.
+*   `conv2` (nn.Conv2d): Second convolution.
+*   `bn2` (nn.BatchNorm2d): Batch norm after ``conv2``.
+*   `shortcut` (nn.Sequential): Identity or projection path.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Returns the residual output tensor.
 
 #### CNN
 
