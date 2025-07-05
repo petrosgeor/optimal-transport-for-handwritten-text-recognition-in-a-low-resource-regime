@@ -177,14 +177,14 @@ def plot_projector_tsne(
     projections : torch.Tensor
         Output of the projector with shape ``(N, E)``.
     dataset : HTRDataset
-        Provides ``external_word_embeddings`` of shape ``(V, E)``.
+        Provides ``unique_word_embeddings`` of shape ``(V, E)``.
     save_path : str
         Destination path for the PNG figure.
     """
 
-    word_embs = dataset.external_word_embeddings
+    word_embs = dataset.unique_word_embeddings
     if word_embs is None:
-        raise RuntimeError("dataset.external_word_embeddings is required")
+        raise RuntimeError("dataset.unique_word_embeddings is required")
 
     all_vecs = torch.cat([projections, word_embs], dim=0).cpu().numpy()
     perplexity = min(30, max(1, all_vecs.shape[0] // 3))
