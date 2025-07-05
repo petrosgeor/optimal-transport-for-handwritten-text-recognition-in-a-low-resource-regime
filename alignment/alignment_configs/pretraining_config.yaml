@@ -44,6 +44,8 @@ gpu_id: 1              # CUDA device index
 list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
 train_set_size: 30000  # number of random training images
 test_set_size: 10000   # number of random test images
+min_length: 0          # length filter for synthetic words
+max_length: 100
 batch_size: 128
 num_epochs: 10000
 learning_rate: 1e-3

@@ -279,9 +279,10 @@ class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining.
 
     If ``n_random`` is provided, ``random_seed`` ensures the same
-    subset of images is selected each time.  When ``preload_images``
-    is ``True`` the raw images are cached in memory for faster
-    access.
+    subset of images is selected each time. Only words whose length
+    lies between ``min_length`` and ``max_length`` are kept.
+    When ``preload_images`` is ``True`` the raw images are cached in
+    memory for faster access.
     """
 
     def __init__(
@@ -291,6 +292,8 @@ class PretrainingHTRDataset(Dataset):
         base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
         transforms: list = None,
         n_random: int = None,
+        min_length: int = 0,
+        max_length: int = 100,
         random_seed: int = 0,
         preload_images: bool = False,
     ):
@@ -302,20 +305,32 @@ class PretrainingHTRDataset(Dataset):
             base_path (str): Root directory prepended to each path in ``list_file``.
             transforms (list | None): Optional Albumentations pipeline.
             n_random (int | None): If given, keep only ``n_random`` entries.
+            min_length (int): Keep only labels with length ``>=`` this value.
+            max_length (int): Keep only labels with length ``<=`` this value.
             random_seed (int): Seed controlling the random subset selection.
             preload_images (bool): Load all images into memory on init.
         """
+        if min_length > max_length:
+            raise ValueError("min_length must not exceed max_length")
+
         self.fixed_size = fixed_size
         self.base_path = base_path
         self.transforms = transforms
         self.preload_images = preload_images
+        self.min_length = min_length
+        self.max_length = max_length
 
         with open(list_file, 'r') as f:
             rel_paths = [line.strip() for line in f if line.strip()]
 
         def _valid(p):
             desc = os.path.basename(p).split('_')[1]
-            return (not desc.isupper()) and desc.isalnum()
+            n = len(desc)
+            return (
+                (not desc.isupper())
+                and desc.isalnum()
+                and self.min_length <= n <= self.max_length
+            )
 
         filtered = [p for p in rel_paths if _valid(p)]
         if n_random is not None and n_random > 0:
