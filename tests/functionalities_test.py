@@ -9,7 +9,7 @@ import itertools
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
 from alignment.trainer import _shuffle_batch
-from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -226,4 +226,27 @@ def test_unique_word_embeddings_attribute():
 
     assert hasattr(dataset, "unique_word_embeddings")
     assert dataset.unique_word_embeddings.shape == (2, 2)
+
+
+def test_pretraining_dataset_length_filter(tmp_path):
+    """Entries outside the length range are discarded."""
+
+    txt = tmp_path / "paths.txt"
+    txt.write_text("\n".join([
+        "a_ab_0.png",
+        "b_abc_0.png",
+        "c_abcdef_0.png",
+        "d_abcdefg_0.png",
+        "e_a_0.png",
+    ]))
+
+    ds = PretrainingHTRDataset(
+        list_file=str(txt),
+        base_path=str(tmp_path),
+        n_random=10,
+        min_length=2,
+        max_length=6,
+    )
+
+    assert sorted(ds.transcriptions) == ["ab", "abc", "abcdef"]
 

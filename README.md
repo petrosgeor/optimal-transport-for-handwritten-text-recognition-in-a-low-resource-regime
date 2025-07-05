@@ -290,6 +290,8 @@ class PretrainingHTRDataset(Dataset):
         base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
         transforms: list = None,
         n_random: int = None,
+        min_length: int = 0,
+        max_length: int = 100,
         random_seed: int = 0,
         preload_images: bool = False,
     ):
@@ -300,8 +302,13 @@ class PretrainingHTRDataset(Dataset):
 *   `base_path` (str): Root directory prepended to each path in `list_file`.
 *   `transforms` (list | None): Optional Albumentations pipeline.
 *   `n_random` (int | None): If given, keep only `n_random` entries.
+*   `min_length` (int, default `0`): Lower bound (inclusive) on the label length to keep.
+*   `max_length` (int, default `100`): Upper bound (inclusive) on the label length to keep.
 *   `random_seed` (int): Seed controlling the random subset selection.
 *   `preload_images` (bool): Load all images into memory on init.
+
+If `n_random` is given, the subset is drawn **after** applying the
+`[min_length, max_length]` filter.
 
 **Attributes:**
 *   `img_paths` (list[str]): Absolute paths to images.
@@ -898,7 +905,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
-*   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
+*   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `min_length`, `max_length`, `fixed_size`, `preload_images`, `random_seed`).
 
 #### pretraining_config.yaml
 
@@ -922,6 +929,8 @@ Architecture and pretraining options used by `pretraining.py`.
 *   `list_file` (str): Path to the image list file.
 *   `train_set_size` (int): Number of random training images.
 *   `test_set_size` (int): Number of random test images.
+*   `min_length` (int): Lower bound on label length for the synthetic dataset.
+*   `max_length` (int): Upper bound on label length for the synthetic dataset.
 *   `batch_size` (int): Batch size.
 *   `num_epochs` (int): Number of training epochs.
 *   `learning_rate` (float): Learning rate.
