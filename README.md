@@ -358,8 +358,8 @@ class OTAligner:
 *   `batch_size` (int): Mini-batch size when forwarding the dataset.
 *   `device` (str): Device on which the backbone runs.
 *   `reg` (float): Entropic regularisation strength.
-*   `unbalanced` (bool): Use unbalanced OT formulation if `True`.
-*   `reg_m` (float): Unbalanced mass regularisation.
+*   `unbalanced` (bool): Use unbalanced OT formulation.
+*   `reg_m` (float): Additional mass regularisation when unbalanced OT is used.
 *   `sinkhorn_kwargs` (dict): Additional arguments for the OT solver.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
 *   `metric` (str): Uncertainty measure (`'gap'`, `'entropy'`, or `'variance'`).
@@ -368,11 +368,24 @@ class OTAligner:
 *   `dataset` (HTRDataset): Dataset being aligned.
 *   `backbone` (HTRNet): Visual backbone network.
 *   `projectors` (list[nn.Module]): Projector ensemble.
-*   `word_embs` (torch.Tensor): External word embeddings on device.
-*   `k` (int): Number of pseudo-labels to add per call.
+*   `batch_size` (int): Mini-batch size used during feature harvesting.
+*   `device` (torch.device): Device used during descriptor extraction.
+*   `reg` (float): Entropic regularisation parameter.
+*   `unbalanced` (bool): Whether unbalanced OT is used.
+*   `reg_m` (float): Mass regularisation for unbalanced OT.
+*   `sinkhorn_kwargs` (dict): Extra arguments forwarded to the Sinkhorn solver.
+*   `k` (int): Number of descriptors to pseudo-label per iteration.
+*   `metric` (str): Measure to rank candidate descriptors.
+*   `agree_threshold` (int): Required number of agreeing projectors.
+*   `word_embs` (torch.Tensor): Word embeddings stored on `device`.
 
 **Methods:**
-*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: performs one OT iteration, updates `dataset.aligned` and prints statistics.
+*   `_calculate_ot(proj_feats)` -> Tuple[torch.Tensor, np.ndarray]: Compute OT projection and transport plan.
+*   `_get_projector_outputs()` -> dict: Run projectors on the dataset and gather OT statistics.
+*   `_select_candidates(counts, dist_matrix, plan, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
+*   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
+*   `_log_results(chosen, nearest_word, moved_dist, dist_matrix, plan, var_scores)` -> None: Print alignment statistics.
+*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one OT iteration and return the transport plan, projected descriptors and moved distances.
 
 
 
