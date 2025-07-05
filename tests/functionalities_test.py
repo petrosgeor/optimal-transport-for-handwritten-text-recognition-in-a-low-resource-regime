@@ -9,7 +9,9 @@ import itertools
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
 from alignment.trainer import _shuffle_batch
-from htr_base.utils.htr_dataset import HTRDataset
+import numpy as np
+import imageio.v2 as imageio
+from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -226,4 +228,34 @@ def test_unique_word_embeddings_attribute():
 
     assert hasattr(dataset, "unique_word_embeddings")
     assert dataset.unique_word_embeddings.shape == (2, 2)
+
+
+def test_pretraining_dataset_length_filter(tmp_path):
+    """Dataset enforces ``min_length`` and ``max_length``."""
+
+    list_file = tmp_path / "list.txt"
+    base_path = tmp_path
+    words = ["ab", "abcd", "abcde"]
+    paths = []
+    for i, w in enumerate(words):
+        img = np.zeros((2, 2), dtype=np.uint8)
+        fname = f"{i}_{w}_0.png"
+        full = base_path / fname
+        imageio.imwrite(full, img)
+        paths.append(fname)
+    list_file.write_text("\n".join(paths))
+
+    ds = PretrainingHTRDataset(
+        list_file=str(list_file),
+        fixed_size=(32, 32),
+        base_path=str(base_path),
+        min_length=4,
+        max_length=5,
+        preload_images=False,
+    )
+
+    assert len(ds) == 2
+    for _, t in ds:
+        n = len(t.strip())
+        assert 4 <= n <= 5
 
