@@ -8,13 +8,28 @@ These rules define how agents must operate on the codebase to ensure it remains 
 
 ## 1. ✍️ Document All Code with Docstrings
 
-Whenever you **create or modify** a function or class, you **must** include a concise docstring that follows this structure:
+.``Whenever you **create or modify** a function or class, you **must** include a concise docstring.
+
+### For Functions
+
+The docstring must follow this structure:
 
 1.  **Purpose**: A brief, one-line summary of what the component does.
 2.  **Arguments** (`Args:`): A list of all arguments, their expected types, and a short description.
 3.  **Returns** (`Returns:`): A description of the value(s) returned by the function.
 
-### Example:
+### For Classes
+
+When documenting a **class**, you must provide comprehensive documentation that includes:
+
+1.  **Class Docstring**:
+    *   A brief, one-line summary of the class's purpose.
+    *   `Args:`: A list of all arguments for the `__init__` method, their types, and descriptions.
+    *   `Attributes:`: A list of all class attributes (i.e., `self.attribute`), their types, and descriptions.
+2.  **Method Docstrings**:
+    *   Every method within the class must have its own docstring, following the same structure as for standalone functions.
+
+### Example (Function):
 
 ```python
 def normalize_vector(vector: list[float]) -> list[float]:
@@ -28,6 +43,43 @@ def normalize_vector(vector: list[float]) -> list[float]:
         list[float]: The normalized vector.
     """
     # ... implementation ...
+```
+
+### Example (Class):
+```python
+class DataProcessor:
+    """
+    Processes raw data by cleaning and transforming it.
+
+    Args:
+        raw_data (list[dict]): A list of raw data records.
+        transformation (str): The name of the transformation to apply.
+
+    Attributes:
+        data (list[dict]): The processed data.
+        records_count (int): The number of records.
+    """
+    def __init__(self, raw_data: list[dict], transformation: str):
+        self.records_count = len(raw_data)
+        self.data = self._transform(raw_data, transformation)
+
+    def _transform(self, data: list[dict], transformation: str) -> list[dict]:
+        """
+        Applies a specific transformation to the data.
+
+        Args:
+            data (list[dict]): The data to transform.
+            transformation (str): The transformation type.
+
+        Returns:
+            list[dict]: The transformed data.
+        """
+        # ... implementation ...
+        return data
+
+    def get_record_count(self) -> int:
+        """Returns the number of data records."""
+        return self.records_count
 ```
 
 ---
