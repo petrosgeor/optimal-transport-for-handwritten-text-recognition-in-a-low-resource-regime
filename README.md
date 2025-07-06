@@ -389,6 +389,7 @@ class OTAligner:
 *   `_select_candidates(counts, dist_matrix, plan, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
 *   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
 *   `_log_results(chosen, nearest_word, moved_dist, dist_matrix, plan, var_scores)` -> None: Print alignment statistics.
+*   `validate_pseudo_labels(edit_threshold, batch_size, decode_cfg, num_workers)` -> int: Drop unreliable pseudo-labels based on backbone predictions.
 *   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one OT iteration and return the transport plan, projected descriptors and moved distances.
 
 
@@ -398,7 +399,7 @@ class OTAligner:
 
 Located in: `alignment/alignment_utilities.py`
 
-Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility.
+Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility. When `pseudo_label_validation.enable` is set in the configuration, it also calls `validate_pseudo_labels` after alignment.
 
 ```python
 def align_more_instances(
@@ -948,6 +949,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
 *   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
+*   `pseudo_label_validation` (dict): Optional sanity check configuration with keys `enable` and `edit_distance`.
 
 #### pretraining_config.yaml
 
