@@ -421,3 +421,26 @@ def test_align_more_instances_gated_validation(monkeypatch):
     au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
     assert len(calls) == 1
 
+
+def test_lengths_from_transcriptions():
+    """Word lengths are mapped to class indices correctly."""
+
+    from alignment.train_word_length import lengths_from_transcriptions
+
+    t = ["a", "abcd", ""]
+    out = lengths_from_transcriptions(t)
+
+    assert out.tolist() == [0, 3, 0]
+
+
+def test_build_resnet18_forward():
+    """Modified ResNet18 accepts 1×64×256 images."""
+
+    from alignment.train_word_length import build_resnet18
+
+    net = build_resnet18()
+    dummy = torch.randn(2, 1, 64, 256)
+    logits = net(dummy)
+
+    assert logits.shape == (2, 20)
+
