@@ -506,6 +506,8 @@ def alternating_refinement(
     refined, then the projectors are trained. After a set number of rounds, more
     instances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.
     This cycle continues as long as there are unaligned instances in the dataset.
+    After each alignment step the Character Error Rate (CER) is printed for both
+    the training and test sets.
 
     Args:
         dataset: The HTRDataset to be used for training.
@@ -635,6 +637,13 @@ def alternating_refinement(
         log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
         compute_cer(
             test_dataset,
+            backbone,
+            batch_size=cfg.eval_batch_size,
+            device=cfg.device,
+            k=4
+        )
+        compute_cer(
+            dataset,
             backbone,
             batch_size=cfg.eval_batch_size,
             device=cfg.device,
