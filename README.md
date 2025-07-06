@@ -875,6 +875,31 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
 imgs, texts = _shuffle_batch(imgs, texts)
 ```
 
+#### alternating_refinement
+
+Located in: `alignment/trainer.py`
+
+Runs alternating cycles of backbone refinement, projector training and pseudo‑labelling. After each round it prints the CER on both the training and test sets.
+
+```python
+def alternating_refinement(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    projectors: List[nn.Module],
+    *,
+    rounds: int = cfg.alt_rounds,
+    backbone_epochs: int = cfg.refine_epochs,
+    projector_epochs: int = cfg.projector_epochs,
+    refine_kwargs: dict | None = None,
+    projector_kwargs: dict | None = None,
+    align_kwargs: dict | None = None,
+) -> None:
+```
+
+```python
+alternating_refinement(ds, backbone, projectors)
+```
+
 ### Configuration Files
 
 #### trainer_config.yaml

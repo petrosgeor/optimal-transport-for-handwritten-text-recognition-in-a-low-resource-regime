@@ -244,11 +244,15 @@ def test_pretraining_dataset_length_filter(tmp_path):
         list_file=str(txt),
         base_path=str(tmp_path),
         n_random=10,
-        min_length=2,
-        max_length=6,
     )
 
-    assert sorted(ds.transcriptions) == ["ab", "abc", "abcdef"]
+    assert sorted(ds.transcriptions) == [
+        "a",
+        "ab",
+        "abc",
+        "abcdef",
+        "abcdefg",
+    ]
 
 
 def test_model_components_forward():
@@ -286,4 +290,74 @@ def test_model_components_forward():
     ctc_b = CTCtopB(64, (32, 2), 5)
     main, aux = ctc_b(torch.randn(1, 64, 1, 10))
     assert main.shape == aux.shape == (10, 1, 5)
+
+
+def test_alternating_refinement_calls_cer(monkeypatch):
+    """compute_cer is invoked for train and test datasets."""
+
+    from types import SimpleNamespace
+    from alignment import trainer
+
+    class FakeDataset(torch.utils.data.Dataset):
+        def __init__(
+            self,
+            basefolder="dummy",
+            subset="train_val",
+            fixed_size=(1, 1),
+            character_classes=None,
+            config=None,
+            two_views=False,
+        ):
+            self.basefolder = basefolder
+            self.subset = subset
+            self.fixed_size = fixed_size
+            self.character_classes = character_classes or []
+            self.config = config or SimpleNamespace()
+            self.two_views = two_views
+            self.aligned = torch.tensor([-1, 0])
+            self.unique_words = ["x", "y"]
+            self.imgs = [torch.zeros(1, 1, 1), torch.zeros(1, 1, 1)]
+            self.transcriptions = ["x", "y"]
+
+        def __len__(self):
+            return len(self.imgs)
+
+        def __getitem__(self, idx):
+            return self.imgs[idx], self.transcriptions[idx], self.aligned[idx]
+
+    class FakeProjector(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(1))
+
+        def forward(self, x):
+            return x
+
+    calls = []
+
+    def fake_compute_cer(ds, model, **kwargs):
+        calls.append(ds)
+        return 0.0
+
+    def fake_align(ds, *a, **k):
+        ds.aligned.fill_(0)
+
+    monkeypatch.setattr(trainer, "compute_cer", fake_compute_cer)
+    monkeypatch.setattr(trainer, "refine_visual_backbone", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "train_projector", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "align_more_instances", fake_align)
+    monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "HTRDataset", FakeDataset)
+    monkeypatch.setattr(trainer, "log_pseudo_labels", lambda *a, **k: None)
+    monkeypatch.setattr(trainer.cfg, "device", "cpu")
+    monkeypatch.setattr(trainer.cfg, "align_device", "cpu")
+
+    ds = FakeDataset()
+    backbone = DummyBackbone()
+    proj = FakeProjector()
+
+    trainer.alternating_refinement(ds, backbone, [proj], rounds=1)
+
+    subsets = {d.subset for d in calls}
+    assert {"train_val", "test"} == subsets
 
