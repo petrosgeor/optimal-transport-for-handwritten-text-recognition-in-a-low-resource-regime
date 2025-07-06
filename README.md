@@ -830,6 +830,9 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 ### Training Utilities
 
+* `pretraining.py` – trains a CTC-based network on the synthetic 90k dataset.
+* `train_word_length.py` – trains a ResNet-18 classifier on the synthetic 90k dataset to predict the **number of characters** in each word image (1–20).  It uses `PretrainingHTRDataset` for both training and evaluation and optimises a Cross-Entropy loss on word-length labels automatically derived from the dataset transcriptions.
+
 #### refine_visual_backbone
 
 Located in: `alignment/trainer.py`
