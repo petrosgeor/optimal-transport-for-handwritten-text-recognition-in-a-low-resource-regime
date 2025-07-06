@@ -19,6 +19,9 @@ from alignment.ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
 
 cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 
+# count calls to :func:`align_more_instances`
+_ALIGN_CALL_COUNT = 0
+
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
@@ -641,7 +644,16 @@ def align_more_instances(
     metric: str = "entropy",          # 'gap', 'entropy' or 'variance' (assignment certainty)
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Wrapper over :class:`OTAligner` for backward compatibility."""
+    """Wrapper over :class:`OTAligner` for backward compatibility.
+
+    When ``cfg.pseudo_label_validation.enable`` is ``True``, this function
+    invokes :meth:`OTAligner.validate_pseudo_labels` once the number of
+    calls to :func:`align_more_instances` reaches the configured
+    ``start_iteration``.
+    """
+    global _ALIGN_CALL_COUNT
+    _ALIGN_CALL_COUNT += 1
+
     aligner = OTAligner(
         dataset,
         backbone,
@@ -658,11 +670,15 @@ def align_more_instances(
     )
     plan, proj_feats, moved = aligner.align()
 
-    # --- optional backbone-based sanity check ---
-    if getattr(cfg, "pseudo_label_validation", None) and \
-       cfg.pseudo_label_validation.enable:
+    # --- conditional pseudo-label validation ---
+    vcfg = getattr(cfg, "pseudo_label_validation", None)
+    if (
+        vcfg
+        and vcfg.enable
+        and _ALIGN_CALL_COUNT >= int(getattr(vcfg, "start_iteration", 0))
+    ):
         aligner.validate_pseudo_labels(
-            edit_threshold=int(cfg.pseudo_label_validation.edit_distance),
+            edit_threshold=int(vcfg.edit_distance),
             batch_size=batch_size,
             decode_cfg=getattr(cfg, "decode_config", None),
         )

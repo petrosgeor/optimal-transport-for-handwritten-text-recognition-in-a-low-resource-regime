@@ -399,7 +399,7 @@ class OTAligner:
 
 Located in: `alignment/alignment_utilities.py`
 
-Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility. When `pseudo_label_validation.enable` is set in the configuration, it also calls `validate_pseudo_labels` after alignment.
+Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility. When `pseudo_label_validation.enable` is set in the configuration, it calls `validate_pseudo_labels` after alignment once `align_more_instances` has been invoked at least `start_iteration` times.
 
 ```python
 def align_more_instances(
@@ -949,7 +949,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
 *   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
-*   `pseudo_label_validation` (dict): Optional sanity check configuration with keys `enable` and `edit_distance`.
+*   `pseudo_label_validation` (dict): Optional sanity check configuration with keys `enable`, `edit_distance` and `start_iteration`.
 
 #### pretraining_config.yaml
 

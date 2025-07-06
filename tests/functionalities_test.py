@@ -385,3 +385,39 @@ def test_validate_pseudo_labels(monkeypatch):
     assert removed == 1
     assert ds.aligned.tolist() == [0, -1]
 
+
+def test_align_more_instances_gated_validation(monkeypatch):
+    """``validate_pseudo_labels`` runs only after ``start_iteration``."""
+
+    from alignment import alignment_utilities as au
+
+    ds = DummyHTRDataset()
+    ds.word_emb_dim = 2
+    ds.unique_word_embeddings = torch.zeros((2, 2))
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+
+    # patch align and validation to track invocations
+    monkeypatch.setattr(au.OTAligner, "align", lambda self: (torch.empty(0), torch.empty(0), torch.empty(0)))
+
+    calls = []
+
+    def fake_validate(self, edit_threshold, batch_size, decode_cfg=None):
+        calls.append(edit_threshold)
+
+    monkeypatch.setattr(au.OTAligner, "validate_pseudo_labels", fake_validate)
+
+    # set config and reset counter
+    au._ALIGN_CALL_COUNT = 0
+    if not hasattr(au.cfg, "pseudo_label_validation"):
+        au.cfg.pseudo_label_validation = OmegaConf.create({})
+    au.cfg.pseudo_label_validation.enable = True
+    au.cfg.pseudo_label_validation.edit_distance = 3
+    au.cfg.pseudo_label_validation.start_iteration = 2
+
+    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
+    assert len(calls) == 0
+
+    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
+    assert len(calls) == 1
+
