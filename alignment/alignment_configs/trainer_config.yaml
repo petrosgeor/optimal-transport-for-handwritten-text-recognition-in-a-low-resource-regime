@@ -97,3 +97,10 @@ synthetic_dataset:
   fixed_size: [64, 256]     # Fixed size for synthetic images [height, width]
   preload_images: true      # Preload images into memory for faster access
   random_seed: 0            # Random seed for reproducibility
+
+# ----------------------------------------------------------------------
+# Optional pseudo-label validation
+# ----------------------------------------------------------------------
+pseudo_label_validation:
+  enable: true        # set false to skip the new check
+  edit_distance: 3    # maximum Levenshtein distance allowed

@@ -13,11 +13,15 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.spatial import distance
 from omegaconf import OmegaConf
+import editdistance
+from torch.utils.data import DataLoader, Subset
+from alignment.ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
 
 cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
+from htr_base.utils.vocab import load_vocab
 
 
 
@@ -513,6 +517,78 @@ class OTAligner:
             )
 
     # ------------------------------------------------------------------
+    @torch.no_grad()
+    def validate_pseudo_labels(
+        self,
+        *,
+        edit_threshold: int = 3,
+        batch_size: int = 256,
+        decode_cfg: dict | None = None,
+        num_workers: int = 0,
+    ) -> int:
+        """Drop pseudo-labels whose predictions are too far from the backbone.
+
+        Parameters
+        ----------
+        edit_threshold : int, optional
+            Maximum allowed Levenshtein distance between prediction and label.
+        batch_size : int, optional
+            Mini-batch size for the evaluation pass.
+        decode_cfg : dict | None, optional
+            Decoding configuration forwarded to the decoding helper.
+        num_workers : int, optional
+            Workers used by the ``DataLoader``.
+
+        Returns
+        -------
+        int
+            Number of samples that were un-aligned because the distance
+            exceeded ``edit_threshold``.
+        """
+        self.backbone.eval()
+        device = self.device
+
+        aligned_idx = torch.nonzero(self.dataset.aligned != -1, as_tuple=True)[0]
+        if not aligned_idx.numel():
+            return 0
+
+        loader = DataLoader(
+            Subset(self.dataset, aligned_idx.tolist()),
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            pin_memory=True,
+        )
+
+        removed = 0
+        ptr = 0
+        _, i2c = load_vocab()
+        for imgs, *_ in loader:
+            imgs = imgs.to(device, non_blocking=True)
+            logits, *_ = self.backbone(imgs, return_feats=False)
+
+            if decode_cfg and decode_cfg.get("method") == "beam":
+                preds = beam_search_ctc_decode(
+                    logits.cpu(), i2c, beam_width=decode_cfg.get("beam_width", 3)
+                )
+            else:
+                preds = greedy_ctc_decode(logits.cpu(), i2c)
+
+            for i, pred in enumerate(preds):
+                idx = aligned_idx[ptr + i].item()
+                gold_word = self.dataset.unique_words[self.dataset.aligned[idx].item()]
+                if editdistance.eval(pred, gold_word) > edit_threshold:
+                    self.dataset.aligned[idx] = -1
+                    removed += 1
+            ptr += len(preds)
+
+        print(
+            f"[Validate] removed {removed} unreliable pseudo-labels "
+            f"(threshold = {edit_threshold})"
+        )
+        return removed
+
+    # ------------------------------------------------------------------
     def align(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform one OT pseudo-labelling iteration.
 
@@ -580,5 +656,15 @@ def align_more_instances(
         metric=metric,
         agree_threshold=agree_threshold,
     )
+    plan, proj_feats, moved = aligner.align()
 
-    return aligner.align()
+    # --- optional backbone-based sanity check ---
+    if getattr(cfg, "pseudo_label_validation", None) and \
+       cfg.pseudo_label_validation.enable:
+        aligner.validate_pseudo_labels(
+            edit_threshold=int(cfg.pseudo_label_validation.edit_distance),
+            batch_size=batch_size,
+            decode_cfg=getattr(cfg, "decode_config", None),
+        )
+
+    return plan, proj_feats, moved

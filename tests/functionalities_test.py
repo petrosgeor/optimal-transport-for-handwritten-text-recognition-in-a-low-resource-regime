@@ -361,3 +361,27 @@ def test_alternating_refinement_calls_cer(monkeypatch):
     subsets = {d.subset for d in calls}
     assert {"train_val", "test"} == subsets
 
+
+def test_validate_pseudo_labels(monkeypatch):
+    """Samples with large edit distance are un-aligned."""
+
+    from alignment import alignment_utilities as au
+
+    ds = DummyHTRDataset()
+    ds.word_emb_dim = 2
+    ds.unique_word_embeddings = torch.zeros((2, 2))
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+
+    aligner = au.OTAligner(ds, backbone, [proj], batch_size=2, device="cpu")
+
+    def fake_decode(logits, i2c, **kwargs):
+        return ["gt1", "oops"]
+
+    monkeypatch.setattr(au, "greedy_ctc_decode", fake_decode)
+
+    removed = aligner.validate_pseudo_labels(edit_threshold=3, batch_size=2)
+
+    assert removed == 1
+    assert ds.aligned.tolist() == [0, -1]
+
