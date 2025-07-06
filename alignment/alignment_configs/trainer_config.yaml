@@ -104,3 +104,4 @@ synthetic_dataset:
 pseudo_label_validation:
   enable: true        # set false to skip the new check
   edit_distance: 3    # maximum Levenshtein distance allowed
+  start_iteration: 2  # first round that runs the check
