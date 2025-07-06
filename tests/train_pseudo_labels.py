@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""
+Fine‑tune an HTRNet **only on pseudo‑labelled instances**
+logged by `alignment/trainer.py::log_pseudo_labels`.
+
+The script expects one or more files named
+    results/pseudo_labels_round_<n>.txt
+where each line is
+    <idx>\t<predicted_word>\t<ground_truth_word>
+
+*Only* the predicted_word is used as training target.
+
+Example
+-------
+python train_pseudo_labels.py \
+       --results_dir results \
+       --dataset_folder htr_base/data/GW/processed_words \
+       --pretrained_backbone htr_base/saved_models/pretrained_backbone.pt \
+       --batch_size 128 --epochs 200 --eval_every 20
+"""
+from __future__ import annotations
+import argparse, glob, os, random
+from pathlib import Path
+from types import SimpleNamespace
+
+import torch, torch.optim as optim
+import torch.nn.functional as F
+from torch.utils.data import DataLoader, Subset
+
+from omegaconf import OmegaConf
+
+import sys
+
+# ─── Add project root to import path ────────────────────────────────────────
+root = Path(__file__).resolve().parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
+
+from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.models import HTRNet
+from htr_base.utils.transforms import aug_transforms
+from htr_base.utils.vocab import load_vocab
+from alignment.ctc_utils import encode_for_ctc, greedy_ctc_decode
+from alignment.eval import compute_cer
+from alignment.losses import _ctc_loss_fn          # balanced CTC wrapper
+
+# ──────────────────── helper --------------------------------------------------
+def _parse_pseudo_files(results_dir: str) -> dict[int, str]:
+    """
+    Scan *results_dir* for files called `pseudo_labels_round_*.txt`
+    (format produced by `log_pseudo_labels`:contentReference[oaicite:0]{index=0}) and return
+    a dict   {dataset_index : predicted_label}.
+    When the same index appears in more than one round, keep the *latest* label.
+    """
+    mapping: dict[int, str] = {}
+    paths = sorted(Path(results_dir).glob("pseudo_labels_round_*.txt"))
+    if not paths:
+        raise FileNotFoundError(
+            f"No pseudo‑label files found in {results_dir!s}"
+        )
+    for p in paths:
+        with p.open(encoding="utf-8") as fh:
+            for line in fh:
+                idx_s, pred, _gt = line.rstrip("\n").split("\t")
+                mapping[int(idx_s)] = pred
+    return mapping
+
+def _maybe_load_pretrained(net: HTRNet, path: str) -> None:
+    """Load weights into *net* if *path* exists (strict=False)."""
+    if Path(path).is_file():
+        state = torch.load(path, map_location="cpu")
+        net.load_state_dict(state, strict=False)
+        print(f"[Init] loaded pretrained backbone from {path}")
+    else:
+        raise FileNotFoundError(f"pretrained_backbone '{path}' not found")
+
+# ──────────────────── main training routine ----------------------------------
+def main(args) -> None:
+    if args.gpu_id is not None:
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
+    # 1. ── configuration from trainer_config.yaml for consistency ──────────
+    config_path = root / "alignment" / "alignment_configs" / "trainer_config.yaml"
+    cfg = OmegaConf.load(config_path)
+    arch_cfg = SimpleNamespace(**cfg["architecture"])
+    fixed_size = tuple(cfg.dataset.fixed_size)
+
+    # 2. ── build dataset & inject pseudo‑labels ─────────────────────────────
+    basefolder = args.dataset_folder
+    ds_cfg = SimpleNamespace(n_aligned=0, word_emb_dim=cfg.dataset.word_emb_dim)
+    full_ds = HTRDataset(
+        basefolder=basefolder,
+        subset="train_val",
+        fixed_size=fixed_size,
+        transforms=aug_transforms,
+        config=ds_cfg,
+    )
+
+    pseudo_map = _parse_pseudo_files(args.results_dir)
+    if not pseudo_map:
+        raise RuntimeError("No pseudo‑labels collected → nothing to train on")
+
+    # Overwrite the transcriptions *in‑place* with the predicted words
+    for idx, pred in pseudo_map.items():
+        full_ds.transcriptions[idx] = pred
+        img_path, _old = full_ds.data[idx]
+        full_ds.data[idx] = (img_path, pred)
+
+    subset_idx = sorted(pseudo_map.keys())
+    train_ds = Subset(full_ds, subset_idx)
+    print(f"[Data] using {len(train_ds)} pseudo‑labelled samples")
+
+    # 3. ── model, vocab, optimiser ─────────────────────────────────────────
+    c2i, i2c = load_vocab()
+    net = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
+    _maybe_load_pretrained(net, args.pretrained_backbone)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net.to(device).train()
+
+    opt = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.StepLR(opt, step_size=200, gamma=0.5)
+
+    # 4. ── loaders ─────────────────────────────────────────────────────────
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=(device.type == "cuda"),
+    )
+    test_ds = HTRDataset(
+        basefolder=basefolder,
+        subset="test",
+        fixed_size=fixed_size,
+        transforms=None,
+        config=ds_cfg,
+    )
+
+    # 5. ── training loop with CER evaluation ──────────────────────────────
+    for epoch in range(1, args.epochs + 1):
+        running_loss = 0.0
+        batches = 0
+        for imgs, words, _align in train_loader:
+            imgs = imgs.to(device)
+            words = [f" {w.strip()} " if not w.startswith(" ") else w for w in words]
+
+            logits = net(imgs, return_feats=False)
+            if isinstance(logits, (tuple, list)):
+                logits = logits[0]         # main branch
+
+            targets, t_lens = encode_for_ctc(words, c2i, device="cpu")
+            inp_lens = torch.full((imgs.size(0),), logits.size(0), dtype=torch.int32)
+
+            loss = _ctc_loss_fn(logits, targets, inp_lens, t_lens)
+            opt.zero_grad(set_to_none=True)
+            loss.backward()
+            opt.step()
+
+            running_loss += loss.item()
+            batches += 1
+
+        if batches:
+            print(
+                f"Epoch {epoch:03d}/{args.epochs} – "
+                f"avg CTC loss {running_loss / batches:.4f}"
+            )
+
+        if epoch % args.eval_every == 0 or epoch == args.epochs:
+            compute_cer(
+                dataset=test_ds,
+                model=net,
+                batch_size=args.batch_size,
+                device=device,
+                decode="greedy",
+                k=4,
+            )
+
+        scheduler.step()
+
+    print("Training finished.")
+
+# ──────────────────── CLI boilerplate ────────────────────────────────────────
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--results_dir", default="results",
+                   help="folder containing pseudo_labels_round_*.txt")
+    p.add_argument("--dataset_folder", default="htr_base/data/GW/processed_words",
+                   help="root folder with processed_words/{train,val,test}/")
+    p.add_argument("--pretrained_backbone", default="htr_base/saved_models/pretrained_backbone.pt",
+                   help="path to pretrained backbone .pt file")
+    p.add_argument("--batch_size", type=int, default=128)
+    p.add_argument("--epochs", type=int, default=200)
+    p.add_argument("--eval_every", type=int, default=20)
+    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--gpu_id", type=int, help="GPU to use")
+    args = p.parse_args()
+    main(args)
