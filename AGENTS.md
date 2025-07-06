@@ -28,6 +28,12 @@ When documenting a **class**, you must provide comprehensive documentation that 
     *   `Attributes:`: A list of all class attributes (i.e., `self.attribute`), their types, and descriptions.
 2.  **Method Docstrings**:
     *   Every method within the class must have its own docstring, following the same structure as for standalone functions.
+3.  **README.md Documentation for Classes**:
+    *   Every class documented in `README.md` must have an **Attributes** and a **Methods** section.
+    *   In the **Methods** section, you must enumerate the methods of the class in bullet points.
+    *   **Important**: To avoid redundancy, class methods must *only* be documented under their class's **Methods** section. They must **not** be documented again as separate functions elsewhere in `README.md`.
+
+
 
 ### Example (Function):
 
