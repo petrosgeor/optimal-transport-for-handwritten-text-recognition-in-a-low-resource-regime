@@ -13,31 +13,9 @@ import editdistance
 import random
 from typing import List
 from htr_base.utils.vocab import load_vocab
+
+
 class HTRDataset(Dataset):
-    """Dataset of word images with optional alignments.
-
-    Args:
-        basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
-        subset (str): Portion of the dataset to load.
-        fixed_size (tuple): ``(height, width)`` for image resizing.
-        transforms (list | None): Optional Albumentations pipeline.
-        character_classes (list | None): Characters making up the vocabulary.
-        config (Any): Optional configuration object with alignment params.
-        two_views (bool): Return two augmented views when ``True``.
-        word_prob_mode (str): ``'empirical'`` or ``'wordfreq'`` for word priors.
-
-    Attributes:
-        data (list[tuple]): Pairs of image paths and transcriptions.
-        transcriptions (list[str]): Text strings for each image.
-        character_classes (list[str]): Dataset vocabulary of characters.
-        prior_char_probs (dict): Character prior probabilities.
-        unique_words (list[str]): Unique words present in the dataset.
-        unique_word_probs (list[float]): Prior probability of each ``unique_word``.
-        unique_word_embeddings (torch.Tensor): Embeddings for the unique words.
-        is_in_dict (torch.IntTensor): ``1`` if a transcription is in ``unique_words``.
-        aligned (torch.IntTensor): Alignment indices or ``-1`` when unknown.
-        word_prob_mode (str): How ``unique_word_probs`` were computed.
-    """
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
         subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
