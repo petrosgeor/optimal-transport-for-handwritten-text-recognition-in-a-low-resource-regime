@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from types import SimpleNamespace
 
 
 ###############################################################################
@@ -336,33 +337,105 @@ class HTRNet(nn.Module):
 
 
 
-# from types import SimpleNamespace
+###############################################################################
+#                       ─────  HTRNetLength  (length CNN‑RNN)  ─────          #
+###############################################################################
+class HTRNetLength(nn.Module):
+    """
+    CNN + bidirectional RNN classifier that predicts the **number of characters**
+    in a handwritten‑word image.
 
-# # ---- 1. Define dummy arch config (match your config.yaml!) ----
-# arch_cfg = SimpleNamespace(
-#     cnn_cfg=[[2, 64], 'M', [3, 128], 'M', [2, 256]],
-#     head_type='both',        # could be 'cnn', 'rnn', or 'both'
-#     rnn_type='lstm',         # 'gru' or 'lstm'
-#     rnn_layers=3,
-#     rnn_hidden_size=256,
-#     flattening='maxpool',
-#     feat_dim=512,
-#     stn=False,
-#     feat_dim=512           # 
-# )
+    Parameters
+    ----------
+    arch_cfg : Namespace | dict
+        Same architecture configuration used by :class:`HTRNet`.  The keys that
+        matter here are:
+          • ``cnn_cfg``           – convolutional backbone definition  
+          • ``flattening``        – 'maxpool' | 'avgpool' | 'concat'  
+          • ``rnn_type``          – 'gru' | 'lstm' (optional, default 'gru')  
+          • ``rnn_hidden_size``   – hidden units per direction (default =256)  
+          • ``rnn_layers``        – number of stacked RNN layers (default =2)
+    n_lengths : int
+        How many discrete length classes you want to predict.  
+        E.g. `n_lengths = 20` for classes *{1, …, 20}*.
 
-# # ---- 2. Set output classes (e.g., 80 classes + 1 for CTC blank) ----
-# nclasses = 80 + 1
+    Output
+    ------
+    logits : torch.Tensor, shape = (B, n_lengths)
+        Raw (unnormalised) scores for every possible length.
+    """
+    def __init__(self, arch_cfg, n_lengths: int):
+        super().__init__()
 
-# # ---- 3. Create HTRNet ----
-# model = HTRNet(arch_cfg, nclasses)
+        # ---------- convolutional feature extractor ----------
+        self.features = CNN(arch_cfg.cnn_cfg, flattening=arch_cfg.flattening)
 
-# # ---- 4. Create a dummy input tensor (B, C, H, W) ----
-# # e.g., batch of 2 images, 1 channel, height 128, width 1024
-# dummy_input = torch.randn(2, 1, 128, 1024)
+        # CNN output channels (same logic as in HTRNet)
+        if arch_cfg.flattening in ("maxpool", "avgpool"):
+            cnn_out_ch = arch_cfg.cnn_cfg[-1][-1]
+        elif arch_cfg.flattening == "concat":
+            cnn_out_ch = 2 * 8 * arch_cfg.cnn_cfg[-1][-1]
+        else:
+            raise ValueError(f"Unknown flattening: {arch_cfg.flattening}")
 
-# # ---- 5. Run forward pass ----
-# model.eval()
-# with torch.no_grad():
-#     main, aux, feats = model(dummy_input, return_feats=True)
+        # ---------- recurrent encoder ----------
+        hidden_size   = getattr(arch_cfg, "rnn_hidden_size", 256)
+        num_layers    = getattr(arch_cfg, "rnn_layers", 2)
+        rnn_type      = getattr(arch_cfg, "rnn_type", "gru").lower()
+
+        if rnn_type == "gru":
+            self.rec = nn.GRU(
+                cnn_out_ch,
+                hidden_size,
+                num_layers=num_layers,
+                bidirectional=True,
+                dropout=0.2 if num_layers > 1 else 0.0,
+            )
+        elif rnn_type == "lstm":
+            self.rec = nn.LSTM(
+                cnn_out_ch,
+                hidden_size,
+                num_layers=num_layers,
+                bidirectional=True,
+                dropout=0.2 if num_layers > 1 else 0.0,
+            )
+        else:
+            raise ValueError(f"Unsupported rnn_type '{rnn_type}'")
+
+        # ---------- final linear classifier ----------
+        self.fc = nn.Linear(2 * hidden_size, n_lengths)
+
+        # Store for convenience
+        self.n_lengths = n_lengths
+        self.hidden_size = hidden_size
+
+    # ------------------------------------------------------------------ forward
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        x : torch.Tensor, shape = (B, 1, H, W)
+        """
+        # 1) CNN feature map  –––––––––––––––––––––––––––––––––––––––––––––––
+        y = self.features(x)                               # (B, C, 1, T)
+        y = y.squeeze(2)                                   # (B, C, T)
+
+        # 2) sequence → RNN expects (T, B, C)
+        seq = y.permute(2, 0, 1).contiguous()              # (T, B, C)
+
+        # 3) Run bidirectional RNN  ––––––––––––––––––––––––––––––––––––––––
+        _, h_n = self.rec(seq)                             # h_n: (num_layers*2, B, H)
+
+        # 4) Concatenate last forward + backward hidden states
+        if isinstance(h_n, tuple):                         # LSTM returns (h, c)
+            h_n = h_n[0]
+        h_fwd  = h_n[-2]                                   # (B, H)
+        h_back = h_n[-1]                                   # (B, H)
+        h_cat  = torch.cat([h_fwd, h_back], dim=1)         # (B, 2H)
+
+        # 5) Final length logits
+        return self.fc(h_cat)                              # (B, n_lengths)
+
+
+
+
+
 

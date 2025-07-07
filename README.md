@@ -49,6 +49,27 @@ class HTRNet(nn.Module):
 **Methods:**
 *   `forward(x, *, return_feats=True)`: Returns a tuple containing logits and, optionally, features and PHOC logits. The exact output depends on the model configuration and the `return_feats` flag.
 
+#### HTRNetLength
+
+Located in: `htr_base/models.py`
+
+CNN + bidirectional RNN classifier that predicts the **number of characters** in a word image.
+
+```python
+class HTRNetLength(nn.Module):
+    def __init__(self, arch_cfg, n_lengths):
+```
+
+*   'arch_cfg': same architecture namespace used by HTRNet (cnn_cfg, flattening, rnn_type, rnn_layers, rnn_hidden_size).
+*   'n_lengths':  integer, number of discrete length classes (e.g. 20 for lengths 1–20).
+
+**Attributes:**
+* 'featues': convolutional feature extractor (CNN).
+* 'rec': bidirectional GRU/LSTM encoder.
+* 'fc': linear classifier mapping the concatenated hidden states to n_lengths logits.
+
+**Methods**
+* 'forward(x) -> torch.Tensor': returns a tensor of shape (B, n_lengths) with raw logits for each possible length. 
 
 
 
