@@ -526,7 +526,7 @@ class OTAligner:
         *,
         edit_threshold: int = 3,
         batch_size: int = 256,
-        decode_cfg: dict | None = None,
+        decode_cfg: dict = None,
         num_workers: int = 0,
     ) -> int:
         """Drop pseudo-labels whose predictions are too far from the backbone.

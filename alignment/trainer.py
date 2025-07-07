@@ -642,8 +642,13 @@ def alternating_refinement(
             device=cfg.device,
             k=4
         )
+
+        # --- restrict CER to already-aligned samples -------------------
+        aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
+        aligned_subset = torch.utils.data.Subset(dataset, aligned_idx.tolist())
+        print('CER on the aligned subset: ')
         compute_cer(
-            dataset,
+            aligned_subset,
             backbone,
             batch_size=cfg.eval_batch_size,
             device=cfg.device,
