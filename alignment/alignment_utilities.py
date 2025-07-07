@@ -529,7 +529,9 @@ class OTAligner:
         decode_cfg: dict = None,
         num_workers: int = 0,
     ) -> int:
-        """Drop pseudo-labels whose predictions are too far from the backbone.
+        """Drop unreliable pseudo-labels based on the backbone output.
+
+        Counts how many removed labels differ from the dataset transcriptions.
 
         Parameters
         ----------
@@ -564,6 +566,7 @@ class OTAligner:
         )
 
         removed = 0
+        correct_removed = 0
         ptr = 0
         _, i2c = load_vocab()
         for imgs, *_ in loader:
@@ -583,11 +586,15 @@ class OTAligner:
                 if editdistance.eval(pred, gold_word) > edit_threshold:
                     self.dataset.aligned[idx] = -1
                     removed += 1
+                    if hasattr(self.dataset, "transcriptions") and (
+                        self.dataset.transcriptions[idx] != gold_word
+                    ):
+                        correct_removed += 1
             ptr += len(preds)
 
         print(
             f"[Validate] removed {removed} unreliable pseudo-labels "
-            f"(threshold = {edit_threshold})"
+            f"(threshold = {edit_threshold}). {correct_removed} mismatched ground truth."
         )
         return removed
 

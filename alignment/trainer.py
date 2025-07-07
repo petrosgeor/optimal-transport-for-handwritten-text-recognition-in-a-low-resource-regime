@@ -237,7 +237,7 @@ def refine_visual_backbone(
             subset,
             batch_size=gt_bs,
             shuffle=True,
-            num_workers=2,
+            num_workers=0,
             pin_memory=(device.type == "cuda"),
         )
 
@@ -247,7 +247,7 @@ def refine_visual_backbone(
             pretrain_ds,
             batch_size=syn_bs,
             shuffle=True,
-            num_workers=2,
+            num_workers=0,
             pin_memory=(device.type == "cuda"),
         )
 
