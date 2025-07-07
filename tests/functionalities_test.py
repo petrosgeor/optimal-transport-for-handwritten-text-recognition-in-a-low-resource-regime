@@ -358,7 +358,7 @@ def test_alternating_refinement_calls_cer(monkeypatch):
 
     trainer.alternating_refinement(ds, backbone, [proj], rounds=1)
 
-    subsets = {d.subset for d in calls}
+    subsets = {getattr(getattr(d, "dataset", d), "subset", None) for d in calls}
     assert {"train_val", "test"} == subsets
 
 
@@ -433,12 +433,12 @@ def test_lengths_from_transcriptions():
     assert out.tolist() == [0, 3, 0]
 
 
-def test_build_resnet18_forward():
-    """Modified ResNet18 accepts 1×64×256 images."""
+def test_build_htrnetlength_forward():
+    """Default HTRNetLength accepts 1×64×256 images."""
 
-    from alignment.train_word_length import build_resnet18
+    from alignment.train_word_length import build_htrnetlength
 
-    net = build_resnet18()
+    net = build_htrnetlength()
     dummy = torch.randn(2, 1, 64, 256)
     logits = net(dummy)
 

@@ -1,4 +1,4 @@
-"""Train a ResNet-18 model to predict word lengths from images."""
+"""Train an HTRNetLength model to predict word lengths from images."""
 
 from __future__ import annotations
 
@@ -20,7 +20,10 @@ if str(root) not in sys.path:
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import models
+from omegaconf import OmegaConf
+from types import SimpleNamespace
+
+from htr_base.models import HTRNetLength
 
 from htr_base.utils.htr_dataset import PretrainingHTRDataset, HTRDataset
 from htr_base.utils.transforms import aug_transforms
@@ -39,20 +42,12 @@ def lengths_from_transcriptions(batch_txt: list[str]) -> torch.LongTensor:
     return torch.tensor([l - 1 for l in lengths], dtype=torch.long)
 
 
-def build_resnet18() -> nn.Module:
-    """Construct a ResNet-18 for single-channel images with 20 outputs."""
+def build_htrnetlength() -> HTRNetLength:
+    """Return the default :class:`HTRNetLength` for 20 classes."""
 
-    net = models.resnet18(weights=None)
-    net.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    in_feats = net.fc.in_features
-    net.fc = nn.Linear(in_feats, 20)
-
-    for m in net.modules():
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-            if getattr(m, "bias", None) is not None:
-                nn.init.constant_(m.bias, 0)
-    return net
+    cfg_path = root / "alignment" / "alignment_configs" / "pretraining_config.yaml"
+    arch_cfg = OmegaConf.load(cfg_path).architecture
+    return HTRNetLength(SimpleNamespace(**arch_cfg), n_lengths=20)
 
 
 def parse_args() -> argparse.Namespace:
@@ -73,7 +68,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--save-path",
         type=str,
-        default="htr_base/saved_models/length_resnet18.pt",
+        default="htr_base/saved_models/length_htrnet.pt",
     )
     p.add_argument(
         "--save-model",
@@ -123,7 +118,7 @@ def main() -> None:
     )
 
 
-    net = build_resnet18().to(device)
+    net = build_htrnetlength().to(device)
     criterion = nn.CrossEntropyLoss()
     optim = torch.optim.Adam(net.parameters(), lr=args.lr)
 
