@@ -90,13 +90,12 @@ class HTRDataset(Dataset):
         # Alignment tensor
         self.aligned = torch.full((len(self.transcriptions),), fill_value=-1, dtype=torch.int32)
         if self.n_aligned > 0:
-            dict_indices = torch.arange(len(self.transcriptions))
-            if len(dict_indices) < self.n_aligned:
-                print(f'Warning: reducing n_aligned from {self.n_aligned} to {len(dict_indices)}')
-                self.n_aligned = len(dict_indices)
+            total = len(self.transcriptions)
+            if total < self.n_aligned:
+                print(f'Warning: reducing n_aligned from {self.n_aligned} to {total}')
+                self.n_aligned = total
             if self.n_aligned > 0:
-                perm = torch.randperm(len(dict_indices))[:self.n_aligned]
-                chosen = dict_indices[perm]
+                chosen = torch.tensor(self._select_seed_indices(), dtype=torch.long)
                 for idx in chosen.tolist():
                     word = self.transcriptions[idx]
                     self.aligned[idx] = self.unique_words.index(word)
@@ -133,6 +132,36 @@ class HTRDataset(Dataset):
     def __len__(self):
         """Return the number of items in the dataset."""
         return len(self.data)
+
+    def _select_seed_indices(self) -> List[int]:
+        """Return dataset indices for seeding the alignment.
+
+        Args:
+            None.
+
+        Returns:
+            list[int]: Selected indices ordered by decreasing word length.
+        """
+
+        if self.n_aligned <= 0:
+            return []
+
+        sorted_idx = sorted(
+            range(len(self.transcriptions)),
+            key=lambda i: len(self.transcriptions[i]),
+            reverse=True,
+        )
+
+        chosen, seen_words = [], set()
+        for i in sorted_idx:
+            w = self.transcriptions[i]
+            if w not in seen_words:
+                chosen.append(i)
+                seen_words.add(w)
+                if len(chosen) == self.n_aligned:
+                    break
+
+        return chosen
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):
