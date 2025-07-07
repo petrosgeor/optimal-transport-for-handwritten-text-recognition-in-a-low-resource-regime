@@ -40,7 +40,8 @@ dataset_path = str(root / "htr_base" / "data" / "GW" / "processed_words")
 test_dataset = HTRDataset(
     basefolder=dataset_path,
     subset="test",
-    fixed_size=(64, 256)
+    fixed_size=(64, 256),
+    word_prob_mode="empirical",
 )
 
 # ─── 4. Calculate and Report CER ────────────────────────────────────────────

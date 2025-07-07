@@ -14,6 +14,30 @@ import random
 from typing import List
 from htr_base.utils.vocab import load_vocab
 class HTRDataset(Dataset):
+    """Dataset of word images with optional alignments.
+
+    Args:
+        basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
+        subset (str): Portion of the dataset to load.
+        fixed_size (tuple): ``(height, width)`` for image resizing.
+        transforms (list | None): Optional Albumentations pipeline.
+        character_classes (list | None): Characters making up the vocabulary.
+        config (Any): Optional configuration object with alignment params.
+        two_views (bool): Return two augmented views when ``True``.
+        word_prob_mode (str): ``'empirical'`` or ``'wordfreq'`` for word priors.
+
+    Attributes:
+        data (list[tuple]): Pairs of image paths and transcriptions.
+        transcriptions (list[str]): Text strings for each image.
+        character_classes (list[str]): Dataset vocabulary of characters.
+        prior_char_probs (dict): Character prior probabilities.
+        unique_words (list[str]): Unique words present in the dataset.
+        unique_word_probs (list[float]): Prior probability of each ``unique_word``.
+        unique_word_embeddings (torch.Tensor): Embeddings for the unique words.
+        is_in_dict (torch.IntTensor): ``1`` if a transcription is in ``unique_words``.
+        aligned (torch.IntTensor): Alignment indices or ``-1`` when unknown.
+        word_prob_mode (str): How ``unique_word_probs`` were computed.
+    """
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
         subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
@@ -22,6 +46,7 @@ class HTRDataset(Dataset):
         character_classes: list = None,          # If None, computed automatically; else list of characters
         config=None,                            # Configuration object with optional parameters
         two_views: bool = False,                # Whether to return two views of each image
+        word_prob_mode: str = 'empirical',      # How to compute unique word probabilities
         ):
         """Load handwritten text images and optional alignment info.
 
@@ -33,6 +58,8 @@ class HTRDataset(Dataset):
             character_classes (list | None): Characters making up the vocabulary.
             config (Any): Optional configuration object with alignment params.
             two_views (bool): Return two augmented views when ``True``.
+            word_prob_mode (str): ``'empirical'`` to use dataset counts,
+                ``'wordfreq'`` to use corpus frequencies.
         """
         self.basefolder = basefolder
         self.subset = subset
@@ -41,6 +68,11 @@ class HTRDataset(Dataset):
         self.character_classes = character_classes
         self.config = config
         self.two_views = two_views
+        if word_prob_mode not in {"empirical", "wordfreq"}:
+            raise ValueError(
+                "word_prob_mode must be 'empirical' or 'wordfreq'"
+            )
+        self.word_prob_mode = word_prob_mode
         self.n_aligned = 0
         self.word_emb_dim = 512
         if self.config is not None:
@@ -82,7 +114,14 @@ class HTRDataset(Dataset):
             c2i, _ = load_vocab()
             self.character_classes = list(c2i.keys())
         # Vocabulary derived from dataset transcriptions
-        self.unique_words, self.unique_word_probs = self.word_frequencies()
+        self.unique_words, empirical_probs = self.word_frequencies()
+        if self.word_prob_mode == "empirical":
+            self.unique_word_probs = empirical_probs
+        else:
+            wf = [word_frequency(w, "en") for w in self.unique_words]
+            wf = [f if f > 0 else 1e-12 for f in wf]
+            total = sum(wf)
+            self.unique_word_probs = [f / total for f in wf]
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
 
         # All transcriptions are present in ``unique_words``
