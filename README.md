@@ -49,29 +49,6 @@ class HTRNet(nn.Module):
 **Methods:**
 *   `forward(x, *, return_feats=True)`: Returns a tuple containing logits and, optionally, features and PHOC logits. The exact output depends on the model configuration and the `return_feats` flag.
 
-#### HTRNetLength
-
-Located in: `htr_base/models.py`
-
-CNN + bidirectional RNN classifier that predicts the **number of characters** in a word image.
-
-```python
-class HTRNetLength(nn.Module):
-    def __init__(self, arch_cfg, n_lengths):
-```
-
-*   'arch_cfg': same architecture namespace used by HTRNet (cnn_cfg, flattening, rnn_type, rnn_layers, rnn_hidden_size).
-*   'n_lengths':  integer, number of discrete length classes (e.g. 20 for lengths 1–20).
-
-**Attributes:**
-* 'featues': convolutional feature extractor (CNN).
-* 'rec': bidirectional GRU/LSTM encoder.
-* 'fc': linear classifier mapping the concatenated hidden states to n_lengths logits.
-
-**Methods**
-* 'forward(x) -> torch.Tensor': returns a tensor of shape (B, n_lengths) with raw logits for each possible length. 
-
-
 
 #### Projector
 
@@ -852,37 +829,7 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 ### Training Utilities
 
 * `pretraining.py` – trains a CTC-based network on the synthetic 90k dataset.
-* `train_word_length.py` – trains an HTRNetLength classifier on the synthetic 90k dataset to predict the **number of characters** in each word image (1–20).  It uses `PretrainingHTRDataset` for both training and evaluation and optimises a Cross-Entropy loss on word-length labels automatically derived from the dataset transcriptions.
-* `lengths_from_transcriptions` – converts text strings to length class indices.
-* `build_htrnetlength` – constructs the default word-length model.
 
-#### lengths_from_transcriptions
-
-Located in: `alignment/train_word_length.py`
-
-Turns a list of word transcriptions into class indices between ``0`` and ``19``.
-
-```python
-def lengths_from_transcriptions(batch_txt: list[str]) -> torch.LongTensor:
-```
-
-```python
-lengths = lengths_from_transcriptions(["a", "abcd", ""])
-```
-
-#### build_htrnetlength
-
-Located in: `alignment/train_word_length.py`
-
-Returns the default :class:`HTRNetLength` with 20 output classes.
-
-```python
-def build_htrnetlength() -> HTRNetLength:
-```
-
-```python
-model = build_htrnetlength()
-```
 
 #### refine_visual_backbone
 
