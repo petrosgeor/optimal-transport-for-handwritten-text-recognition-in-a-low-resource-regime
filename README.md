@@ -275,9 +275,13 @@ class HTRDataset(Dataset):
 *   `letter_priors(transcriptions=None, n_words=50000)`: returns prior probabilities for characters.
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
+*   `_select_seed_indices()` -> list[int]: chooses indices for initial seed alignment, e.g. `dataset._select_seed_indices()`.
 *   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of unique-word usage.
 *   `word_frequencies()` -> tuple[list[str], list[float]]: returns unique words
     and their probabilities, e.g. `dataset.word_frequencies()`.
+
+**Initial seed alignment (`n_aligned`)**
+When `n_aligned > 0`, the dataset now selects **the `n_aligned` *distinct* words with the longest transcriptions** as the initial aligned set (ties are broken arbitrarily). This replaces the previous random sampling strategy and guarantees that each seed corresponds to a unique word, maximising lexical coverage from the outset.
 
 
 

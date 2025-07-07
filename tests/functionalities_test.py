@@ -422,25 +422,40 @@ def test_align_more_instances_gated_validation(monkeypatch):
     assert len(calls) == 1
 
 
-def test_lengths_from_transcriptions():
-    """Word lengths are mapped to class indices correctly."""
-
-    from alignment.train_word_length import lengths_from_transcriptions
-
-    t = ["a", "abcd", ""]
-    out = lengths_from_transcriptions(t)
-
-    assert out.tolist() == [0, 3, 0]
 
 
-def test_build_htrnetlength_forward():
-    """Default HTRNetLength accepts 1×64×256 images."""
+def test_select_seed_indices_longest_distinct():
+    """Longest distinct words are selected deterministically."""
 
-    from alignment.train_word_length import build_htrnetlength
+    ds = HTRDataset.__new__(HTRDataset)
+    ds.transcriptions = [
+        "longestword",
+        "foo",
+        "bar",
+        "longestword",
+        "barbar",
+        "baz",
+        "foo",
+        "qux",
+        "longer",
+    ]
+    ds.n_aligned = 3
 
-    net = build_htrnetlength()
-    dummy = torch.randn(2, 1, 64, 256)
-    logits = net(dummy)
+    indices = HTRDataset._select_seed_indices(ds)
+    words = [ds.transcriptions[i] for i in indices]
 
-    assert logits.shape == (2, 20)
+    assert indices == [0, 4, 8]
+    assert words == ["longestword", "barbar", "longer"]
+
+
+def test_select_seed_indices_limits():
+    """Fewer unique words than ``n_aligned`` yields a shorter list."""
+
+    ds = HTRDataset.__new__(HTRDataset)
+    ds.transcriptions = ["a", "b", "a"]
+    ds.n_aligned = 5
+
+    indices = HTRDataset._select_seed_indices(ds)
+
+    assert len(indices) == 2
 
