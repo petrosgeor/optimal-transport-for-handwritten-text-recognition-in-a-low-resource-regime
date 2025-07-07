@@ -57,3 +57,5 @@ aux_loss_weight: 0.1
 save_path: "htr_base/saved_models/pretrained_backbone.pt"
 save_backbone: true
 results_file: false
+dataset:
+  word_prob_mode: empirical

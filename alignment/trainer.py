@@ -557,7 +557,8 @@ def alternating_refinement(
         fixed_size=dataset.fixed_size,
         character_classes=dataset.character_classes,
         config=dataset.config,
-        two_views=False
+        two_views=False,
+        word_prob_mode=dataset.word_prob_mode,
     )
 
     cycle_idx = 1
@@ -680,6 +681,7 @@ if __name__ == "__main__":
         transforms=aug_transforms,
         config=ds_cfg,
         two_views=ds_cfg.two_views,
+        word_prob_mode=ds_cfg.word_prob_mode,
     )
 
     arch = SimpleNamespace(**cfg["architecture"])

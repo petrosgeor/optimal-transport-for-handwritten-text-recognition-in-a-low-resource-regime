@@ -236,6 +236,10 @@ Located in: `htr_base/utils/htr_dataset.py`
 
 Loads handwritten text images and optional alignment info.
 
+`word_prob_mode` (str, default `'empirical'`) selects how `unique_word_probs` are computed.
+• `'empirical'` – dataset word counts (legacy).
+• `'wordfreq'` – corpus priors via `wordfreq.word_frequency`, renormalised to sum 1.
+
 ```python
 class HTRDataset(Dataset):
     def __init__(
@@ -257,13 +261,14 @@ class HTRDataset(Dataset):
 *   `character_classes` (list | None): Characters making up the vocabulary.
 *   `config` (Any): Optional configuration object with alignment parameters.
 *   `two_views` (bool): Return two augmented views when `True`.
+*   `word_prob_mode` (str): How `unique_word_probs` are computed (`empirical` or `wordfreq`).
 **Attributes:**
 *   `data` (list[tuple]): Pairs of image paths and transcriptions.
 *   `transcriptions` (list[str]): Text strings for each image.
 *   `character_classes` (list[str]): Dataset vocabulary of characters.
 *   `prior_char_probs` (dict): Prior probabilities for each character in the vocabulary.
 *   `unique_words` (list[str]): Unique words present in the dataset.
-*   `unique_word_probs` (list[float]): Empirical probability of each unique word.
+*   `unique_word_probs` (list[float]): Prior probability of each `unique_word`; source controlled by `word_prob_mode`.
 *   `unique_word_embeddings` (torch.Tensor): Embeddings for the unique words.
 *   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `unique_words`.
 *   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
@@ -943,6 +948,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
 *   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
+*   `dataset.word_prob_mode` (str): `'empirical'` or `'wordfreq'` for word priors.
 *   `n_aligned` (int): Number of initially aligned instances.
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
@@ -985,6 +991,7 @@ Architecture and pretraining options used by `pretraining.py`.
 *   `save_path` (str): Path to save the trained model.
 *   `save_backbone` (bool): Whether the trained backbone should be saved.
 *   `results_file` (bool): Whether to save results to a file.
+*   `dataset.word_prob_mode` (str): `'empirical'` or `'wordfreq'` for word priors.
 
 ## Requirements
 Python dependencies are listed in `requirements.txt`. Install them with:

@@ -216,6 +216,30 @@ def test_word_frequencies():
     assert abs(mapping["dog"] - 1 / 3) < 1e-6
 
 
+def test_dataset_word_prob_mode(tmp_path):
+    """unique_word_probs depend on ``word_prob_mode`` and sum to 1."""
+
+    base = tmp_path
+    (base / "train").mkdir()
+    (base / "train" / "gt.txt").write_text("\n".join([
+        "img1 cat",
+        "img2 dog",
+        "img3 cat",
+    ]))
+
+    ds_emp = HTRDataset(basefolder=str(base), subset="train", fixed_size=(1, 1), word_prob_mode="empirical")
+    ds_wf = HTRDataset(basefolder=str(base), subset="train", fixed_size=(1, 1), word_prob_mode="wordfreq")
+
+    assert abs(sum(ds_emp.unique_word_probs) - 1.0) < 1e-6
+    assert abs(sum(ds_wf.unique_word_probs) - 1.0) < 1e-6
+
+    map_emp = dict(zip(ds_emp.unique_words, ds_emp.unique_word_probs))
+    map_wf = dict(zip(ds_wf.unique_words, ds_wf.unique_word_probs))
+
+    assert abs(map_emp["cat"] - 2 / 3) < 1e-6
+    assert map_wf["dog"] > map_wf["cat"]
+
+
 def test_unique_word_embeddings_attribute():
     """Word embeddings tensor is stored under ``unique_word_embeddings``."""
 
@@ -307,6 +331,7 @@ def test_alternating_refinement_calls_cer(monkeypatch):
             character_classes=None,
             config=None,
             two_views=False,
+            word_prob_mode="empirical",
         ):
             self.basefolder = basefolder
             self.subset = subset
@@ -314,6 +339,7 @@ def test_alternating_refinement_calls_cer(monkeypatch):
             self.character_classes = character_classes or []
             self.config = config or SimpleNamespace()
             self.two_views = two_views
+            self.word_prob_mode = "empirical"
             self.aligned = torch.tensor([-1, 0])
             self.unique_words = ["x", "y"]
             self.imgs = [torch.zeros(1, 1, 1), torch.zeros(1, 1, 1)]
