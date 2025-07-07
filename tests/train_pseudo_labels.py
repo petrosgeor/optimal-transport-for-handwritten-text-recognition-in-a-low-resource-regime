@@ -23,6 +23,37 @@ import argparse, glob, os, random
 from pathlib import Path
 from types import SimpleNamespace
 
+# ------------------------------------------------------------------
+# Hyperparameters used when running this file directly. They also
+# serve as defaults for the command-line interface.
+#
+#   GPU_ID           – CUDA device identifier.
+#   BATCH_SIZE       – mini-batch size during training.
+#   SYN_BATCH_RATIO  – fraction of each batch drawn from the synthetic
+#                       `PretrainingHTRDataset`.
+#   RESULTS_DIR      – folder containing `pseudo_labels_round_*.txt`.
+#   DATASET_FOLDER   – processed_words dataset folder.
+#   SYN_LIST_FILE    – image list for the synthetic corpus.
+#   SYN_BASE_PATH    – base path of the synthetic images.
+#   NUM_EPOCHS       – number of training epochs.
+#   LR               – optimiser learning rate.
+#   EVAL_EVERY       – evaluation frequency in epochs.
+#   PRETRAINED_BACKBONE – path to pretrained weights.
+# ------------------------------------------------------------------
+GPU_ID = 1
+os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
+
+BATCH_SIZE = 128
+SYN_BATCH_RATIO = 0.5
+RESULTS_DIR = "results"
+DATASET_FOLDER = "htr_base/data/GW/processed_words"
+SYN_LIST_FILE = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
+SYN_BASE_PATH = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px"
+NUM_EPOCHS = 600
+LR = 1e-3
+EVAL_EVERY = 20
+PRETRAINED_BACKBONE = "htr_base/saved_models/pretrained_backbone.pt"
+
 import torch, torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, Subset
@@ -36,7 +67,7 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
@@ -74,6 +105,27 @@ def _maybe_load_pretrained(net: HTRNet, path: str) -> None:
     else:
         raise FileNotFoundError(f"pretrained_backbone '{path}' not found")
 
+def _mix_batches(real_batch, pre_iter):
+    """Concatenate pseudo-labelled and synthetic batches.
+
+    Args:
+        real_batch (Tuple[torch.Tensor, list, torch.Tensor] | Tuple[torch.Tensor, list]):
+            Batch from the pseudo-labelled loader. The alignment tensor may be present.
+        pre_iter (Iterator | None): Cycling iterator over the synthetic loader.
+
+    Returns:
+        Tuple[torch.Tensor, list]: Combined images and transcriptions.
+    """
+    if len(real_batch) == 3:
+        imgs, words, _ = real_batch
+    else:
+        imgs, words = real_batch
+    if pre_iter is not None:
+        imgs_syn, words_syn = next(pre_iter)
+        imgs = torch.cat([imgs, imgs_syn], dim=0)
+        words = list(words) + list(words_syn)
+    return imgs, list(words)
+
 # ──────────────────── main training routine ----------------------------------
 def main(args) -> None:
     if args.gpu_id is not None:
@@ -109,6 +161,15 @@ def main(args) -> None:
     train_ds = Subset(full_ds, subset_idx)
     print(f"[Data] using {len(train_ds)} pseudo‑labelled samples")
 
+    pretrain_ds = PretrainingHTRDataset(
+        list_file=args.syn_list_file,
+        fixed_size=fixed_size,
+        base_path=args.syn_base_path,
+        transforms=aug_transforms,
+        n_random=10000,
+        preload_images=False,
+    )
+
     # 3. ── model, vocab, optimiser ─────────────────────────────────────────
     c2i, i2c = load_vocab()
     net = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
@@ -120,13 +181,43 @@ def main(args) -> None:
     scheduler = optim.lr_scheduler.StepLR(opt, step_size=200, gamma=0.5)
 
     # 4. ── loaders ─────────────────────────────────────────────────────────
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=(device.type == "cuda"),
-    )
+    syn_bs = int(args.batch_size * args.syn_batch_ratio)
+    gt_bs = args.batch_size - syn_bs
+    if syn_bs <= 0:
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pre_iter = None
+    elif gt_bs <= 0:
+        train_loader = DataLoader(
+            pretrain_ds,
+            batch_size=syn_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pre_iter = None
+    else:
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=gt_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        pretrain_loader = DataLoader(
+            pretrain_ds,
+            batch_size=syn_bs,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=(device.type == "cuda"),
+        )
+        from itertools import cycle
+        pre_iter = cycle(pretrain_loader)
     test_ds = HTRDataset(
         basefolder=basefolder,
         subset="test",
@@ -139,7 +230,8 @@ def main(args) -> None:
     for epoch in range(1, args.epochs + 1):
         running_loss = 0.0
         batches = 0
-        for imgs, words, _align in train_loader:
+        for batch in train_loader:
+            imgs, words = _mix_batches(batch, pre_iter)
             imgs = imgs.to(device)
             words = [f" {w.strip()} " if not w.startswith(" ") else w for w in words]
 
@@ -181,16 +273,22 @@ def main(args) -> None:
 # ──────────────────── CLI boilerplate ────────────────────────────────────────
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--results_dir", default="results",
+    p.add_argument("--results_dir", default=RESULTS_DIR,
                    help="folder containing pseudo_labels_round_*.txt")
-    p.add_argument("--dataset_folder", default="htr_base/data/GW/processed_words",
+    p.add_argument("--dataset_folder", default=DATASET_FOLDER,
                    help="root folder with processed_words/{train,val,test}/")
-    p.add_argument("--pretrained_backbone", default="htr_base/saved_models/pretrained_backbone.pt",
+    p.add_argument("--pretrained_backbone", default=PRETRAINED_BACKBONE,
                    help="path to pretrained backbone .pt file")
-    p.add_argument("--batch_size", type=int, default=128)
-    p.add_argument("--epochs", type=int, default=200)
-    p.add_argument("--eval_every", type=int, default=20)
-    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--batch_size", type=int, default=BATCH_SIZE)
+    p.add_argument("--epochs", type=int, default=NUM_EPOCHS)
+    p.add_argument("--eval_every", type=int, default=EVAL_EVERY)
+    p.add_argument("--lr", type=float, default=LR)
     p.add_argument("--gpu_id", type=int, help="GPU to use")
+    p.add_argument("--syn_list_file", default=SYN_LIST_FILE,
+                   help="text file listing synthetic image paths")
+    p.add_argument("--syn_base_path", default=SYN_BASE_PATH,
+                   help="root directory of the synthetic corpus")
+    p.add_argument("--syn_batch_ratio", type=float, default=SYN_BATCH_RATIO,
+                   help="fraction of each batch drawn from synthetic data")
     args = p.parse_args()
     main(args)
