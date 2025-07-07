@@ -19,6 +19,7 @@ architecture:
   feat_dim: 512
   feat_pool: attn
   phoc_levels: [1, 2, 3, 4]
+  length_classes: 0
 
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss 

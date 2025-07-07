@@ -33,6 +33,7 @@ architecture:
   feat_dim: 512             # Dimension of the extracted features
   feat_pool: attn           # Feature pooling method (e.g., 'attn' for attention pooling)
   phoc_levels: [1, 2, 3, 4] # PHOC levels used in the architecture
+  length_classes: 0         # Set to >0 to enable length prediction
 
 # ----------------------------------------------------------------------
 # Projector training

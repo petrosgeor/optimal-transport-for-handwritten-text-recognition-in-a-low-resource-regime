@@ -20,7 +20,9 @@ if str(root) not in sys.path:
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import models
+from types import SimpleNamespace
+
+from htr_base.models import HTRNet
 
 from htr_base.utils.htr_dataset import PretrainingHTRDataset, HTRDataset
 from htr_base.utils.transforms import aug_transforms
@@ -40,18 +42,17 @@ def lengths_from_transcriptions(batch_txt: list[str]) -> torch.LongTensor:
 
 
 def build_resnet18() -> nn.Module:
-    """Construct a ResNet-18 for single-channel images with 20 outputs."""
+    """Return a tiny ``HTRNet`` with a length prediction head."""
 
-    net = models.resnet18(weights=None)
-    net.conv1 = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3, bias=False)
-    in_feats = net.fc.in_features
-    net.fc = nn.Linear(in_feats, 20)
-
-    for m in net.modules():
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-            if getattr(m, "bias", None) is not None:
-                nn.init.constant_(m.bias, 0)
+    arch_cfg = SimpleNamespace(
+        cnn_cfg=[[2, 64], "M", [3, 128], "M", [2, 256]],
+        head_type="cnn",
+        flattening="maxpool",
+        feat_dim=512,
+        feat_pool="attn",
+        length_classes=15,
+    )
+    net = HTRNet(arch_cfg, nclasses=1)
     return net
 
 
@@ -138,7 +139,7 @@ def main() -> None:
         for imgs, txts in train_loader:
             imgs = imgs.to(device)
             targets = lengths_from_transcriptions(list(txts)).to(device)
-            logits = net(imgs)
+            logits = net(imgs, return_feats=True)[-1]
             loss = criterion(logits, targets)
             loss.backward()
             optim.step()
@@ -152,7 +153,7 @@ def main() -> None:
             for imgs, txts in val_loader:
                 imgs = imgs.to(device)
                 targets = lengths_from_transcriptions(list(txts)).to(device)
-                logits = net(imgs)
+                logits = net(imgs, return_feats=True)[-1]
                 preds = logits.argmax(1)
                 correct += (preds == targets).sum().item()
                 total += targets.numel()
@@ -164,7 +165,7 @@ def main() -> None:
             for imgs, txts, _ in htr_val_loader:
                 imgs = imgs.to(device)
                 targets = lengths_from_transcriptions(list(txts)).to(device)
-                logits = net(imgs)
+                logits = net(imgs, return_feats=True)[-1]
                 preds = logits.argmax(1)
                 htr_correct += (preds == targets).sum().item()
                 htr_total += targets.numel()

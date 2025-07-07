@@ -434,13 +434,34 @@ def test_lengths_from_transcriptions():
 
 
 def test_build_resnet18_forward():
-    """Modified ResNet18 accepts 1×64×256 images."""
+    """Small HTRNet returns length logits with 15 bins."""
 
     from alignment.train_word_length import build_resnet18
 
     net = build_resnet18()
     dummy = torch.randn(2, 1, 64, 256)
-    logits = net(dummy)
+    logits = net(dummy, return_feats=True)[-1]
 
-    assert logits.shape == (2, 20)
+    assert logits.shape == (2, 15)
+
+
+def test_htrnet_length_head():
+    """Length head output shape matches number of classes."""
+
+    from types import SimpleNamespace
+    from htr_base.models import HTRNet
+
+    arch_cfg = SimpleNamespace(
+        cnn_cfg=[[1, 16]],
+        head_type="cnn",
+        flattening="maxpool",
+        feat_dim=8,
+        feat_pool="avg",
+        length_classes=15,
+    )
+    net = HTRNet(arch_cfg, nclasses=1)
+    dummy = torch.randn(4, 1, 8, 32)
+    length_logits = net(dummy, return_feats=True)[-1]
+
+    assert length_logits.shape == (4, 15)
 

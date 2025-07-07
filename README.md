@@ -45,11 +45,33 @@ class HTRNet(nn.Module):
 *   `top` (nn.Module): CTC head chosen by `arch_cfg.head_type`.
 *   `feat_head` (nn.Module | None): Global descriptor pooling module.
 *   `phoc_head` (nn.Module | None): Optional PHOC prediction layer.
+*   `length_head` (nn.Module | None): Optional word-length classifier.
 
 **Methods:**
-*   `forward(x, *, return_feats=True)`: Returns a tuple containing logits and, optionally, features and PHOC logits. The exact output depends on the model configuration and the `return_feats` flag.
+*   `forward(x, *, return_feats=True)`: Returns a tuple containing logits and, optionally, features, PHOC logits and length logits. The exact output depends on the model configuration and the `return_feats` flag.
 
 
+
+
+#### LengthHead
+
+Located in: `htr_base/models.py`
+
+Predicts discrete word-length classes from a global descriptor.
+
+```python
+class LengthHead(nn.Module):
+    def __init__(self, in_dim: int, n_classes: int = 15):
+```
+
+*   `in_dim`: Descriptor dimensionality.
+*   `n_classes`: Number of length bins.
+
+**Attributes:**
+*   `fc` (nn.Linear): Linear classifier mapping the descriptor to ``n_classes``.
+
+**Methods:**
+*   `forward(x) -> torch.Tensor`: Returns logits for each length bin.
 
 
 #### Projector

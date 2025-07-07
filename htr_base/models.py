@@ -236,15 +236,41 @@ class CTCtopT(nn.Module):
         y = self.encoder(y)
         return self.fc(y)
 
+class LengthHead(nn.Module):
+    """Predict discrete word-length classes from descriptors.
+
+    Args:
+        in_dim (int): Dimensionality of the input descriptors.
+        n_classes (int): Number of length bins.
+
+    Attributes:
+        fc (nn.Linear): Final classification layer.
+    """
+
+    def __init__(self, in_dim: int, n_classes: int = 15) -> None:
+        super().__init__()
+        self.fc = nn.Linear(in_dim, n_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Return logits over ``n_classes`` bins."""
+        return self.fc(x)
+
 ###############################################################################
 #                 ─────  HTRNet with optional feat head  ─────                #
 ###############################################################################
 class HTRNet(nn.Module):
-    """
-    HTRNet backbone with optional global feature projection.
+    """Visual backbone with optional global descriptors and length head.
 
-    Additional arg in *arch_cfg*:
-        feat_dim (int | None): size of per-image descriptor.
+    Args:
+        arch_cfg: Configuration object with architecture parameters.
+        nclasses (int): Number of CTC output classes.
+
+    Attributes:
+        features (CNN): Convolutional feature extractor.
+        top (nn.Module): CTC head chosen by ``arch_cfg.head_type``.
+        feat_head (nn.Module | None): Global descriptor pooling module.
+        phoc_head (nn.Module | None): Optional PHOC prediction layer.
+        length_head (nn.Module | None): Optional word-length classifier.
     """
     def __init__(self, arch_cfg, nclasses):
         super().__init__()
@@ -253,6 +279,8 @@ class HTRNet(nn.Module):
             raise NotImplementedError('STN not implemented in this repo.')
 
         self.features = CNN(arch_cfg.cnn_cfg, flattening=arch_cfg.flattening)
+
+        self.length_classes = getattr(arch_cfg, 'length_classes', 0)
 
         # output channels after CNN
         if arch_cfg.flattening in ('maxpool', 'avgpool'):
@@ -316,6 +344,13 @@ class HTRNet(nn.Module):
         else:
             self.phoc_head = None
 
+        if self.length_classes:
+            if not self.feat_dim:
+                raise ValueError("length_classes>0 requires feat_dim")
+            self.length_head = LengthHead(self.feat_dim, self.length_classes)
+        else:
+            self.length_head = None
+
     def forward(self, x, *, return_feats: bool = True):
         y = self.features(x)
         feat = self.feat_head(y) if self.feat_dim and return_feats else None
@@ -323,7 +358,10 @@ class HTRNet(nn.Module):
         phoc_logits = None
         if self.phoc_head is not None and feat is not None:
             phoc_logits = self.phoc_head(feat)
-        if feat is None and phoc_logits is None:
+        length_logits = None
+        if self.length_head is not None and feat is not None:
+            length_logits = self.length_head(feat)
+        if feat is None and phoc_logits is None and length_logits is None:
             return logits
         if isinstance(logits, tuple):
             out = (*logits, feat)
@@ -331,6 +369,8 @@ class HTRNet(nn.Module):
             out = (logits, feat)
         if phoc_logits is not None:
             out = (*out, phoc_logits)
+        if length_logits is not None:
+            out = (*out, length_logits)
         return out
     
 
