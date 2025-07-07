@@ -5,13 +5,24 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
+import os
+
+GPU_ID = 1
+os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
+
+
+# Add project root to import path
+root = Path(__file__).resolve().parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(0, str(root))
 
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import models
 
-from htr_base.utils.htr_dataset import PretrainingHTRDataset
+from htr_base.utils.htr_dataset import PretrainingHTRDataset, HTRDataset
 from htr_base.utils.transforms import aug_transforms
 
 
@@ -48,9 +59,14 @@ def parse_args() -> argparse.Namespace:
     """Parse command-line options."""
 
     p = argparse.ArgumentParser(description="Train word-length predictor")
-    p.add_argument("list_file", help="Path to 90k synthetic list file")
+    p.add_argument(
+        "list_file",
+        nargs="?",
+        default="/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
+        help="Path to 90k synthetic list file. Defaults to the common 90k-synth dataset path.",
+    )
     p.add_argument("--batch-size", type=int, default=256)
-    p.add_argument("--epochs", type=int, default=5)
+    p.add_argument("--epochs", type=int, default=300)
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--train-size", type=int, default=50000)
     p.add_argument("--val-size", type=int, default=10000)
@@ -58,6 +74,11 @@ def parse_args() -> argparse.Namespace:
         "--save-path",
         type=str,
         default="htr_base/saved_models/length_resnet18.pt",
+    )
+    p.add_argument(
+        "--save-model",
+        action="store_true",
+        help="If set, save the model with the best validation accuracy.",
     )
     return p.parse_args()
 
@@ -81,6 +102,14 @@ def main() -> None:
         n_random=args.val_size,
         random_seed=1,
     )
+    
+    htr_val_ds = HTRDataset(
+        basefolder=str(root / 'htr_base' / 'data' / 'GW' / 'processed_words'),
+        subset='train_val',
+        transforms=None,
+        fixed_size=(64, 256),
+    )
+
 
     train_loader = DataLoader(
         train_ds, batch_size=args.batch_size, shuffle=True, num_workers=3, pin_memory=True
@@ -88,6 +117,11 @@ def main() -> None:
     val_loader = DataLoader(
         val_ds, batch_size=args.batch_size, shuffle=False, num_workers=3, pin_memory=True
     )
+    
+    htr_val_loader = DataLoader(
+        htr_val_ds, batch_size=args.batch_size, shuffle=False, num_workers=3, pin_memory=True
+    )
+
 
     net = build_resnet18().to(device)
     criterion = nn.CrossEntropyLoss()
@@ -95,7 +129,8 @@ def main() -> None:
 
     best_acc = 0.0
     save_path = Path(args.save_path)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.save_model:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
 
     for epoch in range(args.epochs):
         net.train()
@@ -122,14 +157,30 @@ def main() -> None:
                 correct += (preds == targets).sum().item()
                 total += targets.numel()
         acc = correct / max(1, total)
+        
+        htr_correct = 0
+        htr_total = 0
+        with torch.no_grad():
+            for imgs, txts, _ in htr_val_loader:
+                imgs = imgs.to(device)
+                targets = lengths_from_transcriptions(list(txts)).to(device)
+                logits = net(imgs)
+                preds = logits.argmax(1)
+                htr_correct += (preds == targets).sum().item()
+                htr_total += targets.numel()
+        htr_acc = htr_correct / max(1, htr_total)
+
+
         if acc > best_acc:
             best_acc = acc
-            torch.save(net.state_dict(), save_path)
-        print(f"Epoch {epoch+1}/{args.epochs} - loss {running/len(train_loader):.4f} - val acc {acc:.4f}")
+            if args.save_model:
+                torch.save(net.state_dict(), save_path)
+        print(f"Epoch {epoch+1}/{args.epochs} - loss {running/len(train_loader):.4f} - val acc {acc:.4f} - htr val acc {htr_acc:.4f}")
 
-    json_path = save_path.with_suffix(".json")
-    with open(json_path, "w") as f:
-        json.dump({"val_accuracy": best_acc}, f)
+    if args.save_model:
+        json_path = save_path.with_suffix(".json")
+        with open(json_path, "w") as f:
+            json.dump({"val_accuracy": best_acc}, f)
     print(f"Best accuracy: {best_acc:.4f}")
 
 
