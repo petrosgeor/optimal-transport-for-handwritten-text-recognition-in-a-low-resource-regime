@@ -82,13 +82,7 @@ class HTRDataset(Dataset):
             c2i, _ = load_vocab()
             self.character_classes = list(c2i.keys())
         # Vocabulary derived from dataset transcriptions
-        self.unique_words, empirical_probs = self.word_frequencies()
-        if self.word_prob_mode == "empirical":
-            self.unique_word_probs = empirical_probs
-        else:
-            wf = [word_frequency(w, "en") for w in self.unique_words]
-            wf = [f if f > 0 else 1e-12 for f in wf]
-            self.unique_word_probs = wf
+        self.unique_words, self.unique_word_probs = self.word_frequencies()
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
 
         # All transcriptions are present in ``unique_words``
@@ -262,22 +256,41 @@ class HTRDataset(Dataset):
         plt.close()
         print(f"[external_word_histogram] Figure saved to: {save_path}")
 
-    def word_frequencies(self) -> tuple[list[str], list[float]]:
-        """Return unique words and their empirical probabilities.
+    def word_frequencies(
+        self,
+        *,
+        mode: str | None = None,
+        smooth: float = 1e-12,
+    ) -> tuple[list[str], list[float]]:
+        """Return unique words and their probabilities.
+
+        Args:
+            mode (str | None): ``'empirical'`` or ``'wordfreq'``. If ``None``,
+                use ``self.word_prob_mode``.
+            smooth (float): Minimum probability when using corpus frequencies.
 
         Returns:
-            tuple[list[str], list[float]]: First element is the list of unique
-            transcriptions. The second element gives the probability of each
-            corresponding word.
+            tuple[list[str], list[float]]: List of unique words and their
+            probability vector.
         """
 
         from collections import Counter
 
+        if mode is None:
+            mode = self.word_prob_mode
+
         words = [t.strip().lower() for t in self.transcriptions]
-        counts = Counter(words)
-        total = sum(counts.values())
-        unique = list(counts.keys())
-        probs = [counts[w] / total for w in unique]
+        unique = sorted(set(words))
+        if mode == "empirical":
+            counts = Counter(words)
+            probs = [counts[w] / len(words) for w in unique]
+        elif mode == "wordfreq":
+            raw = [word_frequency(w, "en") for w in unique]
+            probs = [max(p, smooth) for p in raw]
+            s = sum(probs)
+            probs = [p / s for p in probs]
+        else:
+            raise ValueError(f"Unknown mode '{mode}'")
         return unique, probs
 
 
