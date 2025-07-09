@@ -73,19 +73,9 @@ class HTRDataset(Dataset):
                     img_path, transcr = line.strip().split(' ')[0], ' '.join(line.strip().split(' ')[1:])
                     data.append((os.path.join(basefolder, sub, img_path + '.png'), transcr))
         self.data = data
-        # Load images into memory and store transcriptions
-        # imgs = []
         transcrs = []
         for img_path, transcr in self.data:
             transcrs.append(transcr)
-            # img = load_image(img_path)
-            # img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
-            # img = torch.tensor(img).float().unsqueeze(0)
-            # imgs.append(img)
-        # if len(imgs) > 0:
-        #     self.images = torch.stack(imgs)
-        # else:
-        #     self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
         self.transcriptions = transcrs
         self.prior_char_probs = self.letter_priors()
         if self.character_classes is None:
@@ -98,8 +88,7 @@ class HTRDataset(Dataset):
         else:
             wf = [word_frequency(w, "en") for w in self.unique_words]
             wf = [f if f > 0 else 1e-12 for f in wf]
-            total = sum(wf)
-            self.unique_word_probs = [f / total for f in wf]
+            self.unique_word_probs = wf
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
 
         # All transcriptions are present in ``unique_words``
@@ -423,3 +412,4 @@ class PretrainingHTRDataset(Dataset):
             raise RuntimeError("the images are not loaded yet")
 
         return [img.shape for img in self.images]
+
