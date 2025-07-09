@@ -28,10 +28,10 @@ from pathlib import Path
 GPU_ID = 1
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
 
-MAX_LENGTH = 3
-MIN_LENGTH = 0
+MAX_LENGTH = 20
+MIN_LENGTH = 4
 EVAL_K = 4
-N_ALIGNED = 200
+N_ALIGNED = 800
 NUM_EPOCHS = 600
 BATCH_SIZE = 128
 SYN_BATCH_RATIO = 0.7 # if 0 then we only use gt samples. If 1 then we use only synthetic samples
@@ -286,10 +286,9 @@ def refine_visual_model(dataset: HTRDataset,
     subset_idx = random.sample(valid_idx, k=min(n_aligned, len(valid_idx)))
     # randomly choose the desired number of samples from the valid indices
     subset_ds = Subset(dataset, subset_idx)
-    unique_words = {transcrs[i].strip().lower() for i in subset_idx}
+    unique_words_in_subset = {transcrs[i].strip().lower() for i in subset_idx}
     print(
-        f"[Refine] training on {len(subset_idx)} samples "
-        f"containing {len(unique_words)} unique words"
+        f"[Refine] Training on {len(subset_idx)} samples, which correspond to {len(unique_words_in_subset)} unique transcriptions."
     )
 
     print("\nSelected transcriptions for training:")
