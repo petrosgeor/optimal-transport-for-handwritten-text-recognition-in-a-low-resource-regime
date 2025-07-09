@@ -337,11 +337,11 @@ def refine_visual_backbone(
             optimizer.step()
             epoch_loss += loss.item()
             effective_batches += 1
-        if effective_batches:
-            avg_loss = epoch_loss / effective_batches
-            print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        else:
-            print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+        # if effective_batches:
+        #     avg_loss = epoch_loss / effective_batches
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        # else:
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     
     plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')
