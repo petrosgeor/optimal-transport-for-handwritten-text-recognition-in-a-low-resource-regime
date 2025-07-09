@@ -235,8 +235,28 @@ class OTAligner:
         metric: str = "entropy",
         agree_threshold: int = 1,
     ) -> None:
-        if metric not in {"gap", "entropy", "variance"}:
-            raise ValueError("metric must be 'gap', 'entropy' or 'variance'")
+        """Initialise the OT aligner.
+
+        Args:
+            dataset (HTRDataset): Dataset providing images and alignment info.
+            backbone (HTRNet): Visual backbone network.
+            projectors (Sequence[nn.Module]): Projector ensemble.
+            batch_size (int): Mini-batch size during descriptor harvesting.
+            device (str): Device used for alignment.
+            reg (float): Entropic regularisation strength.
+            unbalanced (bool): Use unbalanced OT formulation.
+            reg_m (float): Mass regularisation for unbalanced OT.
+            sinkhorn_kwargs (dict | None): Extra arguments for the OT solver.
+            k (int): Number of least-moved descriptors to pseudo-label.
+            metric (str): Certainty metric ('gap', 'entropy', 'variance',
+                'closest').
+            agree_threshold (int): Minimum number of agreeing projectors.
+
+        Returns:
+            None
+        """
+        if metric not in {"gap", "entropy", "variance", "closest"}:
+            raise ValueError("metric must be 'gap', 'entropy', 'variance' or 'closest'")
         self.dataset = dataset
         self.backbone = backbone
         self.projectors = (
@@ -378,6 +398,44 @@ class OTAligner:
         }
 
     # ------------------------------------------------------------------
+    def _select_closest_per_word(
+        self,
+        counts: torch.Tensor,
+        dist_matrix: torch.Tensor,
+        aligned_all: torch.Tensor,
+    ) -> torch.Tensor:
+        """Select one unaligned sample for each word embedding.
+
+        Args:
+            counts (torch.Tensor): Ensemble agreement counts.
+            dist_matrix (torch.Tensor): Mean Euclidean distances ``(N, V)``.
+            aligned_all (torch.Tensor): Current alignment flags ``(N,)``.
+
+        Returns:
+            torch.Tensor: Tensor containing the chosen dataset indices.
+        """
+        N, V = dist_matrix.shape
+        taken = aligned_all.clone()
+        chosen: list[int] = []
+
+        for w in range(V):
+            if (taken == w).any():
+                continue
+            mask = taken == -1
+            if not mask.any():
+                break
+            dist_col = dist_matrix[:, w].clone()
+            dist_col[~mask] = float("inf")
+            idx = int(dist_col.argmin().item())
+            if not mask[idx]:
+                continue
+            if counts[idx].item() >= self.agree_threshold:
+                chosen.append(idx)
+                taken[idx] = w
+
+        return torch.tensor(chosen, dtype=torch.long)
+
+    # ------------------------------------------------------------------
     def _select_candidates(
         self,
         counts: torch.Tensor,
@@ -399,6 +457,10 @@ class OTAligner:
             torch.Tensor: 1-D tensor of selected dataset indices.
         """
         assert self.k >= 0, "k must be non-negative"
+
+        if self.metric == "closest":
+            return self._select_closest_per_word(counts, dist_matrix, aligned_all)
+
         # rank samples by uncertainty according to the chosen metric
         if self.metric == "variance":
             order_unc = torch.argsort(var_scores).cpu().numpy()
