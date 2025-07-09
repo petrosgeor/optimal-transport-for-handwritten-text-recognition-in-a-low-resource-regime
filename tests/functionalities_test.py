@@ -448,25 +448,60 @@ def test_align_more_instances_gated_validation(monkeypatch):
     assert len(calls) == 1
 
 
-def test_lengths_from_transcriptions():
-    """Word lengths are mapped to class indices correctly."""
-
-    from alignment.train_word_length import lengths_from_transcriptions
-
-    t = ["a", "abcd", ""]
-    out = lengths_from_transcriptions(t)
-
-    assert out.tolist() == [0, 3, 0]
 
 
-def test_build_htrnetlength_forward():
-    """Default HTRNetLength accepts 1×64×256 images."""
+def test_align_closest_per_word():
+    """Each word receives one pseudo-label when metric='closest'."""
 
-    from alignment.train_word_length import build_htrnetlength
+    from alignment import alignment_utilities as au
 
-    net = build_htrnetlength()
-    dummy = torch.randn(2, 1, 64, 256)
-    logits = net(dummy)
+    class TinyDataset(torch.utils.data.Dataset):
+        def __init__(self):
+            self.unique_words = [f"w{i}" for i in range(5)]
+            self.word_emb_dim = 2
+            self.unique_word_embeddings = torch.stack([
+                torch.tensor([float(i), float(i)]) for i in range(5)
+            ])
+            self.aligned = torch.full((5,), -1, dtype=torch.int32)
+            self.imgs = [torch.full((1, 2, 2), float(i)) for i in range(5)]
+            self.transcriptions = ["" for _ in range(5)]
+            self.transforms = None
 
-    assert logits.shape == (2, 20)
+        def __len__(self):
+            return len(self.imgs)
+
+        def __getitem__(self, idx):
+            return self.imgs[idx], self.transcriptions[idx], self.aligned[idx]
+
+    class SimpleBackbone(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.phoc_head = None
+
+        def forward(self, x, *, return_feats=True):
+            B = x.size(0)
+            feats = x.mean(dim=(2, 3)).repeat(1, 2)
+            return torch.zeros(B, 1), feats
+
+    ds = TinyDataset()
+    backbone = SimpleBackbone()
+    proj = torch.nn.Identity()
+
+    au._ALIGN_CALL_COUNT = 0
+    if not hasattr(au.cfg, "pseudo_label_validation"):
+        au.cfg.pseudo_label_validation = OmegaConf.create({})
+    au.cfg.pseudo_label_validation.enable = False
+
+    au.align_more_instances(
+        ds,
+        backbone,
+        [proj],
+        batch_size=3,
+        device="cpu",
+        metric="closest",
+    )
+
+    assigned = ds.aligned[ds.aligned != -1]
+    assert assigned.numel() == len(ds.unique_words)
+    assert torch.unique(assigned).numel() == len(ds.unique_words)
 

@@ -369,7 +369,13 @@ class OTAligner:
 *   `reg_m` (float): Additional mass regularisation when unbalanced OT is used.
 *   `sinkhorn_kwargs` (dict): Additional arguments for the OT solver.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): Uncertainty measure (`'gap'`, `'entropy'`, or `'variance'`).
+*   `metric` (str): Alignment certainty measure used to choose which samples
+    to pseudo-label. Supported values:
+    `'gap'`, `'entropy'`, `'variance'`, **`'closest'`**.
+    – **`'closest'`** assigns **one** still-unaligned image to **every**
+      word embedding: for each word *w* the unaligned descriptor with the
+      smallest Euclidean distance to *w* is pseudo-labelled (subject to the
+      ensemble agreement threshold).
 *   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
 **Attributes:**
 *   `dataset` (HTRDataset): Dataset being aligned.
@@ -432,7 +438,7 @@ def align_more_instances(
 *   `reg_m` (float): Additional unbalanced regularisation parameter.
 *   `sinkhorn_kwargs` (dict): Extra arguments for the Sinkhorn solver.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): `'gap'`, `'entropy'` or `'variance'` selecting the uncertainty measure.
+*   `metric` (str): `'gap'`, `'entropy'`, `'variance'`, or `'closest'` selecting the uncertainty measure.
 *   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
 
 **Returns:**
