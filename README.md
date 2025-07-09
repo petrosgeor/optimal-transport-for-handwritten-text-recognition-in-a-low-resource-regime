@@ -237,8 +237,8 @@ Located in: `htr_base/utils/htr_dataset.py`
 Loads handwritten text images and optional alignment info.
 
 `word_prob_mode` (str, default `'empirical'`) selects how `unique_word_probs` are computed.
-• `'empirical'` – dataset word counts (legacy).
-• `'wordfreq'` – corpus priors via `wordfreq.word_frequency`, renormalised to sum 1.
+• `'empirical'` – probabilities from dataset counts
+• `'wordfreq'` – probabilities from the external wordfreq corpus (normalised)
 
 ```python
 class HTRDataset(Dataset):
@@ -261,7 +261,9 @@ class HTRDataset(Dataset):
 *   `character_classes` (list | None): Characters making up the vocabulary.
 *   `config` (Any): Optional configuration object with alignment parameters.
 *   `two_views` (bool): Return two augmented views when `True`.
-*   `word_prob_mode` (str): How `unique_word_probs` are computed (`empirical` or `wordfreq`).
+*   `word_prob_mode` (str): Determines how unique-word priors are computed.
+  • 'empirical' – probabilities from dataset counts
+  • 'wordfreq'  – probabilities from the external wordfreq corpus (normalised)
 **Attributes:**
 *   `data` (list[tuple]): Pairs of image paths and transcriptions.
 *   `transcriptions` (list[str]): Text strings for each image.
@@ -281,8 +283,9 @@ class HTRDataset(Dataset):
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
 *   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of unique-word usage.
-*   `word_frequencies()` -> tuple[list[str], list[float]]: returns unique words
-    and their probabilities, e.g. `dataset.word_frequencies()`.
+*   `word_frequencies(mode=None)` -> (unique_words, probs): Returns the dataset
+    vocabulary and its probability vector. When mode is None (default) the
+    computation honours `self.word_prob_mode`.
 
 
 

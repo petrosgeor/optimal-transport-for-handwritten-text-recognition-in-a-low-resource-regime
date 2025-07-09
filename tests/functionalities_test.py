@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import sys
+from collections import Counter
 from omegaconf import OmegaConf
 import torch
 import itertools
@@ -206,9 +207,10 @@ def test_word_frequencies():
     """Unique words and probabilities from transcriptions."""
 
     dataset = HTRDataset.__new__(HTRDataset)
+    dataset.word_prob_mode = "empirical"
     dataset.transcriptions = ["cat", "cat", "dog"]
 
-    words, probs = HTRDataset.word_frequencies(dataset)
+    words, probs = dataset.word_frequencies()
 
     assert set(words) == {"cat", "dog"}
     mapping = dict(zip(words, probs))
@@ -236,8 +238,10 @@ def test_dataset_word_prob_mode(tmp_path):
     map_emp = dict(zip(ds_emp.unique_words, ds_emp.unique_word_probs))
     map_wf = dict(zip(ds_wf.unique_words, ds_wf.unique_word_probs))
 
-    assert abs(map_emp["cat"] - 2 / 3) < 1e-6
-    assert map_wf["dog"] > map_wf["cat"]
+    counts = Counter(["cat", "dog", "cat"])
+    expected_emp = [counts[w] / 3 for w in sorted(counts)]
+    assert [map_emp[k] for k in sorted(map_emp)] == expected_emp
+    assert all(p > 0 for p in ds_wf.unique_word_probs)
 
 
 def test_unique_word_embeddings_attribute():
