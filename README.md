@@ -893,7 +893,7 @@ imgs, texts = _shuffle_batch(imgs, texts)
 
 Located in: `alignment/trainer.py`
 
-Runs alternating cycles of backbone refinement, projector training and pseudo‑labelling. After each round it prints the CER on both the training and test sets.
+Runs alternating cycles of backbone refinement, projector training and pseudo‑labelling. Initial seed alignments are saved to `pseudo_labels_round_0.txt` before the loop starts. After each round it prints the CER on both the training and test sets.
 
 ```python
 def alternating_refinement(
