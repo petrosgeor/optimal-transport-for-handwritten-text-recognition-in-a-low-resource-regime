@@ -236,9 +236,6 @@ Located in: `htr_base/utils/htr_dataset.py`
 
 Loads handwritten text images and optional alignment info.
 
-`word_prob_mode` (str, default `'empirical'`) selects how `unique_word_probs` are computed.
-• `'empirical'` – probabilities from dataset counts
-• `'wordfreq'` – probabilities from the external wordfreq corpus (normalised)
 
 ```python
 class HTRDataset(Dataset):
@@ -275,6 +272,7 @@ class HTRDataset(Dataset):
 *   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `unique_words`.
 *   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
     If ``aligned[i] = k`` and ``k != -1``, ``image[i]`` is aligned with ``unique_words[k]``.
+*   `word_prob_mode` (str): How `unique_word_probs` are computed (`empirical` or `wordfreq`).
 
 **Methods:**
 *   `__len__()` -> int: Dataset size.

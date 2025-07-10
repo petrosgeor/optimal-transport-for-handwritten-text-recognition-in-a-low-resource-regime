@@ -259,7 +259,7 @@ class HTRDataset(Dataset):
     def word_frequencies(
         self,
         *,
-        mode: str | None = None,
+        mode: str = None,
         smooth: float = 1e-12,
     ) -> tuple[list[str], list[float]]:
         """Return unique words and their probabilities.

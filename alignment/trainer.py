@@ -550,6 +550,7 @@ def alternating_refinement(
     align_kwargs.setdefault("reg_m", cfg.align_reg_m)
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
+    align_kwargs.setdefault("metric", cfg.metric)
 
     test_dataset = HTRDataset(
         basefolder=dataset.basefolder,

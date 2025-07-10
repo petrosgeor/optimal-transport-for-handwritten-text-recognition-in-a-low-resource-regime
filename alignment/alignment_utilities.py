@@ -417,8 +417,14 @@ class OTAligner:
         N, V = dist_matrix.shape
         taken = aligned_all.clone()
         chosen: list[int] = []
-
-        for w in range(V):
+        top_k_words = 100
+        if top_k_words > 0:
+            probs = np.asarray(self.dataset.unique_word_probs)  # Convert to np for sorting
+            top_indices = np.argsort(-probs)[:top_k_words]  # Top-K descending
+        else:
+            top_indices = range(V)  # All words (current behavior)
+        
+        for w in top_indices:  # Changed: Loop over top_indices instead of range(V)
             if (taken == w).any():
                 continue
             mask = taken == -1
@@ -432,7 +438,6 @@ class OTAligner:
             if counts[idx].item() >= self.agree_threshold:
                 chosen.append(idx)
                 taken[idx] = w
-
         return torch.tensor(chosen, dtype=torch.long)
 
     # ------------------------------------------------------------------
