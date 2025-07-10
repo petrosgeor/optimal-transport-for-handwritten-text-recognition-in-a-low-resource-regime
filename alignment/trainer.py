@@ -501,13 +501,15 @@ def alternating_refinement(
     """
     Performs an alternating training cycle between the backbone and projectors.
 
-    This function implements a semi-supervised learning strategy where the `backbone`
-    and `projectors` are trained in alternation. In each round, the backbone is first
-    refined, then the projectors are trained. After a set number of rounds, more
-    instances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.
-    This cycle continues as long as there are unaligned instances in the dataset.
-    After each alignment step the Character Error Rate (CER) is printed for both
-    the training and test sets.
+    This function implements a semi-supervised learning strategy where the
+    ``backbone`` and ``projectors`` are trained in alternation. In each round,
+    the backbone is first refined, then the projectors are trained. After a set
+    number of rounds, more instances from the dataset are pseudo-labeled using
+    Optimal Transport (OT) alignment. Initial seed alignments present in
+    ``dataset.aligned`` are logged to ``pseudo_labels_round_0.txt`` before the
+    refinement loop starts. The cycle continues as long as there are unaligned
+    instances in the dataset. After each alignment step the Character Error Rate
+    (CER) is printed for both the training and test sets.
 
     Args:
         dataset: The HTRDataset to be used for training.
@@ -563,6 +565,8 @@ def alternating_refinement(
     )
 
     cycle_idx = 1
+    initial_aligned = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
+    log_pseudo_labels(initial_aligned, dataset, 0, out_dir="results")
     # Main loop: continue as long as there are unaligned instances
     while (dataset.aligned == -1).any():
         for r in range(rounds):

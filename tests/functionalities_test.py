@@ -466,6 +466,7 @@ def test_align_closest_per_word():
             self.unique_word_embeddings = torch.stack([
                 torch.tensor([float(i), float(i)]) for i in range(5)
             ])
+            self.unique_word_probs = [1 / 5] * 5
             self.aligned = torch.full((5,), -1, dtype=torch.int32)
             self.imgs = [torch.full((1, 2, 2), float(i)) for i in range(5)]
             self.transcriptions = ["" for _ in range(5)]
@@ -508,4 +509,72 @@ def test_align_closest_per_word():
     assigned = ds.aligned[ds.aligned != -1]
     assert assigned.numel() == len(ds.unique_words)
     assert torch.unique(assigned).numel() == len(ds.unique_words)
+
+
+def test_initial_pseudo_labels_logged(monkeypatch):
+    """Initial aligned samples are logged as round 0."""
+
+    from types import SimpleNamespace
+    from alignment import trainer
+
+    class FakeDataset(torch.utils.data.Dataset):
+        def __init__(
+            self,
+            basefolder="dummy",
+            subset="train_val",
+            fixed_size=(1, 1),
+            character_classes=None,
+            config=None,
+            two_views=False,
+            word_prob_mode="empirical",
+        ):
+            self.basefolder = basefolder
+            self.subset = subset
+            self.fixed_size = fixed_size
+            self.character_classes = character_classes or []
+            self.config = config or SimpleNamespace()
+            self.two_views = two_views
+            self.word_prob_mode = word_prob_mode
+            self.aligned = torch.tensor([1, -1])
+            self.unique_words = ["a", "b"]
+            self.imgs = [torch.zeros(1, 1, 1), torch.zeros(1, 1, 1)]
+            self.transcriptions = ["a", "b"]
+
+        def __len__(self):
+            return len(self.imgs)
+
+        def __getitem__(self, idx):
+            return self.imgs[idx], self.transcriptions[idx], self.aligned[idx]
+
+    class FakeProjector(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.w = torch.nn.Parameter(torch.zeros(1))
+
+        def forward(self, x):
+            return x
+
+    logged = []
+
+    def fake_log(indices, dataset, round_idx, **kwargs):
+        logged.append((indices.clone(), round_idx))
+
+    monkeypatch.setattr(trainer, "compute_cer", lambda *a, **k: 0.0)
+    monkeypatch.setattr(trainer, "refine_visual_backbone", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "train_projector", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "align_more_instances", lambda ds, *a, **k: ds.aligned.fill_(0))
+    monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "HTRDataset", FakeDataset)
+    monkeypatch.setattr(trainer, "log_pseudo_labels", fake_log)
+    monkeypatch.setattr(trainer.cfg, "device", "cpu")
+    monkeypatch.setattr(trainer.cfg, "align_device", "cpu")
+
+    ds = FakeDataset()
+    backbone = DummyBackbone()
+    proj = FakeProjector()
+
+    trainer.alternating_refinement(ds, backbone, [proj], rounds=1)
+
+    assert logged[0][1] == 0
+    assert logged[0][0].tolist() == [0]
 
