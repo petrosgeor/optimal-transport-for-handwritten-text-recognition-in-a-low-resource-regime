@@ -159,7 +159,15 @@ def main(args) -> None:
 
     subset_idx = sorted(pseudo_map.keys())
     train_ds = Subset(full_ds, subset_idx)
-    print(f"[Data] using {len(train_ds)} pseudo‑labelled samples")
+    unique_words = {
+        full_ds.transcriptions[i].strip().lower()
+        for i in subset_idx
+    }
+    print(
+        f"[Data] using {len(train_ds)} pseudo‑labelled samples "
+        f"from {len(unique_words)} unique words"
+    )
+
 
     pretrain_ds = PretrainingHTRDataset(
         list_file=args.syn_list_file,
@@ -178,7 +186,7 @@ def main(args) -> None:
     net.to(device).train()
 
     opt = optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.StepLR(opt, step_size=200, gamma=0.5)
+    scheduler = optim.lr_scheduler.StepLR(opt, step_size=200, gamma=0.1)
 
     # 4. ── loaders ─────────────────────────────────────────────────────────
     syn_bs = int(args.batch_size * args.syn_batch_ratio)
@@ -222,7 +230,7 @@ def main(args) -> None:
         basefolder=basefolder,
         subset="test",
         fixed_size=fixed_size,
-        transforms=None,
+        transforms=aug_transforms,
         config=ds_cfg,
     )
 
