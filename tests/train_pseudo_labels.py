@@ -128,6 +128,14 @@ def _mix_batches(real_batch, pre_iter):
 
 # ──────────────────── main training routine ----------------------------------
 def main(args) -> None:
+    """Train an HTRNet using pseudo-labelled and synthetic words.
+
+    Args:
+        args: Command-line arguments controlling the training run.
+
+    Returns:
+        None
+    """
     if args.gpu_id is not None:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_id)
     # 1. ── configuration from trainer_config.yaml for consistency ──────────
@@ -174,7 +182,7 @@ def main(args) -> None:
         fixed_size=fixed_size,
         base_path=args.syn_base_path,
         transforms=aug_transforms,
-        n_random=10000,
+        n_random=1000,
         preload_images=False,
     )
 
@@ -191,32 +199,16 @@ def main(args) -> None:
     # 4. ── loaders ─────────────────────────────────────────────────────────
     syn_bs = int(args.batch_size * args.syn_batch_ratio)
     gt_bs = args.batch_size - syn_bs
-    if syn_bs <= 0:
-        train_loader = DataLoader(
-            train_ds,
-            batch_size=args.batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pre_iter = None
-    elif gt_bs <= 0:
-        train_loader = DataLoader(
-            pretrain_ds,
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        pre_iter = None
-    else:
-        train_loader = DataLoader(
-            train_ds,
-            batch_size=gt_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=gt_bs if syn_bs > 0 else args.batch_size,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    if syn_bs > 0:
         pretrain_loader = DataLoader(
             pretrain_ds,
             batch_size=syn_bs,
@@ -226,6 +218,8 @@ def main(args) -> None:
         )
         from itertools import cycle
         pre_iter = cycle(pretrain_loader)
+    else:
+        pre_iter = None
     test_ds = HTRDataset(
         basefolder=basefolder,
         subset="test",
