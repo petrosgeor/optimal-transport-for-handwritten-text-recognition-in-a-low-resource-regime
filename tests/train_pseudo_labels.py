@@ -39,12 +39,14 @@ from types import SimpleNamespace
 #   LR               – optimiser learning rate.
 #   EVAL_EVERY       – evaluation frequency in epochs.
 #   PRETRAINED_BACKBONE – path to pretrained weights.
+#   MAIN_LOSS_WEIGHT – weight for the main CTC loss.
+#   AUX_LOSS_WEIGHT – weight for the auxiliary CTC loss.
 # ------------------------------------------------------------------
 GPU_ID = 1
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
 
 BATCH_SIZE = 128
-SYN_BATCH_RATIO = 0.5
+SYN_BATCH_RATIO = 0.7
 RESULTS_DIR = "results"
 DATASET_FOLDER = "htr_base/data/GW/processed_words"
 SYN_LIST_FILE = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
@@ -53,6 +55,8 @@ NUM_EPOCHS = 600
 LR = 1e-3
 EVAL_EVERY = 20
 PRETRAINED_BACKBONE = "htr_base/saved_models/pretrained_backbone.pt"
+MAIN_LOSS_WEIGHT = 1.0
+AUX_LOSS_WEIGHT = 0.1
 
 import torch, torch.optim as optim
 import torch.nn.functional as F
@@ -203,7 +207,7 @@ def main(args) -> None:
         fixed_size=fixed_size,
         base_path=args.syn_base_path,
         transforms=aug_transforms,
-        n_random=1000,
+        n_random=20000,
         preload_images=False,
     )
 
@@ -258,14 +262,22 @@ def main(args) -> None:
             imgs = imgs.to(device)
             words = [f" {w.strip()} " if not w.startswith(" ") else w for w in words]
 
-            logits = net(imgs, return_feats=False)
-            if isinstance(logits, (tuple, list)):
-                logits = logits[0]         # main branch
+            outputs = net(imgs, return_feats=False)
+            if isinstance(outputs, (tuple, list)):
+                main_logits, aux_logits = outputs[0], outputs[1]
+            else:
+                main_logits, aux_logits = outputs, None
 
             targets, t_lens = encode_for_ctc(words, c2i, device="cpu")
-            inp_lens = torch.full((imgs.size(0),), logits.size(0), dtype=torch.int32)
+            inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32)
 
-            loss = _ctc_loss_fn(logits, targets, inp_lens, t_lens)
+            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, t_lens)
+            if aux_logits is not None:
+                loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, t_lens)
+            else:
+                loss_aux = torch.tensor(0.0, device=device)
+
+            loss = args.main_loss_weight * loss_main + args.aux_loss_weight * loss_aux
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
@@ -285,7 +297,7 @@ def main(args) -> None:
                 model=net,
                 batch_size=args.batch_size,
                 device=device,
-                decode="greedy",
+                decode="beam",
                 k=4,
             )
 
@@ -313,5 +325,7 @@ if __name__ == "__main__":
                    help="root directory of the synthetic corpus")
     p.add_argument("--syn_batch_ratio", type=float, default=SYN_BATCH_RATIO,
                    help="fraction of each batch drawn from synthetic data")
+    p.add_argument("--main_loss_weight", type=float, default=MAIN_LOSS_WEIGHT)
+    p.add_argument("--aux_loss_weight", type=float, default=AUX_LOSS_WEIGHT)
     args = p.parse_args()
     main(args)
