@@ -76,14 +76,26 @@ from alignment.eval import compute_cer
 from alignment.losses import _ctc_loss_fn          # balanced CTC wrapper
 
 # ──────────────────── helper --------------------------------------------------
-def _parse_pseudo_files(results_dir: str) -> dict[int, str]:
-    """
-    Scan *results_dir* for files called `pseudo_labels_round_*.txt`
-    (format produced by `log_pseudo_labels`:contentReference[oaicite:0]{index=0}) and return
-    a dict   {dataset_index : predicted_label}.
-    When the same index appears in more than one round, keep the *latest* label.
+def _parse_pseudo_files(results_dir: str) -> tuple[dict[int, str], int]:
+    """Collect pseudo-labels and count matches with ground truth.
+
+    Scan ``results_dir`` for files called ``pseudo_labels_round_*.txt`` produced
+    by ``log_pseudo_labels`` and return two values:
+
+    1. ``dict`` mapping dataset indices to their latest predicted word.
+    2. ``int`` count of indices whose predicted word equals the ground truth.
+
+    When the same index appears in multiple rounds, the *latest* label is kept
+    for training and for the correctness count.
+
+    Args:
+        results_dir: Folder containing pseudo-label text files.
+
+    Returns:
+        Tuple[Dict[int, str], int]: Final mapping and number of correct labels.
     """
     mapping: dict[int, str] = {}
+    ground_truth: dict[int, str] = {}
     paths = sorted(Path(results_dir).glob("pseudo_labels_round_*.txt"))
     if not paths:
         raise FileNotFoundError(
@@ -92,9 +104,15 @@ def _parse_pseudo_files(results_dir: str) -> dict[int, str]:
     for p in paths:
         with p.open(encoding="utf-8") as fh:
             for line in fh:
-                idx_s, pred, _gt = line.rstrip("\n").split("\t")
-                mapping[int(idx_s)] = pred
-    return mapping
+                idx_s, pred, gt = line.rstrip("\n").split("\t")
+                idx = int(idx_s)
+                mapping[idx] = pred
+                ground_truth[idx] = gt
+
+    correct = sum(
+        1 for idx, pred in mapping.items() if pred == ground_truth.get(idx)
+    )
+    return mapping, correct
 
 def _maybe_load_pretrained(net: HTRNet, path: str) -> None:
     """Load weights into *net* if *path* exists (strict=False)."""
@@ -155,7 +173,7 @@ def main(args) -> None:
         config=ds_cfg,
     )
 
-    pseudo_map = _parse_pseudo_files(args.results_dir)
+    pseudo_map, n_correct = _parse_pseudo_files(args.results_dir)
     if not pseudo_map:
         raise RuntimeError("No pseudo‑labels collected → nothing to train on")
 
@@ -174,6 +192,9 @@ def main(args) -> None:
     print(
         f"[Data] using {len(train_ds)} pseudo‑labelled samples "
         f"from {len(unique_words)} unique words"
+    )
+    print(
+        f"[Data] {n_correct} out of {len(train_ds)} pseudo-labels match the ground truth"
     )
 
 
