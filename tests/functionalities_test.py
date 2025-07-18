@@ -578,3 +578,26 @@ def test_initial_pseudo_labels_logged(monkeypatch):
     assert logged[0][1] == 0
     assert logged[0][0].tolist() == [0]
 
+
+def test_parse_pseudo_files(tmp_path):
+    """Latest predictions are returned and correctness is counted."""
+
+    from tests.train_pseudo_labels import _parse_pseudo_files
+
+    file1 = tmp_path / "pseudo_labels_round_0.txt"
+    file1.write_text("\n".join([
+        "0\tfoo\tfoo",
+        "1\tbar\tbaz",
+    ]))
+
+    file2 = tmp_path / "pseudo_labels_round_1.txt"
+    file2.write_text("\n".join([
+        "1\tbaz\tbaz",
+        "2\tqux\tqux",
+    ]))
+
+    mapping, correct = _parse_pseudo_files(str(tmp_path))
+
+    assert mapping == {0: "foo", 1: "baz", 2: "qux"}
+    assert correct == 3
+

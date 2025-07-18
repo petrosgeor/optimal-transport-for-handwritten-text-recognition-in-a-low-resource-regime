@@ -889,6 +889,20 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
 imgs, texts = _shuffle_batch(imgs, texts)
 ```
 
+#### _parse_pseudo_files
+
+Located in: `tests/train_pseudo_labels.py`
+
+Parse pseudo-label log files and count how many predictions match the original ground truth.
+
+```python
+def _parse_pseudo_files(results_dir: str) -> Tuple[Dict[int, str], int]:
+```
+
+```python
+mapping, correct = _parse_pseudo_files("results")
+```
+
 #### alternating_refinement
 
 Located in: `alignment/trainer.py`
