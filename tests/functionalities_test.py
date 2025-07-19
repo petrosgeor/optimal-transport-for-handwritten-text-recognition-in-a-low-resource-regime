@@ -601,3 +601,7 @@ def test_parse_pseudo_files(tmp_path):
     assert mapping == {0: "foo", 1: "baz", 2: "qux"}
     assert correct == 3
 
+    mapping, correct = _parse_pseudo_files(str(tmp_path), [1])
+    assert mapping == {1: "baz", 2: "qux"}
+    assert correct == 2
+

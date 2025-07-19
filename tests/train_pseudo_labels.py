@@ -80,7 +80,9 @@ from alignment.eval import compute_cer
 from alignment.losses import _ctc_loss_fn          # balanced CTC wrapper
 
 # ──────────────────── helper --------------------------------------------------
-def _parse_pseudo_files(results_dir: str) -> tuple[dict[int, str], int]:
+def _parse_pseudo_files(
+    results_dir: str, rounds: list[int] | None = None
+) -> tuple[dict[int, str], int]:
     """Collect pseudo-labels and count matches with ground truth.
 
     Scan ``results_dir`` for files called ``pseudo_labels_round_*.txt`` produced
@@ -94,18 +96,25 @@ def _parse_pseudo_files(results_dir: str) -> tuple[dict[int, str], int]:
 
     Args:
         results_dir: Folder containing pseudo-label text files.
+        rounds: Specific pseudo-label rounds to include. ``None`` loads all
+            available rounds.
 
     Returns:
         Tuple[Dict[int, str], int]: Final mapping and number of correct labels.
     """
     mapping: dict[int, str] = {}
     ground_truth: dict[int, str] = {}
-    paths = sorted(Path(results_dir).glob("pseudo_labels_round_*.txt"))
+    if rounds is None:
+        paths = sorted(Path(results_dir).glob("pseudo_labels_round_*.txt"))
+    else:
+        paths = [Path(results_dir) / f"pseudo_labels_round_{r}.txt" for r in rounds]
     if not paths:
         raise FileNotFoundError(
             f"No pseudo‑label files found in {results_dir!s}"
         )
     for p in paths:
+        if not p.is_file():
+            raise FileNotFoundError(f"{p!s} not found")
         with p.open(encoding="utf-8") as fh:
             for line in fh:
                 idx_s, pred, gt = line.rstrip("\n").split("\t")
@@ -177,7 +186,10 @@ def main(args) -> None:
         config=ds_cfg,
     )
 
-    pseudo_map, n_correct = _parse_pseudo_files(args.results_dir)
+    pseudo_map, n_correct = _parse_pseudo_files(
+        args.results_dir,
+        args.include_rounds,
+    )
     if not pseudo_map:
         raise RuntimeError("No pseudo‑labels collected → nothing to train on")
 
@@ -310,6 +322,13 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--results_dir", default=RESULTS_DIR,
                    help="folder containing pseudo_labels_round_*.txt")
+    p.add_argument(
+        "--include_rounds", nargs="+", type=int, metavar="N",
+        help=(
+            "Only load pseudo_labels_round_<N>.txt (space-separated list). "
+            "If omitted, all rounds are loaded."
+        ),
+    )
     p.add_argument("--dataset_folder", default=DATASET_FOLDER,
                    help="root folder with processed_words/{train,val,test}/")
     p.add_argument("--pretrained_backbone", default=PRETRAINED_BACKBONE,
