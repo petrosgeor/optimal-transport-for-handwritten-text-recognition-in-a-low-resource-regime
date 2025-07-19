@@ -588,6 +588,7 @@ def test_parse_pseudo_files(tmp_path):
     file1.write_text("\n".join([
         "0\tfoo\tfoo",
         "1\tbar\tbaz",
+        "3\tbad\tgood",
     ]))
 
     file2 = tmp_path / "pseudo_labels_round_1.txt"
@@ -598,10 +599,14 @@ def test_parse_pseudo_files(tmp_path):
 
     mapping, correct = _parse_pseudo_files(str(tmp_path))
 
-    assert mapping == {0: "foo", 1: "baz", 2: "qux"}
+    assert mapping == {0: "foo", 1: "baz", 2: "qux", 3: "bad"}
     assert correct == 3
 
     mapping, correct = _parse_pseudo_files(str(tmp_path), [1])
     assert mapping == {1: "baz", 2: "qux"}
     assert correct == 2
+
+    mapping, correct = _parse_pseudo_files(str(tmp_path), exclude_false=True)
+    assert mapping == {0: "foo", 1: "baz", 2: "qux"}
+    assert correct == 3
 
