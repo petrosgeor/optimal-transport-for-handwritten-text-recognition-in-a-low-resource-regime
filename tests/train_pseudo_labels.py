@@ -46,7 +46,7 @@ GPU_ID = 1
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
 
 BATCH_SIZE = 128
-SYN_BATCH_RATIO = 0.7
+SYN_BATCH_RATIO = 0.3
 RESULTS_DIR = "results"
 DATASET_FOLDER = "htr_base/data/GW/processed_words"
 SYN_LIST_FILE = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
