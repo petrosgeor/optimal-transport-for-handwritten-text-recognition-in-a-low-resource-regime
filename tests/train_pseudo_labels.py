@@ -81,7 +81,9 @@ from alignment.losses import _ctc_loss_fn          # balanced CTC wrapper
 
 # ──────────────────── helper --------------------------------------------------
 def _parse_pseudo_files(
-    results_dir: str, rounds: list[int] | None = None
+    results_dir: str,
+    rounds: list[int] | None = None,
+    exclude_false: bool = False,
 ) -> tuple[dict[int, str], int]:
     """Collect pseudo-labels and count matches with ground truth.
 
@@ -98,6 +100,8 @@ def _parse_pseudo_files(
         results_dir: Folder containing pseudo-label text files.
         rounds: Specific pseudo-label rounds to include. ``None`` loads all
             available rounds.
+        exclude_false: Drop rows whose prediction does not match the
+            ground truth.
 
     Returns:
         Tuple[Dict[int, str], int]: Final mapping and number of correct labels.
@@ -118,6 +122,8 @@ def _parse_pseudo_files(
         with p.open(encoding="utf-8") as fh:
             for line in fh:
                 idx_s, pred, gt = line.rstrip("\n").split("\t")
+                if exclude_false and pred != gt:
+                    continue
                 idx = int(idx_s)
                 mapping[idx] = pred
                 ground_truth[idx] = gt
@@ -189,9 +195,10 @@ def main(args) -> None:
     pseudo_map, n_correct = _parse_pseudo_files(
         args.results_dir,
         args.include_rounds,
+        exclude_false=args.exclude_false,
     )
     if not pseudo_map:
-        raise RuntimeError("No pseudo‑labels collected → nothing to train on")
+        raise RuntimeError("No pseudo‑labels left after filtering – aborting.")
 
     # Overwrite the transcriptions *in‑place* with the predicted words
     for idx, pred in pseudo_map.items():
@@ -328,6 +335,11 @@ if __name__ == "__main__":
             "Only load pseudo_labels_round_<N>.txt (space-separated list). "
             "If omitted, all rounds are loaded."
         ),
+    )
+    p.add_argument(
+        "--exclude_false",
+        action="store_true",
+        help="Skip pseudo-label rows where prediction \u2260 ground-truth",
     )
     p.add_argument("--dataset_folder", default=DATASET_FOLDER,
                    help="root folder with processed_words/{train,val,test}/")
