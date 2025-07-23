@@ -972,14 +972,6 @@ def train_projector(
 train_projector(ds, backbone, proj)
 ```
 
-**Dataset requirement.**
-From v0.5 the function expects a `FusedHTRDataset` (real **+** synthetic).
-Real descriptors incur the full **Optimal-Transport + MSE** `ProjectionLoss`, while synthetic descriptors contribute **only a plain L2 (MSE) term**. If a plain `HTRDataset` is passed the behaviour is unchanged (all samples treated as real).
-
-*   `dataset` (FusedHTRDataset | HTRDataset):
-    – A `FusedHTRDataset` is recommended: real & synthetic words are
-      handled with different loss terms during projector optimisation.
-
 #### alternating_refinement
 
 Located in: `alignment/trainer.py`
