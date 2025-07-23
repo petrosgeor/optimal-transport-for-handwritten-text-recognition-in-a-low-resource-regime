@@ -107,6 +107,7 @@ class DummyHTRDataset(torch.utils.data.Dataset):
         self.aligned = torch.tensor([0, 1], dtype=torch.int64)
         self.imgs = [torch.zeros(1, 2, 2), torch.ones(1, 2, 2)]
         self.trans = ["gt1", "gt2"]
+        self.transcriptions = self.trans
 
     def __len__(self):
         return len(self.imgs)
@@ -121,6 +122,7 @@ class DummyPretrainDataset(torch.utils.data.Dataset):
     def __init__(self):
         self.imgs = [torch.full((1, 2, 2), 2.0), torch.full((1, 2, 2), 3.0)]
         self.trans = ["syn1", "syn2"]
+        self.transcriptions = self.trans
 
     def __len__(self):
         return len(self.imgs)
@@ -167,6 +169,8 @@ def test_refine_visual_backbone_syn_only(monkeypatch):
     refine_visual_backbone = trainer.refine_visual_backbone
 
     orig_to = torch.Tensor.to
+    orig_full = torch.full
+    orig_tensor = torch.tensor
     orig_full = torch.full
     orig_tensor = torch.tensor
 
@@ -627,4 +631,89 @@ def test_fused_dataset_alignment():
     assert fused.aligned[len(real):].min() >= 0
     assert fused.aligned[: len(real)].ge(0).sum() == 1
     assert set(fused.unique_words) == {"gt1", "gt2", "syn1", "syn2"}
+
+
+def test_train_projector_fused_dataset(monkeypatch):
+    """Projector training splits real and synthetic samples."""
+
+    from alignment import trainer
+
+    class DummyDataset:
+        def __init__(self):
+            self.unique_word_embeddings = torch.eye(2)
+            self.unique_word_probs = torch.tensor([0.5, 0.5])
+            self.aligned = torch.tensor([0, 1, 0], dtype=torch.int64)
+            self._is_real = torch.tensor([True, False, True])
+
+    dataset = DummyDataset()
+
+    class Backbone:
+        feat_dim = 2
+
+        def to(self, *_):
+            return self
+
+        def eval(self):
+            return self
+
+    backbone = Backbone()
+    proj = torch.nn.Linear(2, 2, bias=False)
+
+    feats = torch.tensor([
+        [1.0, 0.0],
+        [0.0, 1.0],
+        [0.5, 0.5],
+    ])
+    align = dataset.aligned
+
+    monkeypatch.setattr(
+        trainer,
+        "harvest_backbone_features",
+        lambda *a, **k: (feats, align),
+    )
+
+    captured = {}
+
+    def fake_mse(pred, tgt):
+        captured["shape"] = pred.shape
+        return torch.tensor(0.0)
+
+    monkeypatch.setattr(trainer.F, "mse_loss", fake_mse)
+    orig_to = torch.Tensor.to
+    orig_full = torch.full
+    orig_tensor = torch.tensor
+
+    def fake_to(self, *args, **kwargs):
+        if args and str(args[0]).startswith("cuda"):
+            return self
+        if kwargs.get("device") and str(kwargs["device"]).startswith("cuda"):
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_to(self, *args, **kwargs)
+
+    def fake_full(size, fill_value, **kwargs):
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_full(size, fill_value, **kwargs)
+
+    def fake_tensor(*args, **kwargs):
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_tensor(*args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to, raising=False)
+    monkeypatch.setattr(torch, "full", fake_full, raising=False)
+    monkeypatch.setattr(torch, "tensor", fake_tensor, raising=False)
+    monkeypatch.setattr(trainer.cfg, "device", "cuda")
+
+    trainer.train_projector(
+        dataset,
+        backbone,
+        proj,
+        num_epochs=1,
+        batch_size=2,
+        device="cuda",
+        plot_tsne=False,
+    )
+
+    assert captured["shape"][0] == 1
 

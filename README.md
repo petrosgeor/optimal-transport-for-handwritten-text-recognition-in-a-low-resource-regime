@@ -947,6 +947,39 @@ def _parse_pseudo_files(results_dir: str) -> Tuple[Dict[int, str], int]:
 mapping, correct = _parse_pseudo_files("results")
 ```
 
+#### train_projector
+
+Located in: `alignment/trainer.py`
+
+Optimises a projector to map descriptors onto the word embedding space.
+
+```python
+def train_projector(
+    dataset: FusedHTRDataset | HTRDataset,
+    backbone: HTRNet,
+    projector: nn.Module | List[nn.Module],
+    num_epochs: int = cfg.projector_epochs,
+    batch_size: int = cfg.projector_batch_size,
+    lr: float = cfg.projector_lr,
+    num_workers: int = cfg.projector_workers,
+    weight_decay: float = cfg.projector_weight_decay,
+    device: torch.device | str = cfg.device,
+    plot_tsne: bool = cfg.plot_tsne,
+) -> None:
+```
+
+```python
+train_projector(ds, backbone, proj)
+```
+
+**Dataset requirement.**
+From v0.5 the function expects a `FusedHTRDataset` (real **+** synthetic).
+Real descriptors incur the full **Optimal-Transport + MSE** `ProjectionLoss`, while synthetic descriptors contribute **only a plain L2 (MSE) term**. If a plain `HTRDataset` is passed the behaviour is unchanged (all samples treated as real).
+
+*   `dataset` (FusedHTRDataset | HTRDataset):
+    – A `FusedHTRDataset` is recommended: real & synthetic words are
+      handled with different loss terms during projector optimisation.
+
 #### alternating_refinement
 
 Located in: `alignment/trainer.py`
