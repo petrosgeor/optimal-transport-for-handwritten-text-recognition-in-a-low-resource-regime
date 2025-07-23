@@ -22,14 +22,14 @@ cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 # count calls to :func:`align_more_instances`
 _ALIGN_CALL_COUNT = 0
 
-from htr_base.utils.htr_dataset import HTRDataset
+from htr_base.utils.htr_dataset import HTRDataset, FusedHTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
 
 
 
 def harvest_backbone_features(
-    dataset: HTRDataset,
+    dataset: HTRDataset | FusedHTRDataset,
     backbone: HTRNet,
     *,
     batch_size: int = 64,

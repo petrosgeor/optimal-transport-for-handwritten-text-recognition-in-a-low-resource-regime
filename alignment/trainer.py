@@ -23,7 +23,9 @@ from torch.utils.data import DataLoader, TensorDataset
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
+from htr_base.utils.htr_dataset import (
+    HTRDataset, PretrainingHTRDataset, FusedHTRDataset
+)
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss, SoftContrastiveLoss
 from alignment.ctc_utils import encode_for_ctc
@@ -351,7 +353,7 @@ def refine_visual_backbone(
 
 
 def train_projector(  # pylint: disable=too-many-arguments
-    dataset: "HTRDataset",
+    dataset: "FusedHTRDataset | HTRDataset",
     backbone: "HTRNet",
     projector: nn.Module | List[nn.Module],
     num_epochs: int = cfg.projector_epochs,
@@ -365,13 +367,17 @@ def train_projector(  # pylint: disable=too-many-arguments
     """
     Trains a projector network to map backbone features to an embedding space.
 
-    This function freezes the `backbone`, harvests image descriptors for the entire
-    dataset, and then trains the `projector` using a combination of an unsupervised
-    Optimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.
-    The projector can be a single module or a list of modules for ensemble training.
+    This function freezes the ``backbone``, harvests image descriptors for the
+    entire dataset, and then trains the ``projector`` using a combination of an
+    unsupervised Optimal Transport (OT) loss and a supervised MSE loss on
+    pre-aligned samples. The ``dataset`` is expected to be a
+    ``FusedHTRDataset`` combining real and synthetic words, but a plain
+    ``HTRDataset`` is still accepted for backward compatibility. The projector
+    can be a single module or a list of modules for ensemble training.
 
     Args:
-        dataset: The HTRDataset containing the data.
+        dataset: A ``FusedHTRDataset`` combining real & synthetic words.
+            (Falls back to a plain ``HTRDataset`` for legacy calls.)
         backbone: The HTRNet model (frozen) to extract features from.
         projector: The projector network(s) to be trained.
         num_epochs: The number of training epochs.
@@ -409,6 +415,9 @@ def train_projector(  # pylint: disable=too-many-arguments
         
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
+    if word_probs.numel() != word_embs.size(0):
+        pad = word_embs.size(0) - word_probs.numel()
+        word_probs = torch.cat([word_probs, torch.zeros(pad, device=device)])
 
     if plot_tsne:
         plot_tsne_embeddings(
@@ -427,13 +436,17 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers=num_workers,
         device=device,
     )
+    if hasattr(dataset, "_is_real"):
+        is_real_all = dataset._is_real.clone()
+    else:
+        is_real_all = torch.ones_like(aligned_all, dtype=torch.bool)
     assert feats_all.shape[1] == backbone.feat_dim, \
         "Descriptor dimension mismatch after harvesting features."
     
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
     proj_loader = DataLoader(
-        TensorDataset(feats_all, aligned_all),
+        TensorDataset(feats_all, aligned_all, is_real_all),
         batch_size=batch_size,
         shuffle=True, # Shuffle is True here for training
         pin_memory=(device.type == "cuda"),
@@ -449,14 +462,29 @@ def train_projector(  # pylint: disable=too-many-arguments
         for epoch in range(1, num_epochs + 1):
             running_loss = 0.0
             num_batches = 0
-            for feats_cpu, align_cpu in proj_loader:
-                feats = feats_cpu.to(device);
-                align = align_cpu.to(device);
-                
-                # Forward pass through the projector
+            for feats_cpu, align_cpu, real_mask_cpu in proj_loader:
+                feats = feats_cpu.to(device)
+                align = align_cpu.to(device)
+                real_m = real_mask_cpu.to(device)
+                syn_m = ~real_m
+
                 pred = proj(feats)
-                # Compute the projection loss
-                loss = criterion.forward(pred, word_embs, align, word_probs)
+
+                loss_real = torch.tensor(0.0, device=device)
+                if real_m.any():
+                    loss_real = criterion(
+                        pred[real_m],
+                        word_embs,
+                        align[real_m],
+                        word_probs,
+                    )
+
+                loss_syn = torch.tensor(0.0, device=device)
+                if syn_m.any():
+                    target_syn = word_embs[align[syn_m]]
+                    loss_syn = F.mse_loss(pred[syn_m], target_syn)
+
+                loss = loss_real + loss_syn
 
                 # Backpropagation and optimization
                 loss.backward()
