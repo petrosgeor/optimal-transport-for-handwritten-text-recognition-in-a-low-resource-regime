@@ -426,3 +426,128 @@ class PretrainingHTRDataset(Dataset):
 
         return [img.shape for img in self.images]
 
+
+class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
+    """Combine real and synthetic datasets into one.
+
+    Args:
+        real_ds (HTRDataset): Dataset with ground-truth images.
+        syn_ds (PretrainingHTRDataset): Synthetic dataset providing extra images.
+        n_aligned (int): How many real samples to align initially.
+        random_seed (int): Seed controlling the random selection of aligned
+            real samples.
+
+    Attributes:
+        data (list[tuple]): Combined ``(path, transcription)`` list.
+        transcriptions (list[str]): All transcriptions from both datasets.
+        unique_words (list[str]): Joint vocabulary of both datasets.
+        unique_word_probs (list[float]): Probabilities for ``unique_words``.
+        unique_word_embeddings (torch.Tensor): Embeddings of ``unique_words``.
+        aligned (torch.IntTensor): Alignment vector for all samples.
+        character_classes (list[str]): Character vocabulary copied from
+            ``real_ds``.
+        prior_char_probs (dict): Character priors from ``real_ds``.
+        word_prob_mode (str): Probability mode copied from ``real_ds``.
+        _is_real (torch.BoolTensor): ``True`` where samples come from
+            ``real_ds``.
+        _is_syn (torch.BoolTensor): ``True`` where samples come from
+            ``syn_ds``.
+        _real2global (list[int]): Map from ``real_ds`` indices to global ones.
+        _syn2global (list[int]): Map from ``syn_ds`` indices to global ones.
+    """
+
+    def __init__(
+        self,
+        real_ds: HTRDataset,
+        syn_ds: PretrainingHTRDataset,
+        n_aligned: int = 0,
+        random_seed: int = 0,
+    ) -> None:
+        self.real_ds = real_ds
+        self.syn_ds = syn_ds
+
+        if hasattr(syn_ds, "img_paths"):
+            syn_paths = syn_ds.img_paths
+        else:
+            syn_paths = [f"syn_{i}" for i in range(len(syn_ds))]
+
+        if hasattr(syn_ds, "transcriptions"):
+            syn_trans = syn_ds.transcriptions
+        elif hasattr(syn_ds, "trans"):
+            syn_trans = syn_ds.trans
+        else:
+            syn_trans = [syn_ds[i][1] for i in range(len(syn_ds))]
+
+        syn_pairs = list(zip(syn_paths, syn_trans))
+
+        if hasattr(real_ds, "data"):
+            real_pairs = real_ds.data
+        else:
+            if hasattr(real_ds, "transcriptions"):
+                r_trans = real_ds.transcriptions
+            elif hasattr(real_ds, "trans"):
+                r_trans = real_ds.trans
+            else:
+                r_trans = [real_ds[i][1] for i in range(len(real_ds))]
+            real_pairs = [
+                (f"real_{i}", r_trans[i]) for i in range(len(real_ds))
+            ]
+
+        self.data = real_pairs + syn_pairs
+        if hasattr(real_ds, "transcriptions"):
+            real_trans = real_ds.transcriptions
+        elif hasattr(real_ds, "trans"):
+            real_trans = real_ds.trans
+        else:
+            real_trans = [real_ds[i][1] for i in range(len(real_ds))]
+        self.transcriptions = list(real_trans) + list(syn_trans)
+
+        self.character_classes = getattr(real_ds, "character_classes", [])
+        self.prior_char_probs = getattr(real_ds, "prior_char_probs", {})
+        self.word_prob_mode = getattr(real_ds, "word_prob_mode", "empirical")
+        self.word_emb_dim = getattr(real_ds, "word_emb_dim", 512)
+
+        self.unique_words, self.unique_word_probs = self.word_frequencies()
+        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
+
+        total = len(self.data)
+        self.aligned = torch.full((total,), -1, dtype=torch.int32)
+
+        rng = random.Random(random_seed)
+        real_indices = list(range(len(real_ds)))
+        if n_aligned > 0:
+            chosen = rng.sample(real_indices, min(n_aligned, len(real_indices)))
+            for idx in chosen:
+                if hasattr(real_ds, "transcriptions"):
+                    word = real_ds.transcriptions[idx]
+                elif hasattr(real_ds, "trans"):
+                    word = real_ds.trans[idx]
+                else:
+                    word = real_ds[idx][1]
+                self.aligned[idx] = self.unique_words.index(word)
+
+        offset = len(real_ds)
+        for j, word in enumerate(syn_trans):
+            self.aligned[offset + j] = self.unique_words.index(word)
+
+        self._is_real = torch.zeros(total, dtype=torch.bool)
+        self._is_real[: len(real_ds)] = True
+        self._is_syn = ~self._is_real
+        self._real2global = list(range(len(real_ds)))
+        self._syn2global = list(range(offset, total))
+
+    def __len__(self) -> int:
+        """Return the total number of samples."""
+
+        return len(self.data)
+
+    def __getitem__(self, idx: int):
+        """Return an item from the fused dataset."""
+
+        if self._is_real[idx]:
+            img, trans, _ = self.real_ds[idx]
+        else:
+            local = idx - len(self.real_ds)
+            img, trans = self.syn_ds[local]
+        return img, trans, self.aligned[idx]
+

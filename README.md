@@ -331,6 +331,46 @@ class PretrainingHTRDataset(Dataset):
 *   `loaded_image_shapes()` -> List[tuple]: Shapes of cached images.
 
 
+#### FusedHTRDataset
+
+Located in: `htr_base/utils/htr_dataset.py`
+
+Combine real and synthetic datasets.
+
+```python
+class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
+    def __init__(
+        self,
+        real_ds: HTRDataset,
+        syn_ds: PretrainingHTRDataset,
+        n_aligned: int = 0,
+        random_seed: int = 0,
+    ):
+```
+
+*   `real_ds` (HTRDataset): Real dataset to draw ground-truth images from.
+*   `syn_ds` (PretrainingHTRDataset): Synthetic dataset providing extra images.
+*   `n_aligned` (int): Number of real samples to align initially.
+*   `random_seed` (int): Seed controlling which real samples are aligned.
+
+**Attributes:**
+*   `data` (list[tuple]): Combined `(path, transcription)` pairs.
+*   `transcriptions` (list[str]): Labels for all images.
+*   `unique_words` (list[str]): Joint vocabulary of both datasets.
+*   `unique_word_probs` (list[float]): Probability vector for `unique_words`.
+*   `unique_word_embeddings` (torch.Tensor): Embeddings for `unique_words`.
+*   `aligned` (torch.IntTensor): Alignment index for each sample.
+*   `character_classes` (list[str]): Characters from `real_ds`.
+*   `prior_char_probs` (dict): Character priors copied from `real_ds`.
+*   `word_prob_mode` (str): Probability mode of `real_ds`.
+*   `_is_real` (torch.BoolTensor): Mask of real samples.
+*   `_is_syn` (torch.BoolTensor): Mask of synthetic samples.
+
+**Methods:**
+*   `__len__()` -> int: Total number of items.
+*   `__getitem__(index)` -> tuple: Item as provided by underlying datasets.
+
+
 
 ### Alignment Utilities
 

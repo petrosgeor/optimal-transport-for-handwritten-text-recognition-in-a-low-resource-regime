@@ -10,7 +10,11 @@ import itertools
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
 from alignment.trainer import _shuffle_batch
-from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
+from htr_base.utils.htr_dataset import (
+    HTRDataset,
+    PretrainingHTRDataset,
+    FusedHTRDataset,
+)
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -609,4 +613,18 @@ def test_parse_pseudo_files(tmp_path):
     mapping, correct = _parse_pseudo_files(str(tmp_path), exclude_false=True)
     assert mapping == {0: "foo", 1: "baz", 2: "qux"}
     assert correct == 3
+
+
+def test_fused_dataset_alignment():
+    """Combined dataset preserves alignment semantics."""
+
+    real = DummyHTRDataset()
+    syn = DummyPretrainDataset()
+
+    fused = FusedHTRDataset(real, syn, n_aligned=1, random_seed=0)
+
+    assert len(fused) == len(real) + len(syn)
+    assert fused.aligned[len(real):].min() >= 0
+    assert fused.aligned[: len(real)].ge(0).sum() == 1
+    assert set(fused.unique_words) == {"gt1", "gt2", "syn1", "syn2"}
 
