@@ -362,13 +362,17 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 *   `aligned` (torch.IntTensor): Alignment index for each sample.
 *   `character_classes` (list[str]): Characters from `real_ds`.
 *   `prior_char_probs` (dict): Character priors copied from `real_ds`.
-*   `word_prob_mode` (str): Probability mode of `real_ds`.
+*   `word_prob_mode` (str): Probability mode copied **and locked** from real_ds.
 *   `_is_real` (torch.BoolTensor): Mask of real samples.
 *   `_is_syn` (torch.BoolTensor): Mask of synthetic samples.
 
 **Methods:**
 *   `__len__()` -> int: Total number of items.
 *   `__getitem__(index)` -> tuple: Item as provided by underlying datasets.
+*   `word_frequencies` -> -> (unique_words, probs):
+    Returns the joint vocabulary and probability vector.
+    If mode is supplied it **must equal** self.word_prob_mode; otherwise a
+    ValueError is raised.
 
 
 

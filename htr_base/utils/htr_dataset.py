@@ -551,3 +551,55 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
             img, trans = self.syn_ds[local]
         return img, trans, self.aligned[idx]
 
+    def word_frequencies(
+        self,
+        *,
+        mode: str = None,
+        smooth: float = 1e-12,
+    ) -> tuple[list[str], list[float]]:
+        """Return unique words and their probabilities.
+
+        The joint vocabulary is the union of unique words from both real and
+        synthetic datasets. Probabilities, however, are computed **only**
+        from the real dataset's transcriptions.
+
+        Args:
+            mode (str | None): 'empirical' or 'wordfreq'. If None,
+                use ``self.word_prob_mode``.
+            smooth (float): Minimum probability when using corpus frequencies.
+
+        Returns:
+            tuple[list[str], list[float]]: List of unique words and their
+            probability vector.
+        """
+        from collections import Counter
+
+        if mode is None:
+            mode = self.word_prob_mode
+        elif mode != self.word_prob_mode:
+            raise ValueError(
+                f"FusedHTRDataset is fixed to word_prob_mode='{self.word_prob_mode}', "
+                f"but mode='{mode}' was requested."
+            )
+
+        # Joint vocabulary from both datasets
+        real_words = [t.strip().lower() for t in self.real_ds.transcriptions]
+        syn_words = [t.strip().lower() for t in self.syn_ds.transcriptions]
+        unique = sorted(set(real_words) | set(syn_words))
+
+        if mode == "empirical":
+            # Probabilities from real dataset counts
+            counts = Counter(real_words)
+            total_real = len(real_words)
+            probs = [counts.get(w, 0) / total_real for w in unique]
+        elif mode == "wordfreq":
+            # Probabilities from external corpus, only for real words
+            raw = {w: word_frequency(w, "en") for w in real_words}
+            probs_real = [max(raw.get(w, 0), smooth) for w in unique]
+            s = sum(probs_real)
+            probs = [p / s for p in probs_real]
+        else:
+            raise ValueError(f"Unknown mode '{mode}'")
+
+        return unique, probs
+
