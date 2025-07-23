@@ -436,24 +436,6 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         n_aligned (int): How many real samples to align initially.
         random_seed (int): Seed controlling the random selection of aligned
             real samples.
-
-    Attributes:
-        data (list[tuple]): Combined ``(path, transcription)`` list.
-        transcriptions (list[str]): All transcriptions from both datasets.
-        unique_words (list[str]): Joint vocabulary of both datasets.
-        unique_word_probs (list[float]): Probabilities for ``unique_words``.
-        unique_word_embeddings (torch.Tensor): Embeddings of ``unique_words``.
-        aligned (torch.IntTensor): Alignment vector for all samples.
-        character_classes (list[str]): Character vocabulary copied from
-            ``real_ds``.
-        prior_char_probs (dict): Character priors from ``real_ds``.
-        word_prob_mode (str): Probability mode copied from ``real_ds``.
-        _is_real (torch.BoolTensor): ``True`` where samples come from
-            ``real_ds``.
-        _is_syn (torch.BoolTensor): ``True`` where samples come from
-            ``syn_ds``.
-        _real2global (list[int]): Map from ``real_ds`` indices to global ones.
-        _syn2global (list[int]): Map from ``syn_ds`` indices to global ones.
     """
 
     def __init__(
