@@ -11,7 +11,7 @@ from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
 import random
-from typing import List
+from typing import List, Union
 from htr_base.utils.vocab import load_vocab
 
 
@@ -493,7 +493,7 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         self.config = getattr(real_ds, "config", None)
 
         self.unique_words, self.unique_word_probs = self.word_frequencies()
-        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
+        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=50)
 
         total = len(self.data)
         self.aligned = torch.full((total,), -1, dtype=torch.int32)
