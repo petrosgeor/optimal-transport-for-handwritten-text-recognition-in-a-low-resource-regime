@@ -170,10 +170,11 @@ def refine_visual_backbone(
     epochs: int,
     device: torch.device,
 ) -> None:
-    """Refine ``backbone`` using only the unaligned portion of ``dataset``.
+    """Refine ``backbone`` using only the aligned portion of ``dataset``.
 
-    Samples whose ``dataset.aligned`` value is not ``-1`` are skipped. Each
-    epoch iterates over a ``DataLoader`` built from the remaining items.
+    Only instances where ``dataset.aligned`` is not ``-1`` are used for
+    training. Each epoch iterates over a ``DataLoader`` built from these
+    aligned samples.
 
     Args:
         dataset (FusedHTRDataset): Combined dataset with alignment flags.
@@ -192,7 +193,7 @@ def refine_visual_backbone(
     c2i, _ = load_vocab()
     assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned), "Dataset alignment flags vector is malformed."
 
-    keep_mask = dataset.aligned == -1
+    keep_mask = dataset.aligned != -1
     sub_ds = torch.utils.data.Subset(dataset, torch.nonzero(keep_mask, as_tuple=True)[0])
     if len(sub_ds) == 0:
         return
