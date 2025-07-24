@@ -42,7 +42,7 @@ def harvest_backbone_features(
 
     Parameters
     ----------
-    dataset : HTRDataset
+    dataset : HTRDataset | FusedHTRDataset
         Dataset providing images and alignment information.
     backbone : HTRNet
         Visual encoder used to extract per-image descriptors.
@@ -162,7 +162,7 @@ class ProjectionAligner:
 
     def __init__(
         self,
-        dataset: HTRDataset,
+        dataset: HTRDataset | FusedHTRDataset,
         backbone: HTRNet,
         projectors: Sequence[nn.Module],
         *,
@@ -175,7 +175,7 @@ class ProjectionAligner:
         """Initialise the projection aligner.
 
         Args:
-            dataset (HTRDataset): Dataset providing images and alignment info.
+            dataset (HTRDataset | FusedHTRDataset): Dataset providing images and alignment info.
             backbone (HTRNet): Visual backbone network.
             projectors (Sequence[nn.Module]): Projector ensemble.
             batch_size (int): Mini-batch size during descriptor harvesting.
@@ -211,6 +211,10 @@ class ProjectionAligner:
             and dataset.unique_word_embeddings.size(0) > 0
         ), "Word-embedding matrix empty or wrong shape"
         self.word_embs = dataset.unique_word_embeddings.to(self.device)
+        if isinstance(dataset, FusedHTRDataset):
+            self.real_vocab = set(dataset.real_ds.unique_words)
+        else:
+            self.real_vocab = set(dataset.unique_words)
 
     # ------------------------------------------------------------------
     def _get_projector_outputs(self):
@@ -249,6 +253,16 @@ class ProjectionAligner:
             assert torch.isfinite(proj_feats).all(), "Non-finite projector output"
 
             dist_matrix = torch.cdist(proj_feats, self.word_embs.cpu())
+            col_mask = torch.tensor(
+                [w not in self.real_vocab for w in self.dataset.unique_words],
+                dtype=torch.bool,
+                device=dist_matrix.device,
+            )
+            row_mask = (aligned_all == -1).to(dist_matrix.device)
+            rows = torch.nonzero(row_mask, as_tuple=True)[0]
+            if rows.numel() and col_mask.any():
+                dist_matrix[rows[:, None], col_mask] = float("inf")
+            assert not torch.isnan(dist_matrix).any()
             nearest_word = dist_matrix.argmin(dim=1)
             Z_list.append(proj_feats)
             dist_list.append(dist_matrix)
@@ -257,17 +271,14 @@ class ProjectionAligner:
         Z = torch.stack(Z_list)
         var_scores = Z.var(dim=0, unbiased=False).sum(dim=1)
         dist_matrix = torch.stack(dist_list).mean(dim=0)
-        moved_dist = torch.zeros(dist_matrix.size(0))
         preds = torch.stack(nearest_list)
         nearest_word, _ = preds.mode(dim=0)
         counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
         proj_feats_mean = Z.mean(dim=0)
 
         return {
-            "plan": torch.empty(0),
             "proj_feats_mean": proj_feats_mean,
             "dist_matrix": dist_matrix,
-            "moved_dist": moved_dist,
             "nearest_word": nearest_word,
             "counts": counts,
             "var_scores": var_scores,
@@ -386,7 +397,6 @@ class ProjectionAligner:
         self,
         chosen: torch.Tensor,
         nearest_word: torch.Tensor,
-        moved_dist: torch.Tensor,
         dist_matrix: torch.Tensor,
         var_scores: torch.Tensor,
     ) -> None:
@@ -395,7 +405,6 @@ class ProjectionAligner:
         Args:
             chosen (torch.Tensor): Newly aligned dataset indices.
             nearest_word (torch.Tensor): Predicted word ids for each sample.
-            moved_dist (torch.Tensor): Distances moved by descriptors (always zero).
             dist_matrix (torch.Tensor): Pairwise distances after projection.
             var_scores (torch.Tensor): Variance scores for every dataset sample.
 
@@ -421,10 +430,12 @@ class ProjectionAligner:
                 pred = self.dataset.unique_words[self.dataset.aligned[idx].item()]
                 print(f"[Align] sample: '{gt}' → '{pred}'")
 
-            md = moved_dist[chosen]
-            print(
-                f"[Align] mean moved distance: {md.mean():.4f} ± {md.std(unbiased=False):.4f}"
+            off_vocab = sum(
+                self.dataset.unique_words[self.dataset.aligned[i].item()] not in self.real_vocab
+                for i in chosen_list
             )
+            if off_vocab:
+                print(f"[Debug] {off_vocab} pseudo-labels outside real vocab")
 
             vs = var_scores[chosen]
             print(
@@ -553,7 +564,6 @@ class ProjectionAligner:
         self._log_results(
             chosen,
             out["nearest_word"],
-            out["moved_dist"],
             out["dist_matrix"],
             out["var_scores"],
         )
@@ -563,42 +573,45 @@ class ProjectionAligner:
             proj.train()
         self.backbone.train()
 
-        assert torch.isfinite(out["moved_dist"]).all(), "Non-finite moved_dist"
-        return out["plan"], out["proj_feats_mean"], out["moved_dist"]
+        return torch.empty(0), out["proj_feats_mean"], torch.zeros(len(self.dataset))
 
 @torch.no_grad()
 def align_more_instances(
-    dataset: HTRDataset,
+    dataset: HTRDataset | FusedHTRDataset,
     backbone: HTRNet,
     projectors: Sequence[nn.Module],
     *,
     batch_size: int = 512,
     device: str = cfg.device,
-    reg: float = 0.1,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
-    sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
     metric: str = "gap",
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Wrapper over :class:`ProjectionAligner` for backward compatibility.
+    """Pseudo-label new dataset instances using the projection ensemble.
 
-    When ``cfg.pseudo_label_validation.enable`` is ``True``, this function
-    invokes :meth:`ProjectionAligner.validate_pseudo_labels` once the number of
-    calls to :func:`align_more_instances` reaches the configured
-    ``start_iteration``.
+    Args:
+        dataset (HTRDataset | FusedHTRDataset): Dataset to be aligned.
+        backbone (HTRNet): Visual backbone network.
+        projectors (Sequence[nn.Module]): Ensemble of projector networks.
+        batch_size (int): Mini-batch size for descriptor extraction.
+        device (str): Device used during alignment.
+        k (int): Number of samples to pseudo-label.
+        metric (str): Selection metric ('gap', 'variance', 'closest').
+        agree_threshold (int): Minimum projector agreement for a label.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            Dummy transport plan, mean projector features and zeros for moved distance.
+
+    When ``cfg.pseudo_label_validation.enable`` is ``True`` this function
+    calls :meth:`ProjectionAligner.validate_pseudo_labels` after the alignment
+    round once ``align_more_instances`` has been invoked at least
+    ``start_iteration`` times.
     """
     global _ALIGN_CALL_COUNT
     _ALIGN_CALL_COUNT += 1
 
-    if (
-        reg != 0.1 or unbalanced or reg_m != 1.0 or (sinkhorn_kwargs is not None and sinkhorn_kwargs)
-    ):
-        warnings.warn(
-            "OT-related parameters are deprecated and ignored",
-            DeprecationWarning,
-        )
+
 
     aligner = ProjectionAligner(
         dataset,

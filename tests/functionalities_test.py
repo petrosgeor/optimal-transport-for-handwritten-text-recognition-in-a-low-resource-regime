@@ -165,6 +165,8 @@ def test_refine_visual_backbone_loader(monkeypatch):
     real = DummyHTRDataset()
     syn = DummyPretrainDataset()
     fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+    fused.word_emb_dim = 1
+    fused.unique_word_embeddings = torch.arange(len(fused.unique_words)).float().view(-1, 1)
 
     backbone = DummyBackbone()
 
@@ -649,6 +651,30 @@ def test_fused_dataset_alignment():
     assert fused.aligned[len(real):].min() >= 0
     assert fused.aligned[: len(real)].ge(0).sum() == 1
     assert set(fused.unique_words) == {"gt1", "gt2", "syn1", "syn2"}
+
+
+def test_align_more_instances_real_vocab_only(monkeypatch):
+    """Unaligned real samples never get synthetic-only words."""
+
+    from alignment import alignment_utilities as au
+
+    real = DummyHTRDataset()
+    real.aligned = torch.tensor([-1, -1], dtype=torch.int64)
+    syn = DummyPretrainDataset()
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+    fused.word_emb_dim = 1
+    fused.unique_word_embeddings = torch.arange(len(fused.unique_words)).float().view(-1, 1)
+
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+
+    feats = torch.arange(1, len(fused) + 1, dtype=torch.float32).view(len(fused), 1)
+    monkeypatch.setattr(au, "harvest_backbone_features", lambda *a, **k: (feats, fused.aligned))
+
+    au.align_more_instances(fused, backbone, [proj], batch_size=2, device="cpu")
+
+    assigned_words = [fused.unique_words[i] for i in fused.aligned[: len(real)].tolist()]
+    assert all(w in real.unique_words for w in assigned_words)
 
 
 def test_train_projector_fused_dataset(monkeypatch):
