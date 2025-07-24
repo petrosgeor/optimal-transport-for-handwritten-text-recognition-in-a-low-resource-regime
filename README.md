@@ -891,7 +891,7 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 Located in: `alignment/trainer.py`
 
-Refines the backbone on unaligned instances from a `FusedHTRDataset`.
+Refines the backbone on aligned instances from a `FusedHTRDataset`.
 
 ```python
 def refine_visual_backbone(

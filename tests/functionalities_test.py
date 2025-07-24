@@ -159,7 +159,7 @@ class DummyBackbone(torch.nn.Module):
 
 
 def test_refine_visual_backbone_loader(monkeypatch):
-    """Loader uses only unaligned samples and has expected length."""
+    """Loader uses only aligned samples and has expected length."""
 
     real = DummyHTRDataset()
     syn = DummyPretrainDataset()
@@ -220,10 +220,10 @@ def test_refine_visual_backbone_loader(monkeypatch):
         device=torch.device("cuda"),
     )
 
-    expected_len = (fused.aligned == -1).sum().item() // 2
+    expected_len = (fused.aligned != -1).sum().item() // 2
     assert len(captured["batches"]) == expected_len
     for flags in captured["batches"]:
-        assert all(a == -1 for a in flags)
+        assert all(a != -1 for a in flags)
 
 
 def test_word_frequencies():
