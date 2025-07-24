@@ -169,7 +169,6 @@ def refine_visual_backbone(
     batch_size: int,
     epochs: int,
     device: torch.device,
-    logger: Logger | None = None,
 ) -> None:
     """Refine ``backbone`` using only the unaligned portion of ``dataset``.
 
@@ -227,7 +226,19 @@ def refine_visual_backbone(
 
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
-            loss = loss_main + loss_aux
+
+            if ENABLE_PHOC and backbone.phoc_head is not None:
+                phoc_logits = out[-1]
+                phoc_targets = build_phoc_description(list(words), c2i, levels=PHOC_LEVELS).float().to(device)
+                loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+            else:
+                loss_phoc = torch.tensor(0.0, device=device)
+
+            loss = (
+                cfg.refine_main_weight * loss_main
+                + cfg.refine_aux_weight * loss_aux
+                + PHOC_WEIGHT * loss_phoc
+            )
             _assert_finite(loss, "loss")
 
             # Optimization step
@@ -611,7 +622,7 @@ if __name__ == "__main__":
     )
 
     arch = SimpleNamespace(**cfg["architecture"])
-    backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
+    backbone = HTRNet(arch, nclasses=len(real_ds.character_classes) + 1)
     # maybe_load_backbone(backbone, cfg)
     projectors = [
         Projector(arch.feat_dim, dataset.word_emb_dim, dropout=0.2)
