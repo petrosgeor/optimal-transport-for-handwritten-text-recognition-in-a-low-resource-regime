@@ -488,6 +488,9 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         self.prior_char_probs = getattr(real_ds, "prior_char_probs", {})
         self.word_prob_mode = getattr(real_ds, "word_prob_mode", "empirical")
         self.word_emb_dim = getattr(real_ds, "word_emb_dim", 512)
+        self.fixed_size = getattr(real_ds, "fixed_size", None)
+        self.basefolder = getattr(real_ds, "basefolder", None)
+        self.config = getattr(real_ds, "config", None)
 
         self.unique_words, self.unique_word_probs = self.word_frequencies()
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)

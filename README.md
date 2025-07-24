@@ -365,6 +365,9 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 *   `word_prob_mode` (str): Probability mode copied **and locked** from real_ds.
 *   `_is_real` (torch.BoolTensor): Mask of real samples.
 *   `_is_syn` (torch.BoolTensor): Mask of synthetic samples.
+*   `basefolder` (str | None): Root folder from the real dataset.
+*   `fixed_size` (tuple | None): Target image size from the real dataset.
+*   `config` (Any | None): Configuration object forwarded from the real dataset.
 
 **Methods:**
 *   `__len__()` -> int: Total number of items.
@@ -966,11 +969,11 @@ train_projector(ds, backbone, proj)
 
 Located in: `alignment/trainer.py`
 
-Runs alternating cycles of backbone refinement, projector training and pseudo‑labelling. Initial seed alignments are saved to `pseudo_labels_round_0.txt` before the loop starts. After each round it prints the CER on both the training and test sets.
+Runs alternating cycles of backbone refinement, projector training and pseudo‑labelling. Initial seed alignments are saved to `pseudo_labels_round_0.txt` before the loop starts. After each round it prints the CER on both the training and test sets. `dataset` must be a `FusedHTRDataset` that merges the real corpus with a synthetic pre‑training set; the synthetic portion is considered pre‑aligned.
 
 ```python
 def alternating_refinement(
-    dataset: HTRDataset,
+    dataset: FusedHTRDataset,
     backbone: HTRNet,
     projectors: List[nn.Module],
     *,
