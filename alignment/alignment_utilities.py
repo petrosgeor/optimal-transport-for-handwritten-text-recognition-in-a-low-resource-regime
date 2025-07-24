@@ -1,6 +1,6 @@
 """Utility functions for aligning dataset instances to unique words."""
 
-from typing import Optional, Tuple, List, Sequence
+from typing import Optional, Tuple, List, Sequence, Union
 from pathlib import Path
 
 import os
@@ -28,7 +28,7 @@ from htr_base.utils.vocab import load_vocab
 
 
 def harvest_backbone_features(
-    dataset: HTRDataset | FusedHTRDataset,
+    dataset: Union[HTRDataset, FusedHTRDataset],
     backbone: HTRNet,
     *,
     batch_size: int = 64,
