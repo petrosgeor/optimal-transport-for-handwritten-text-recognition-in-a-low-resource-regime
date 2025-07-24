@@ -369,6 +369,9 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 *   `fixed_size` (tuple | None): Target image size from the real dataset.
 *   `config` (Any | None): Configuration object forwarded from the real dataset.
 
+When used with `align_more_instances`, only words from `real_ds` are considered
+for new pseudo-labels. Synthetic samples keep their provided labels.
+
 **Methods:**
 *   `__len__()` -> int: Total number of items.
 *   `__getitem__(index)` -> tuple: Item as provided by underlying datasets.
@@ -391,7 +394,7 @@ Helper class implementing pseudo-labelling based on projector outputs only.
 class ProjectionAligner:
     def __init__(
         self,
-        dataset: HTRDataset,
+        dataset: HTRDataset | FusedHTRDataset,
         backbone: HTRNet,
         projectors: Sequence[nn.Module],
         *,
@@ -404,7 +407,7 @@ class ProjectionAligner:
 ```
 
 *   Computes projector outputs and ensemble agreement; no additional optimal-transport step.
-*   `dataset` (HTRDataset): Dataset providing images and alignment information.
+*   `dataset` (HTRDataset | FusedHTRDataset): Dataset providing images and alignment information. When a `FusedHTRDataset` is used, only real-corpus words are considered for new pseudo-labels.
 *   `backbone` (HTRNet): Visual encoder used to extract per-image descriptors.
 *   `projectors` (Sequence[nn.Module]): List of projector modules.
 *   `batch_size` (int): Mini-batch size when forwarding the dataset.
@@ -433,7 +436,7 @@ class ProjectionAligner:
 *   `_get_projector_outputs()` -> dict: Run projectors on the dataset and gather statistics.
 *   `_select_candidates(counts, dist_matrix, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
 *   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
-*   `_log_results(chosen, nearest_word, moved_dist, dist_matrix, var_scores)` -> None: Print alignment statistics.
+*   `_log_results(chosen, nearest_word, dist_matrix, var_scores)` -> None: Print alignment statistics.
 *   `validate_pseudo_labels(edit_threshold, batch_size, decode_cfg, num_workers)` -> int: Drop unreliable pseudo-labels based on backbone predictions.
 *   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one alignment iteration and return the (empty) transport plan, projected descriptors and moved distances.
 
@@ -448,23 +451,21 @@ Automatically assigns dataset images to unique words via projector outputs. This
 
 ```python
 def align_more_instances(
-    dataset: HTRDataset,
+    dataset: HTRDataset | FusedHTRDataset,
     backbone: HTRNet,
     projectors: Sequence[nn.Module],
     *,
     batch_size: int = 512,
     device: str = cfg.device,
-    reg: float = 0.1,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
-    sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
     metric: str = "gap",
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 ```
 
-*   `dataset` (HTRDataset): Dataset providing images and `unique_word_embeddings`.
+Signature changed: OT-related arguments (`reg`, `unbalanced`, `reg_m`, `sinkhorn_kwargs`) were removed; the function is now a thin wrapper around the projection-only aligner.
+
+*   `dataset` (HTRDataset | FusedHTRDataset): Dataset providing images and `unique_word_embeddings`.
 *   `backbone` (HTRNet): `HTRNet` used to extract visual descriptors.
 *   `projectors` (Sequence[nn.Module]): List of projectors mapping descriptors to the embedding space.
 *   `batch_size` (int): Mini-batch size when harvesting descriptors.
