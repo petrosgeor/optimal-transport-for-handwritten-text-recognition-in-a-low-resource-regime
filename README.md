@@ -891,32 +891,22 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 Located in: `alignment/trainer.py`
 
-Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled. Setting `syn_batch_ratio=1` yields purely synthetic batches, while `syn_batch_ratio=0` uses only real data.
+Refines the backbone on unaligned instances from a `FusedHTRDataset`.
 
 ```python
 def refine_visual_backbone(
-    dataset: HTRDataset,
-    backbone: HTRNet,
-    num_epochs: int = cfg.refine_epochs,
+    dataset: FusedHTRDataset,
+    backbone: nn.Module,
     *,
-    batch_size: int = cfg.refine_batch_size,
-    lr: float = cfg.refine_lr,
-    main_weight: float = cfg.refine_main_weight,
-    aux_weight: float = cfg.refine_aux_weight,
-    pretrain_ds: PretrainingHTRDataset | None = None,
-    syn_batch_ratio: float = cfg.syn_batch_ratio,
-    phoc_weight: float = cfg.phoc_loss_weight,
-    enable_phoc: bool = cfg.enable_phoc,
-    phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
-    enable_contrastive: bool = CONTRASTIVE_ENABLE,
-    contrastive_weight: float = CONTRASTIVE_WEIGHT,
-    contrastive_tau: float = CONTRASTIVE_TAU,
-    contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+    batch_size: int,
+    epochs: int,
+    device: torch.device,
+    logger: Logger | None = None,
 ) -> None:
 ```
 
 ```python
-refine_visual_backbone(ds, backbone, pretrain_ds=synthetic_ds)
+refine_visual_backbone(fused_ds, backbone, batch_size=32, epochs=1, device=torch.device("cuda"))
 ```
 
 #### _shuffle_batch

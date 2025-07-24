@@ -163,173 +163,71 @@ def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
 #                            Main refinement routine                          #
 # --------------------------------------------------------------------------- #
 def refine_visual_backbone(
-    dataset: HTRDataset,
-    backbone: HTRNet,
-    num_epochs: int = cfg.refine_epochs,
+    dataset: FusedHTRDataset,
+    backbone: nn.Module,
     *,
-    batch_size: int = cfg.refine_batch_size,
-    lr: float = cfg.refine_lr,
-    main_weight: float = cfg.refine_main_weight,
-    aux_weight: float = cfg.refine_aux_weight,
-    pretrain_ds: PretrainingHTRDataset | None = None,
-    syn_batch_ratio: float = cfg.syn_batch_ratio,
-    phoc_weight: float = cfg.phoc_loss_weight,
-    enable_phoc: bool = cfg.enable_phoc,
-    phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
-    enable_contrastive: bool = CONTRASTIVE_ENABLE,
-    contrastive_weight: float = CONTRASTIVE_WEIGHT,
-    contrastive_tau: float = CONTRASTIVE_TAU,
-    contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+    batch_size: int,
+    epochs: int,
+    device: torch.device,
+    logger: Logger | None = None,
 ) -> None:
-    """Fine-tune ``backbone`` on words aligned to the dataset vocabulary.
+    """Refine ``backbone`` using only the unaligned portion of ``dataset``.
 
-    The routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.
-    Synthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and
-    soft contrastive losses are supported.
-
-    When ``pretrain_ds`` is given, each epoch iterates over this synthetic
-    loader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the
-    epoch length matches ``len(pretrain_loader)``.
-    Batches are shuffled after combining synthetic and real samples to randomise ordering.
-    Setting ``syn_batch_ratio=1`` yields purely synthetic batches, while a value
-    of ``0`` disables the synthetic loader entirely.
+    Samples whose ``dataset.aligned`` value is not ``-1`` are skipped. Each
+    epoch iterates over a ``DataLoader`` built from the remaining items.
 
     Args:
-        dataset (HTRDataset): Training dataset with alignment information.
-        backbone (HTRNet): Model to be refined.
-        num_epochs (int): Number of optimisation epochs. When ``pretrain_ds``
-            is provided, one epoch spans the synthetic dataset.
+        dataset (FusedHTRDataset): Combined dataset with alignment flags.
+        backbone (nn.Module): Model to refine.
         batch_size (int): Mini-batch size.
-        lr (float): Learning rate for the optimiser.
-        main_weight (float): Scale for the main CTC loss.
-        aux_weight (float): Scale for the auxiliary CTC loss.
-        pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.
-        syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.
-            ``1`` means only synthetic data is used, ``0`` only real data.
-        phoc_weight (float): Scale for the PHOC loss.
-        enable_phoc (bool): Whether to include the PHOC loss.
-        phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.
-        enable_contrastive (bool): Use the SoftContrastiveLoss.
-        contrastive_weight (float): Weight of the contrastive term.
-        contrastive_tau (float): Temperature for descriptor similarities.
-        contrastive_text_T (float): Temperature in edit-distance space.
+        epochs (int): Number of training epochs.
+        device (torch.device): Target device for training.
+        logger (Logger | None): Optional progress logger.
 
     Returns:
         None
     """
-    device = next(backbone.parameters()).device
+    device = torch.device(device)
     assert device.type == "cuda", "Backbone is not on a CUDA device"
     backbone.train().to(device)
-    # Build CTC mapping once using the fixed vocabulary.
     c2i, _ = load_vocab()
     assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned), "Dataset alignment flags vector is malformed."
 
-    aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
-    subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
-
-    if len(aligned_indices) == 0 and (pretrain_ds is None or syn_batch_ratio <= 0):
+    keep_mask = dataset.aligned == -1
+    sub_ds = torch.utils.data.Subset(dataset, torch.nonzero(keep_mask, as_tuple=True)[0])
+    if len(sub_ds) == 0:
         return
 
-    syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
-    gt_bs = batch_size - syn_bs
+    loader = DataLoader(
+        sub_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=cfg.projector_workers if hasattr(cfg, "projector_workers") else 0,
+        pin_memory=(device.type == "cuda"),
+    )
 
-    gt_loader = None
-    if gt_bs > 0 and len(aligned_indices) > 0:
-        gt_loader = DataLoader(
-            subset,
-            batch_size=gt_bs,
-            shuffle=True,
-            num_workers=0,
-            pin_memory=(device.type == "cuda"),
-        )
-
-    pretrain_loader = None
-    if pretrain_ds is not None and syn_bs > 0:
-        pretrain_loader = DataLoader(
-            pretrain_ds,
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=0,
-            pin_memory=(device.type == "cuda"),
-        )
-
-    if pretrain_loader is not None:
-        epoch_loader = pretrain_loader
-        gt_iter = cycle(gt_loader) if gt_loader is not None else None
-    else:
-        epoch_loader = gt_loader
-        gt_iter = None
-
-    optimizer = optim.AdamW(backbone.parameters(), lr=lr)
-    contr_fn = None
-    if enable_contrastive:
-        contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
-    # Training loop for backbone refinement
-    for epoch in range(1, num_epochs + 1):
-        epoch_loss: float = 0.0
-        effective_batches = 0
-        for batch in epoch_loader:
-            if pretrain_loader is not None:
-                imgs, trans = batch
-                words = list(trans)
-                if gt_iter is not None:
-                    imgs_gt, _, aligned = next(gt_iter)
-                    imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
-                    words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()] + words
-                    imgs, words = _shuffle_batch(imgs, words)
-                else:
-                    imgs = imgs.to(device)
-            else:
-                imgs, _, aligned = batch
-                words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()]
-                imgs = imgs.to(device)
+    optimizer = optim.AdamW(backbone.parameters(), lr=cfg.refine_lr)
+    for _ in range(epochs):
+        for imgs, words, _ in loader:
+            imgs = imgs.to(device)
 
             _assert_finite(imgs, "images")
 
-            # Forward pass through the backbone
-            need_feats = (
-                (enable_phoc and backbone.phoc_head is not None)
-                or enable_contrastive
-            )
-            out = backbone(imgs, return_feats=need_feats)
-            if not isinstance(out, (tuple, list)) or len(out) < 2:
-                raise RuntimeError("Expected network.forward() → (main, aux, …)")
-            if need_feats:
-                main_logits, aux_logits, feats = out[:3]
-                phoc_logits = out[3] if enable_phoc and backbone.phoc_head is not None else None
-            else:
+            out = backbone(imgs)
+            if isinstance(out, (tuple, list)) and len(out) >= 2:
                 main_logits, aux_logits = out[:2]
-                feats = None
-                phoc_logits = None
+            else:
+                main_logits = aux_logits = out
 
-            T, K, _ = main_logits.shape
+            T, B, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
-            # Encode transcriptions for CTC loss
-            targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
+            targets, tgt_lens = encode_for_ctc(list(words), c2i, device="cpu")
+            inp_lens = torch.full((B,), T, dtype=torch.int32, device=device)
 
-            inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-            # Compute CTC losses for main and auxiliary heads
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
-            loss_phoc = torch.tensor(0.0, device=device)
-            if enable_phoc and phoc_logits is not None:
-                phoc_targets = build_phoc_description(words, c2i, levels=phoc_levels)
-                phoc_targets = phoc_targets.float().to(device)
-                loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
-
-            loss_contr = torch.tensor(0.0, device=device)
-            if enable_contrastive and feats is not None:
-                loss_contr = contr_fn(feats, targets, tgt_lens)
-                _assert_finite(loss_contr, "contrastive loss")
-
-            # Combine losses with configured weights
-            loss = (
-                main_weight * loss_main +
-                aux_weight * loss_aux +
-                phoc_weight * loss_phoc +
-                contrastive_weight * loss_contr
-            )
+            loss = loss_main + loss_aux
             _assert_finite(loss, "loss")
 
             # Optimization step
@@ -337,13 +235,6 @@ def refine_visual_backbone(
             loss.backward()
             _assert_grad_finite(backbone, "backbone")
             optimizer.step()
-            epoch_loss += loss.item()
-            effective_batches += 1
-        # if effective_batches:
-        #     avg_loss = epoch_loss / effective_batches
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        # else:
-        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     
     plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')
@@ -604,7 +495,9 @@ def alternating_refinement(
                 refine_visual_backbone(
                     dataset,
                     backbone,
-                    num_epochs=backbone_epochs,
+                    batch_size=cfg.refine_batch_size,
+                    epochs=backbone_epochs,
+                    device=device,
                     **refine_kwargs,
                 )
 
@@ -707,7 +600,7 @@ if __name__ == "__main__":
             "before executing this dummy test."
         )
 
-    dataset = HTRDataset(
+    real_ds = HTRDataset(
         basefolder=str(basefolder),
         subset=ds_cfg.subset,
         fixed_size=tuple(ds_cfg.fixed_size),
@@ -725,7 +618,6 @@ if __name__ == "__main__":
         for _ in range(cfg.ensemble_size)
     ]
 
-    # Synthetic dataset for pretraining samples
     syn_cfg = cfg.get("synthetic_dataset", None)
     pre_syn_ds = None
     if syn_cfg is not None:
@@ -738,9 +630,10 @@ if __name__ == "__main__":
             random_seed=syn_cfg.get("random_seed", 0),
         )
 
+    dataset = FusedHTRDataset(real_ds, pre_syn_ds, n_aligned=ds_cfg.n_aligned)
+
     alternating_refinement(
-        dataset,
-        backbone,
-        projectors,
-        refine_kwargs={"pretrain_ds": pre_syn_ds},
+        dataset=dataset,
+        backbone=backbone,
+        projectors=projectors,
     )
