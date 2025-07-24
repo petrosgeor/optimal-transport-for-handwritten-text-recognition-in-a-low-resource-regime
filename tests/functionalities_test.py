@@ -367,6 +367,7 @@ def test_alternating_refinement_calls_cer(monkeypatch):
             self.config = config or SimpleNamespace()
             self.two_views = two_views
             self.word_prob_mode = "empirical"
+            self.real_ds = self
             self.aligned = torch.tensor([-1, 0])
             self.unique_words = ["x", "y"]
             self.imgs = [torch.zeros(1, 1, 1), torch.zeros(1, 1, 1)]
@@ -558,6 +559,7 @@ def test_initial_pseudo_labels_logged(monkeypatch):
             self.config = config or SimpleNamespace()
             self.two_views = two_views
             self.word_prob_mode = word_prob_mode
+            self.real_ds = self
             self.aligned = torch.tensor([1, -1])
             self.unique_words = ["a", "b"]
             self.imgs = [torch.zeros(1, 1, 1), torch.zeros(1, 1, 1)]

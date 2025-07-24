@@ -418,7 +418,7 @@ def train_projector(  # pylint: disable=too-many-arguments
 
 
 def alternating_refinement(
-    dataset: HTRDataset,
+    dataset: FusedHTRDataset,
     backbone: HTRNet,
     projectors: List[nn.Module],
     *,
@@ -432,8 +432,10 @@ def alternating_refinement(
     """
     Performs an alternating training cycle between the backbone and projectors.
 
-    This function implements a semi-supervised learning strategy where the
-    ``backbone`` and ``projectors`` are trained in alternation. In each round,
+    This function expects a ``FusedHTRDataset`` (real + synthetic) where the
+    synthetic portion is treated as pre-aligned. It implements a semi-supervised
+    learning strategy where the ``backbone`` and ``projectors`` are trained in
+    alternation. In each round,
     the backbone is first refined, then the projectors are trained. After a set
     number of rounds, more instances from the dataset are pseudo-labeled using
     Optimal Transport (OT) alignment. Initial seed alignments present in
@@ -443,7 +445,7 @@ def alternating_refinement(
     (CER) is printed for both the training and test sets.
 
     Args:
-        dataset: The HTRDataset to be used for training.
+        dataset: The FusedHTRDataset to be used for training.
         backbone: The HTRNet model.
         projectors: A list of projector models.
         rounds: The number of backbone/projector training cycles per alignment pass.
@@ -485,14 +487,15 @@ def alternating_refinement(
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
     align_kwargs.setdefault("metric", cfg.metric)
 
+    real = dataset.real_ds
     test_dataset = HTRDataset(
-        basefolder=dataset.basefolder,
+        basefolder=real.basefolder,
         subset='test',
-        fixed_size=dataset.fixed_size,
-        character_classes=dataset.character_classes,
-        config=dataset.config,
+        fixed_size=real.fixed_size,
+        character_classes=real.character_classes,
+        config=real.config,
         two_views=False,
-        word_prob_mode=dataset.word_prob_mode,
+        word_prob_mode=real.word_prob_mode,
     )
 
     cycle_idx = 1
