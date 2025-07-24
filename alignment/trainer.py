@@ -480,9 +480,6 @@ def alternating_refinement(
     # Set default alignment arguments from config
     align_kwargs.setdefault("batch_size", cfg.align_batch_size)
     align_kwargs.setdefault("device", cfg.align_device)
-    align_kwargs.setdefault("reg", cfg.align_reg)
-    align_kwargs.setdefault("unbalanced", cfg.align_unbalanced)
-    align_kwargs.setdefault("reg_m", cfg.align_reg_m)
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
     align_kwargs.setdefault("metric", cfg.metric)

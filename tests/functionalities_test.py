@@ -3,6 +3,7 @@
 from pathlib import Path
 import sys
 from collections import Counter
+import pytest
 from omegaconf import OmegaConf
 import torch
 import itertools
@@ -427,7 +428,7 @@ def test_validate_pseudo_labels(monkeypatch):
     backbone = DummyBackbone()
     proj = torch.nn.Identity()
 
-    aligner = au.OTAligner(ds, backbone, [proj], batch_size=2, device="cpu")
+    aligner = au.ProjectionAligner(ds, backbone, [proj], batch_size=2, device="cpu")
 
     def fake_decode(logits, i2c, **kwargs):
         return ["gt1", "oops"]
@@ -452,14 +453,14 @@ def test_align_more_instances_gated_validation(monkeypatch):
     proj = torch.nn.Identity()
 
     # patch align and validation to track invocations
-    monkeypatch.setattr(au.OTAligner, "align", lambda self: (torch.empty(0), torch.empty(0), torch.empty(0)))
+    monkeypatch.setattr(au.ProjectionAligner, "align", lambda self: (torch.empty(0), torch.empty(0), torch.empty(0)))
 
     calls = []
 
     def fake_validate(self, edit_threshold, batch_size, decode_cfg=None):
         calls.append(edit_threshold)
 
-    monkeypatch.setattr(au.OTAligner, "validate_pseudo_labels", fake_validate)
+    monkeypatch.setattr(au.ProjectionAligner, "validate_pseudo_labels", fake_validate)
 
     # set config and reset counter
     au._ALIGN_CALL_COUNT = 0
@@ -733,4 +734,19 @@ def test_train_projector_fused_dataset(monkeypatch):
     )
 
     assert captured["shape"][0] == 1
+
+
+def test_projection_aligner_entropy_error():
+    """Requesting metric='entropy' raises a ValueError."""
+
+    from alignment import alignment_utilities as au
+
+    ds = DummyHTRDataset()
+    ds.word_emb_dim = 2
+    ds.unique_word_embeddings = torch.zeros((2, 2))
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+
+    with pytest.raises(ValueError):
+        au.ProjectionAligner(ds, backbone, [proj], metric="entropy", device="cpu")
 
