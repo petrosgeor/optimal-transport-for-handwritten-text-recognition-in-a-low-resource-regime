@@ -158,19 +158,36 @@ class DummyBackbone(torch.nn.Module):
         return self
 
 
-def test_refine_visual_backbone_syn_only(monkeypatch):
-    """Synthetic-only batches when ``syn_batch_ratio=1``."""
+def test_refine_visual_backbone_loader(monkeypatch):
+    """Loader uses only unaligned samples and has expected length."""
 
-    dataset = DummyHTRDataset()
-    pre_ds = DummyPretrainDataset()
+    real = DummyHTRDataset()
+    syn = DummyPretrainDataset()
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+
     backbone = DummyBackbone()
 
     from alignment import trainer
-    refine_visual_backbone = trainer.refine_visual_backbone
+    captured = {"batches": []}
 
+    class FakeLoader:
+        def __init__(self, ds, batch_size, shuffle=True, num_workers=0, pin_memory=False):
+            self.samples = [ds[i] for i in range(len(ds))]
+            self.bs = batch_size
+
+        def __len__(self):
+            return len(self.samples) // self.bs
+
+        def __iter__(self):
+            for i in range(0, len(self.samples), self.bs):
+                batch = self.samples[i:i + self.bs]
+                imgs, words, aligned = zip(*batch)
+                captured["batches"].append(aligned)
+                yield torch.stack(list(imgs)), list(words), torch.tensor(aligned)
+
+    monkeypatch.setattr(trainer, "DataLoader", FakeLoader)
+    monkeypatch.setattr(trainer, "plot_tsne_embeddings", lambda *a, **k: None)
     orig_to = torch.Tensor.to
-    orig_full = torch.full
-    orig_tensor = torch.tensor
     orig_full = torch.full
     orig_tensor = torch.tensor
 
@@ -194,21 +211,19 @@ def test_refine_visual_backbone_syn_only(monkeypatch):
     monkeypatch.setattr(torch.Tensor, "to", fake_to, raising=False)
     monkeypatch.setattr(torch, "full", fake_full, raising=False)
     monkeypatch.setattr(torch, "tensor", fake_tensor, raising=False)
-    monkeypatch.setattr(trainer, "plot_tsne_embeddings", lambda *a, **k: None)
 
-    refine_visual_backbone(
-        dataset,
+    trainer.refine_visual_backbone(
+        fused,
         backbone,
-        num_epochs=1,
         batch_size=2,
-        pretrain_ds=pre_ds,
-        syn_batch_ratio=1.0,
-        enable_phoc=False,
-        enable_contrastive=False,
+        epochs=1,
+        device=torch.device("cuda"),
     )
 
-    for batch in backbone.calls:
-        assert batch.min() >= 2
+    expected_len = (fused.aligned == -1).sum().item() // 2
+    assert len(captured["batches"]) == expected_len
+    for flags in captured["batches"]:
+        assert all(a == -1 for a in flags)
 
 
 def test_word_frequencies():
@@ -676,7 +691,7 @@ def test_train_projector_fused_dataset(monkeypatch):
 
     def fake_mse(pred, tgt):
         captured["shape"] = pred.shape
-        return torch.tensor(0.0)
+        return torch.tensor(0.0, requires_grad=True)
 
     monkeypatch.setattr(trainer.F, "mse_loss", fake_mse)
     orig_to = torch.Tensor.to
