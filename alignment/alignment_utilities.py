@@ -5,13 +5,12 @@ from pathlib import Path
 
 import os
 import random
+import warnings
 import torch
 import torch.nn as nn
 import numpy as np
-import ot
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
-from scipy.spatial import distance
 from omegaconf import OmegaConf
 import editdistance
 from torch.utils.data import DataLoader, Subset
@@ -102,64 +101,6 @@ def harvest_backbone_features(
 
     return feats_all, aligned_all
 
-def calculate_ot_projections(
-    pa: np.ndarray,
-    X: np.ndarray,
-    pb: np.ndarray,
-    Y: np.ndarray,
-    reg: float = 0.1,
-    *,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
-    sinkhorn_kwargs: Optional[dict] = None,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Compute OT projections of ``X`` onto ``Y``.
-
-    Parameters
-    ----------
-    pa : np.ndarray
-        Source distribution over ``X`` of shape ``(N,)``.
-    X : np.ndarray
-        Source features of shape ``(N, D)``.
-    pb : np.ndarray
-        Target distribution over ``Y`` of shape ``(M,)``.
-    Y : np.ndarray
-        Target features of shape ``(M, D)``.
-    reg : float, optional
-        Entropic regularisation.
-    unbalanced : bool, optional
-        Use unbalanced OT formulation if ``True``.
-    reg_m : float, optional
-        Unbalanced mass regularisation.
-    sinkhorn_kwargs : dict, optional
-        Additional arguments for the OT solver.
-
-    Returns
-    -------
-    projections : np.ndarray
-        ``X`` projected in the space of ``Y`` (``(N, D)``).
-    plan : np.ndarray
-        Optimal transport plan of shape ``(N, M)``.
-    """
-    if sinkhorn_kwargs is None:
-        sinkhorn_kwargs = {}
-
-    M = distance.cdist(X, Y)
-
-    if unbalanced:
-        T = ot.unbalanced.sinkhorn_unbalanced(
-            pa, pb, M, reg, reg_m, **sinkhorn_kwargs
-        )
-    else:
-        T = ot.sinkhorn(pa, pb, M, reg=reg, **sinkhorn_kwargs)
-
-    row_sum = T.sum(axis=1, keepdims=True)
-    inv_row_sum = np.divide(1.0, row_sum, out=np.zeros_like(row_sum), where=row_sum != 0)
-    projections = inv_row_sum * (T @ Y)
-    assert np.all(np.isfinite(projections)), "Non-finite values in projections"
-
-    return projections, T
-
 
 def select_uncertain_instances(
     m: int,
@@ -216,8 +157,8 @@ def select_uncertain_instances(
     return order[:m]
 
 
-class OTAligner:
-    """Helper class implementing the OT pseudo-labelling routine."""
+class ProjectionAligner:
+    """Helper class implementing projection-based pseudo-labelling."""
 
     def __init__(
         self,
@@ -227,15 +168,11 @@ class OTAligner:
         *,
         batch_size: int = 512,
         device: str = cfg.device,
-        reg: float = 0.1,
-        unbalanced: bool = False,
-        reg_m: float = 1.0,
-        sinkhorn_kwargs: Optional[dict] = None,
         k: int = 0,
-        metric: str = "entropy",
+        metric: str = "gap",
         agree_threshold: int = 1,
     ) -> None:
-        """Initialise the OT aligner.
+        """Initialise the projection aligner.
 
         Args:
             dataset (HTRDataset): Dataset providing images and alignment info.
@@ -243,20 +180,15 @@ class OTAligner:
             projectors (Sequence[nn.Module]): Projector ensemble.
             batch_size (int): Mini-batch size during descriptor harvesting.
             device (str): Device used for alignment.
-            reg (float): Entropic regularisation strength.
-            unbalanced (bool): Use unbalanced OT formulation.
-            reg_m (float): Mass regularisation for unbalanced OT.
-            sinkhorn_kwargs (dict | None): Extra arguments for the OT solver.
             k (int): Number of least-moved descriptors to pseudo-label.
-            metric (str): Certainty metric ('gap', 'entropy', 'variance',
-                'closest').
+            metric (str): Certainty metric ('gap', 'variance', 'closest').
             agree_threshold (int): Minimum number of agreeing projectors.
 
         Returns:
             None
         """
-        if metric not in {"gap", "entropy", "variance", "closest"}:
-            raise ValueError("metric must be 'gap', 'entropy', 'variance' or 'closest'")
+        if metric == "entropy" or metric not in {"gap", "variance", "closest"}:
+            raise ValueError("metric must be 'gap', 'variance' or 'closest'")
         self.dataset = dataset
         self.backbone = backbone
         self.projectors = (
@@ -264,10 +196,6 @@ class OTAligner:
         )
         self.batch_size = batch_size
         self.device = torch.device(device)
-        self.reg = reg
-        self.unbalanced = unbalanced
-        self.reg_m = reg_m
-        self.sinkhorn_kwargs = sinkhorn_kwargs or {}
         self.k = k
         self.metric = metric
         self.agree_threshold = agree_threshold
@@ -285,47 +213,8 @@ class OTAligner:
         self.word_embs = dataset.unique_word_embeddings.to(self.device)
 
     # ------------------------------------------------------------------
-    def _calculate_ot(self, proj_feats: torch.Tensor) -> tuple[torch.Tensor, np.ndarray]:
-        """Compute the OT projection of projector outputs onto word embeddings.
-
-        Args:
-            proj_feats (torch.Tensor): Projector features of shape ``(N, D)``.
-
-        Returns:
-            tuple[torch.Tensor, np.ndarray]:
-                The projected features as a tensor and the OT plan as a NumPy array.
-        """
-        N, V = proj_feats.size(0), self.word_embs.size(0)
-        # uniform distribution over descriptors
-        a = np.full((N,), 1.0 / N, dtype=np.float64)
-        if getattr(self.dataset, "unique_word_probs", None):
-            b = np.asarray(self.dataset.unique_word_probs, dtype=np.float64)
-            if not self.unbalanced:
-                b /= b.sum()
-        else:
-            # uniform distribution over vocabulary
-            b = np.full((V,), 1.0 / V, dtype=np.float64)
-
-        proj_np, plan = calculate_ot_projections(
-            a,
-            proj_feats.detach().numpy(),
-            b,
-            self.word_embs.cpu().numpy(),
-            self.reg,
-            unbalanced=self.unbalanced,
-            reg_m=self.reg_m,
-            sinkhorn_kwargs=self.sinkhorn_kwargs,
-        )
-
-        assert np.isfinite(proj_np).all(), "NaNs in OT projections"
-        assert plan.shape == (N, V), "OT plan shape wrong"
-        # convert OT projections back to torch
-        proj_feats_ot = torch.from_numpy(proj_np).float()
-        return proj_feats_ot, plan
-
-    # ------------------------------------------------------------------
     def _get_projector_outputs(self):
-        """Run projectors on all descriptors and compute OT projections.
+        """Run projectors on all descriptors and compute ensemble statistics.
 
         Returns:
             dict: Dictionary containing the OT plan, mean projected features,
@@ -349,8 +238,6 @@ class OTAligner:
         Z_list: list[torch.Tensor] = []
         dist_list: list[torch.Tensor] = []
         nearest_list: list[torch.Tensor] = []
-        moved_list: list[torch.Tensor] = []
-        plan: np.ndarray | None = None
 
         # process each projector in the ensemble
         for proj in self.projectors:
@@ -361,33 +248,23 @@ class OTAligner:
             )
             assert torch.isfinite(proj_feats).all(), "Non-finite projector output"
 
-            # project descriptors onto the word embedding space using OT
-            proj_feats_ot, plan = self._calculate_ot(proj_feats)
-
-            moved_dist = (proj_feats_ot - proj_feats).norm(p=2, dim=1)
-            dist_matrix = torch.cdist(proj_feats_ot, self.word_embs.cpu())
+            dist_matrix = torch.cdist(proj_feats, self.word_embs.cpu())
             nearest_word = dist_matrix.argmin(dim=1)
-
-            Z_list.append(proj_feats_ot)
+            Z_list.append(proj_feats)
             dist_list.append(dist_matrix)
             nearest_list.append(nearest_word)
-            moved_list.append(moved_dist)
 
         Z = torch.stack(Z_list)
         var_scores = Z.var(dim=0, unbiased=False).sum(dim=1)
         dist_matrix = torch.stack(dist_list).mean(dim=0)
-        moved_dist = torch.stack(moved_list).mean(dim=0)
+        moved_dist = torch.zeros(dist_matrix.size(0))
         preds = torch.stack(nearest_list)
         nearest_word, _ = preds.mode(dim=0)
         counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
-
-        plan_torch = (
-            torch.from_numpy(plan).float() if plan is not None else torch.empty(0)
-        )
         proj_feats_mean = Z.mean(dim=0)
 
         return {
-            "plan": plan_torch,
+            "plan": torch.empty(0),
             "proj_feats_mean": proj_feats_mean,
             "dist_matrix": dist_matrix,
             "moved_dist": moved_dist,
@@ -445,7 +322,6 @@ class OTAligner:
         self,
         counts: torch.Tensor,
         dist_matrix: torch.Tensor,
-        plan: torch.Tensor,
         aligned_all: torch.Tensor,
         var_scores: torch.Tensor,
     ) -> torch.Tensor:
@@ -454,7 +330,6 @@ class OTAligner:
         Args:
             counts (torch.Tensor): Agreement counts from the projector ensemble.
             dist_matrix (torch.Tensor): Pairwise distances to word embeddings.
-            plan (torch.Tensor): Optimal transport plan from OT alignment.
             aligned_all (torch.Tensor): Current alignment vector ``(N,)``.
             var_scores (torch.Tensor): Per-sample variance scores.
 
@@ -472,7 +347,6 @@ class OTAligner:
         else:
             order_unc = select_uncertain_instances(
                 m=len(self.dataset),
-                transport_plan=plan.numpy() if self.metric == "entropy" else None,
                 dist_matrix=dist_matrix.numpy() if self.metric == "gap" else None,
                 metric=self.metric,
             )
@@ -514,7 +388,6 @@ class OTAligner:
         nearest_word: torch.Tensor,
         moved_dist: torch.Tensor,
         dist_matrix: torch.Tensor,
-        plan: torch.Tensor,
         var_scores: torch.Tensor,
     ) -> None:
         """Print alignment statistics for the current round.
@@ -522,9 +395,8 @@ class OTAligner:
         Args:
             chosen (torch.Tensor): Newly aligned dataset indices.
             nearest_word (torch.Tensor): Predicted word ids for each sample.
-            moved_dist (torch.Tensor): Distances moved by descriptors during OT.
+            moved_dist (torch.Tensor): Distances moved by descriptors (always zero).
             dist_matrix (torch.Tensor): Pairwise distances after projection.
-            plan (torch.Tensor): Optimal transport plan used for alignment.
             var_scores (torch.Tensor): Variance scores for every dataset sample.
 
         Returns:
@@ -564,12 +436,6 @@ class OTAligner:
                 gap_vals = top2[:, 1] - top2[:, 0]
                 print(
                     f"[Align] mean NN-gap: {gap_vals.mean():.4f} ± {gap_vals.std(unbiased=False):.4f}"
-                )
-            else:
-                row = plan[chosen_list] / plan[chosen_list].sum(axis=1, keepdims=True)
-                ent = -(row * np.log(row + 1e-12)).sum(axis=1)
-                print(
-                    f"[Align] mean row entropy: {ent.mean():.4f} ± {ent.std():.4f}"
                 )
 
         # track running accuracy over all pseudo-labelled samples
@@ -679,7 +545,6 @@ class OTAligner:
         chosen = self._select_candidates(
             out["counts"],
             out["dist_matrix"],
-            out["plan"],
             out["aligned_all"],
             out["var_scores"],
         )
@@ -690,7 +555,6 @@ class OTAligner:
             out["nearest_word"],
             out["moved_dist"],
             out["dist_matrix"],
-            out["plan"].numpy() if out["plan"].numel() else np.empty((0, 0)),
             out["var_scores"],
         )
 
@@ -715,29 +579,33 @@ def align_more_instances(
     reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
-    metric: str = "entropy",          # 'gap', 'entropy' or 'variance' (assignment certainty)
+    metric: str = "gap",
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Wrapper over :class:`OTAligner` for backward compatibility.
+    """Wrapper over :class:`ProjectionAligner` for backward compatibility.
 
     When ``cfg.pseudo_label_validation.enable`` is ``True``, this function
-    invokes :meth:`OTAligner.validate_pseudo_labels` once the number of
+    invokes :meth:`ProjectionAligner.validate_pseudo_labels` once the number of
     calls to :func:`align_more_instances` reaches the configured
     ``start_iteration``.
     """
     global _ALIGN_CALL_COUNT
     _ALIGN_CALL_COUNT += 1
 
-    aligner = OTAligner(
+    if (
+        reg != 0.1 or unbalanced or reg_m != 1.0 or (sinkhorn_kwargs is not None and sinkhorn_kwargs)
+    ):
+        warnings.warn(
+            "OT-related parameters are deprecated and ignored",
+            DeprecationWarning,
+        )
+
+    aligner = ProjectionAligner(
         dataset,
         backbone,
         projectors,
         batch_size=batch_size,
         device=device,
-        reg=reg,
-        unbalanced=unbalanced,
-        reg_m=reg_m,
-        sinkhorn_kwargs=sinkhorn_kwargs,
         k=k,
         metric=metric,
         agree_threshold=agree_threshold,
