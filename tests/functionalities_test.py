@@ -776,3 +776,40 @@ def test_projection_aligner_entropy_error():
     with pytest.raises(ValueError):
         au.ProjectionAligner(ds, backbone, [proj], metric="entropy", device="cpu")
 
+
+def test_update_dataset_no_overwrite():
+    """_update_dataset rejects indices that are already labelled."""
+
+    from alignment import alignment_utilities as au
+
+    ds = DummyHTRDataset()
+    ds.word_emb_dim = 2
+    ds.unique_word_embeddings = torch.zeros((2, 2))
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+
+    aligner = au.ProjectionAligner(ds, backbone, [proj], device="cpu")
+
+    with pytest.raises(AssertionError):
+        aligner._update_dataset(torch.tensor([0]), torch.tensor([0, 0]))
+
+
+def test_update_dataset_fused_real_only():
+    """Fused dataset only accepts real samples for labelling."""
+
+    from alignment import alignment_utilities as au
+
+    real = DummyHTRDataset()
+    real.aligned = torch.tensor([-1, -1], dtype=torch.int64)
+    syn = DummyPretrainDataset()
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+    fused.word_emb_dim = 2
+    fused.unique_word_embeddings = torch.zeros((len(fused.unique_words), 2))
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+
+    aligner = au.ProjectionAligner(fused, backbone, [proj], device="cpu")
+
+    with pytest.raises(AssertionError):
+        aligner._update_dataset(torch.tensor([len(real)]), torch.zeros(len(fused), dtype=torch.int64))
+

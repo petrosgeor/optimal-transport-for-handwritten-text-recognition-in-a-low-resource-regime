@@ -276,6 +276,10 @@ class ProjectionAligner:
         counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
         proj_feats_mean = Z.mean(dim=0)
 
+        assert counts.min() >= 0 and counts.max() <= len(self.projectors), (
+            "Agreement-count outside [0, ensemble_size]"
+        )
+
         return {
             "proj_feats_mean": proj_feats_mean,
             "dist_matrix": dist_matrix,
@@ -326,7 +330,11 @@ class ProjectionAligner:
             if counts[idx].item() >= self.agree_threshold:
                 chosen.append(idx)
                 taken[idx] = w
-        return torch.tensor(chosen, dtype=torch.long)
+        result = torch.tensor(chosen, dtype=torch.long)
+        assert len(set(chosen)) == len(chosen), (
+            "Duplicate dataset indices returned by _select_closest_per_word"
+        )
+        return result
 
     # ------------------------------------------------------------------
     def _select_candidates(
@@ -355,6 +363,10 @@ class ProjectionAligner:
         # rank samples by uncertainty according to the chosen metric
         if self.metric == "variance":
             order_unc = torch.argsort(var_scores).cpu().numpy()
+            # Expect chosen samples to come from the LOW-variance tail
+            assert var_scores[order_unc[: self.k]].max() <= var_scores[order_unc[-1]], (
+                "High-variance samples would be labelled – check sort direction"
+            )
         else:
             order_unc = select_uncertain_instances(
                 m=len(self.dataset),
@@ -373,7 +385,12 @@ class ProjectionAligner:
                 chosen.append(idx)
                 if len(chosen) == min(self.k, mask_new.sum()):
                     break
-        return torch.tensor(chosen, dtype=torch.long)
+        result = torch.tensor(chosen, dtype=torch.long)
+        if self.metric != "closest" and self.k > 0:
+            assert result.numel() <= self.k, (
+                "More than k samples selected for pseudo-labelling"
+            )
+        return result
 
     # ------------------------------------------------------------------
     def _update_dataset(self, chosen: torch.Tensor, nearest_word: torch.Tensor) -> None:
@@ -388,9 +405,26 @@ class ProjectionAligner:
         """
         if chosen.numel() > 0:
             prev_vals = self.dataset.aligned[chosen]
-            # ensure we only label previously unaligned samples
-            assert (prev_vals == -1).all(), "About to overwrite existing labels!"
+            assert (prev_vals == -1).all(), (
+                "Attempting to overwrite an existing alignment"
+            )
             self.dataset.aligned[chosen] = nearest_word[chosen].to(torch.int32)
+            assert torch.equal(
+                self.dataset.aligned[chosen].to(nearest_word.dtype),
+                nearest_word[chosen],
+            ), "Dataset update failed"
+            if isinstance(self.dataset, FusedHTRDataset):
+                assert torch.all(self.dataset._is_real[chosen]), (
+                    "Synthetic sample selected for pseudo-labelling"
+                )
+                assert all(
+                    self.dataset.unique_words[w.item()] in self.real_vocab
+                    for w in nearest_word[chosen]
+                ), "Pseudo-label points outside the real vocabulary"
+            vocab_size = self.dataset.unique_word_embeddings.size(0)
+            assert (nearest_word[chosen] < vocab_size).all(), (
+                "Word index out of range for dataset vocabulary"
+            )
 
     # ------------------------------------------------------------------
     def _log_results(
