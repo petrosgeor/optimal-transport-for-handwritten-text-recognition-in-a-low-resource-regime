@@ -460,9 +460,11 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         else:
             syn_trans = [syn_ds[i][1] for i in range(len(syn_ds))]
 
+        # Pair up synthetic paths with their transcriptions
         syn_pairs = list(zip(syn_paths, syn_trans))
 
         if hasattr(real_ds, "data"):
+            # Existing list of (path, transcription) from real dataset
             real_pairs = real_ds.data
         else:
             if hasattr(real_ds, "transcriptions"):
@@ -471,10 +473,12 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
                 r_trans = real_ds.trans
             else:
                 r_trans = [real_ds[i][1] for i in range(len(real_ds))]
+            # Build fake paths for real dataset entries
             real_pairs = [
                 (f"real_{i}", r_trans[i]) for i in range(len(real_ds))
             ]
 
+        # Merge real and synthetic pairs into one list
         self.data = real_pairs + syn_pairs
         if hasattr(real_ds, "transcriptions"):
             real_trans = real_ds.transcriptions
@@ -482,6 +486,7 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
             real_trans = real_ds.trans
         else:
             real_trans = [real_ds[i][1] for i in range(len(real_ds))]
+        # Flatten transcriptions for both datasets
         self.transcriptions = list(real_trans) + list(syn_trans)
 
         self.character_classes = getattr(real_ds, "character_classes", [])
@@ -492,16 +497,19 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         self.basefolder = getattr(real_ds, "basefolder", None)
         self.config = getattr(real_ds, "config", None)
 
+        # Compute joint vocabulary and word embeddings
         self.unique_words, self.unique_word_probs = self.word_frequencies()
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=50)
 
         total = len(self.data)
+        # Alignment indices, -1 marks unaligned samples
         self.aligned = torch.full((total,), -1, dtype=torch.int32)
 
         rng = random.Random(random_seed)
         real_indices = list(range(len(real_ds)))
         if n_aligned > 0:
             chosen = rng.sample(real_indices, min(n_aligned, len(real_indices)))
+            # Mark selected real samples as initially aligned
             for idx in chosen:
                 if hasattr(real_ds, "transcriptions"):
                     word = real_ds.transcriptions[idx]
@@ -513,11 +521,13 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 
         offset = len(real_ds)
         for j, word in enumerate(syn_trans):
+            # Synthetic samples are pre-aligned to their labels
             self.aligned[offset + j] = self.unique_words.index(word)
 
         self._is_real = torch.zeros(total, dtype=torch.bool)
         self._is_real[: len(real_ds)] = True
         self._is_syn = ~self._is_real
+        # Mapping from local indices to global positions
         self._real2global = list(range(len(real_ds)))
         self._syn2global = list(range(offset, total))
 
