@@ -684,6 +684,7 @@ def test_train_projector_fused_dataset(monkeypatch):
 
     class DummyDataset:
         def __init__(self):
+            self.unique_words = ["w1", "w2"]
             self.unique_word_embeddings = torch.eye(2)
             self.unique_word_probs = torch.tensor([0.5, 0.5])
             self.aligned = torch.tensor([0, 1, 0], dtype=torch.int64)

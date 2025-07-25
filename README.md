@@ -564,6 +564,8 @@ class ProjectionLoss(torch.nn.Module):
 
 **Methods:**
 *   `forward(descriptors, word_embeddings, aligned, tgt_probs) -> torch.Tensor`: returns the combined loss without side effects.
+*   `train_projector` restricts the OT computation to the real dataset vocabulary by
+    creating a subset tensor of word embeddings and re-normalised probabilities.
 
 
 #### SoftContrastiveLoss

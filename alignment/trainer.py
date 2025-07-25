@@ -276,7 +276,10 @@ def train_projector(  # pylint: disable=too-many-arguments
     pre-aligned samples. The ``dataset`` is expected to be a
     ``FusedHTRDataset`` combining real and synthetic words, but a plain
     ``HTRDataset`` is still accepted for backward compatibility. The projector
-    can be a single module or a list of modules for ensemble training.
+    can be a single module or a list of modules for ensemble training. Only the
+    real corpus vocabulary participates in the OT loss: embeddings that appear
+    exclusively in the synthetic dataset are ignored by building a subset
+    tensor and remapping alignment indices.
 
     Args:
         dataset: A ``FusedHTRDataset`` combining real & synthetic words.
@@ -303,24 +306,38 @@ def train_projector(  # pylint: disable=too-many-arguments
         raise RuntimeError(
             "FATAL: dataset.unique_word_embeddings is required but was not found."
         )
-        
+
     # Target probability for each unique word – use uniform if absent
-    # --- THIS BLOCK IS NOW FIXED ---
     probs_attr = getattr(dataset, "unique_word_probs", None)
     if probs_attr is not None and len(probs_attr) > 0:
         if isinstance(probs_attr, list):
             word_probs_cpu = torch.tensor(probs_attr, dtype=torch.float)
-        else: # It's already a tensor
+        else:  # It's already a tensor
             word_probs_cpu = probs_attr.float()
     else:
         v = word_embs_cpu.size(0)
         word_probs_cpu = torch.full((v,), 1.0 / v)
-        
+
     word_embs = word_embs_cpu.to(device)
-    word_probs = word_probs_cpu.to(device)
-    if word_probs.numel() != word_embs.size(0):
-        pad = word_embs.size(0) - word_probs.numel()
-        word_probs = torch.cat([word_probs, torch.zeros(pad, device=device)])
+
+    # ----- Build subset tensors for real-vocabulary OT -----
+    if isinstance(dataset, FusedHTRDataset):
+        real_vocab = set(dataset.real_ds.unique_words)
+    else:
+        real_vocab = set(dataset.unique_words)
+
+    sub_embs_list: list[torch.Tensor] = []
+    sub_probs_list: list[torch.Tensor] = []
+    global2sub: dict[int, int] = {}
+    for idx, word in enumerate(dataset.unique_words):
+        if word in real_vocab:
+            global2sub[idx] = len(sub_embs_list)
+            sub_embs_list.append(word_embs_cpu[idx])
+            sub_probs_list.append(word_probs_cpu[idx])
+
+    sub_embs = torch.stack(sub_embs_list).to(device)
+    sub_probs = torch.stack(sub_probs_list).to(device)
+    sub_probs = sub_probs / sub_probs.sum()
 
     if plot_tsne:
         plot_tsne_embeddings(
@@ -375,11 +392,16 @@ def train_projector(  # pylint: disable=too-many-arguments
 
                 loss_real = torch.tensor(0.0, device=device)
                 if real_m.any():
+                    align_real = align[real_m].clone()
+                    mask = align_real != -1
+                    if mask.any():
+                        mapped = [global2sub[int(i)] for i in align_real[mask].tolist()]
+                        align_real[mask] = torch.tensor(mapped, dtype=align_real.dtype, device=device)
                     loss_real = criterion(
                         pred[real_m],
-                        word_embs,
-                        align[real_m],
-                        word_probs,
+                        sub_embs,
+                        align_real,
+                        sub_probs,
                     )
 
                 loss_syn = torch.tensor(0.0, device=device)
