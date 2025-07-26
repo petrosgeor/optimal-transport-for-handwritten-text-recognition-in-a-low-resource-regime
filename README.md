@@ -427,6 +427,8 @@ class ProjectionAligner:
 *   `is_syn` (torch.BoolTensor): Mask of synthetic dataset items.
 
 **Methods:**
+*   `_get_projector_features() -> Tuple[torch.Tensor, torch.Tensor]`: Harvests
+    descriptors and returns projector outputs and alignment flags.
 *   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels unaligned samples and
     returns mean projector features and moved distances.
 
