@@ -403,6 +403,7 @@ class ProjectionAligner:
         batch_size: int = 512,
         device: str = cfg.device,
         k: int = 0,
+        debug_checks: bool = True,
     ) -> None:
 ```
 
@@ -412,6 +413,7 @@ class ProjectionAligner:
 *   `batch_size` (int): Mini-batch size during descriptor harvesting.
 *   `device` (str): Device used for alignment.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
+*   `debug_checks` (bool): Whether to run extra sanity checks.
 
 **Attributes:**
 *   `dataset` (FusedHTRDataset): Stored dataset with alignment information.
@@ -425,12 +427,14 @@ class ProjectionAligner:
 *   `synth_word_indices` (torch.IntTensor): Indices of synthetic-only words.
 *   `is_real` (torch.BoolTensor): Mask of real dataset items.
 *   `is_syn` (torch.BoolTensor): Mask of synthetic dataset items.
+*   `debug_checks` (bool): Whether runtime assertions are enabled.
 
 **Methods:**
 *   `_get_projector_features() -> Tuple[torch.Tensor, torch.Tensor]`: Harvests
     descriptors and returns projector outputs and alignment flags.
 *   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels unaligned samples and
     returns mean projector features and moved distances.
+*   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Ensure dataset integrity after alignment.
 
 
 

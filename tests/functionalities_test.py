@@ -660,3 +660,34 @@ def test_train_projector_fused_dataset(monkeypatch):
     assert captured["shape"][0] == 1
 
 
+def test_alignment_invariants(monkeypatch):
+    """ProjectionAligner detects invalid label changes."""
+
+    from alignment import alignment_utilities as au
+
+    real = DummyHTRDataset()
+    real.aligned = torch.tensor([-1, -1], dtype=torch.int64)
+    syn = DummyPretrainDataset()
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+    fused.word_emb_dim = 1
+    fused.unique_word_embeddings = torch.arange(len(fused.unique_words)).float().view(-1, 1)
+
+    backbone = DummyBackbone()
+    proj = torch.nn.Identity()
+    proj.output_dim = 1
+
+    feats = torch.arange(1, len(fused) + 1, dtype=torch.float32).view(len(fused), 1)
+    monkeypatch.setattr(au, "harvest_backbone_features", lambda *a, **k: (feats, fused.aligned))
+
+    aligner = au.ProjectionAligner(fused, backbone, [proj], batch_size=2, device="cpu", k=1)
+    prev_aligned = fused.aligned.clone()
+    prev_real = aligner.real_word_indices.clone()
+    prev_syn = aligner.synth_word_indices.clone()
+    vocab_size = len(fused.unique_words)
+
+    fused.aligned[0] = 0
+
+    with pytest.raises(AssertionError):
+        aligner._assert_alignment_invariants(prev_aligned, prev_real, prev_syn, vocab_size)
+
+
