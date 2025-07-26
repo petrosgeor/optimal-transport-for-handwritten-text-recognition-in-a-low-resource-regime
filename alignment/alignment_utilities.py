@@ -116,7 +116,6 @@ class ProjectionAligner:
         batch_size: int = 512,
         device: str = cfg.device,
         k: int = 0,
-        agree_threshold: int = 1,
     ) -> None:
         """Initialise the projection aligner.
 
@@ -139,7 +138,6 @@ class ProjectionAligner:
         self.projectors = projectors
         self.batch_size = batch_size
         self.device = device
-        self.agree_threshold = agree_threshold
         self.k = k
 
         self.word_embeddings = dataset.unique_word_embeddings.to(self.device)
