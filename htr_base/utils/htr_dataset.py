@@ -585,6 +585,38 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
             img, trans = self.syn_ds[local]
         return img, trans, self.aligned[idx]
 
+    def find_word_embeddings(self, word_list, n_components: int = 512):
+        """Compute embeddings of words using pairwise Levenshtein distances."""
+        save_path = "htr_base/saved_models/unique_word_embeddings.pt"
+
+        if os.path.exists(save_path):
+            print(f"Loading word embeddings from {save_path}")
+            return torch.load(save_path)
+
+        print("Word embeddings not found, computing them...")
+        if len(word_list) == 0:
+            if n_components is None:
+                n_components = self.word_emb_dim
+            return torch.empty((0, n_components))
+        if n_components is None:
+            n_components = self.word_emb_dim
+        n = len(word_list)
+        dist_matrix = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            for j in range(i + 1, n):
+                d = editdistance.eval(word_list[i], word_list[j])
+                dist_matrix[i, j] = d
+                dist_matrix[j, i] = d
+        mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=0)
+        emb = mds.fit_transform(dist_matrix)
+        embeddings = torch.FloatTensor(emb)
+
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        torch.save(embeddings, save_path)
+        print(f"Saved word embeddings to {save_path}")
+
+        return embeddings
+
     def word_frequencies(
         self,
         *,
