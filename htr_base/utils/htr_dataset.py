@@ -436,6 +436,31 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         n_aligned (int): How many real samples to align initially.
         random_seed (int): Seed controlling the random selection of aligned
             real samples.
+
+    Attributes:
+        real_ds (HTRDataset): Underlying real dataset.
+        syn_ds (PretrainingHTRDataset): Underlying synthetic dataset.
+        data (list[tuple]): Combined ``(path, transcription)`` pairs.
+        transcriptions (list[str]): Labels for all images.
+        character_classes (list[str]): Characters from ``real_ds``.
+        prior_char_probs (dict): Character priors copied from ``real_ds``.
+        word_prob_mode (str): Probability mode copied and locked from ``real_ds``.
+        word_emb_dim (int): Word embedding dimensionality.
+        fixed_size (tuple | None): Target image size from the real dataset.
+        basefolder (str | None): Root folder from the real dataset.
+        config (Any | None): Configuration object forwarded from the real dataset.
+        unique_words (list[str]): Joint vocabulary of both datasets.
+        unique_word_probs (list[float]): Probability vector for ``unique_words``.
+        unique_word_embeddings (torch.Tensor): Embeddings for ``unique_words``.
+        aligned (torch.IntTensor): Alignment index for each sample.
+        _is_real (torch.BoolTensor): Mask of real samples.
+        _is_syn (torch.BoolTensor): Mask of synthetic samples.
+        _real2global (list[int]): Mapping of real indices to global positions.
+        _syn2global (list[int]): Mapping of synthetic indices to global positions.
+        real_word_indices (torch.IntTensor): Indices of ``unique_words`` coming
+            from ``real_ds``.
+        synth_word_indices (torch.IntTensor): Indices of ``unique_words`` coming
+            from ``syn_ds``.
     """
 
     def __init__(
@@ -499,7 +524,21 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 
         # Compute joint vocabulary and word embeddings
         self.unique_words, self.unique_word_probs = self.word_frequencies()
-        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=50)
+        self.unique_word_embeddings = self.find_word_embeddings(
+            self.unique_words, n_components=50
+        )
+
+        # Track indices of words originating from real and synthetic datasets
+        real_vocab = {t.strip().lower() for t in real_trans}
+        syn_vocab = {t.strip().lower() for t in syn_trans}
+        self.real_word_indices = torch.tensor(
+            [i for i, w in enumerate(self.unique_words) if w in real_vocab],
+            dtype=torch.int32,
+        )
+        self.synth_word_indices = torch.tensor(
+            [i for i, w in enumerate(self.unique_words) if w in syn_vocab],
+            dtype=torch.int32,
+        )
 
         total = len(self.data)
         # Alignment indices, -1 marks unaligned samples
