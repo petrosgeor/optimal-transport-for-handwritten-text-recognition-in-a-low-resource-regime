@@ -653,6 +653,20 @@ def test_fused_dataset_alignment():
     assert set(fused.unique_words) == {"gt1", "gt2", "syn1", "syn2"}
 
 
+def test_fused_dataset_word_indices():
+    """real_word_indices and synth_word_indices select the correct words."""
+
+    real = DummyHTRDataset()
+    syn = DummyPretrainDataset()
+
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+
+    assert hasattr(fused, "real_word_indices")
+    assert hasattr(fused, "synth_word_indices")
+    assert fused.real_word_indices.tolist() == [0, 1]
+    assert fused.synth_word_indices.tolist() == [2, 3]
+
+
 def test_align_more_instances_real_vocab_only(monkeypatch):
     """Unaligned real samples never get synthetic-only words."""
 

@@ -359,6 +359,8 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 *   `unique_words` (list[str]): Joint vocabulary of both datasets.
 *   `unique_word_probs` (list[float]): Probability vector for `unique_words`.
 *   `unique_word_embeddings` (torch.Tensor): Embeddings for `unique_words`.
+*   `real_word_indices` (torch.IntTensor): Indices of `unique_words` from the real dataset.
+*   `synth_word_indices` (torch.IntTensor): Indices of `unique_words` from the synthetic dataset.
 *   `aligned` (torch.IntTensor): Alignment index for each sample.
 *   `character_classes` (list[str]): Characters from `real_ds`.
 *   `prior_char_probs` (dict): Character priors copied from `real_ds`.
