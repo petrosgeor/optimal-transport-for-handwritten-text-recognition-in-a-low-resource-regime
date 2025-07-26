@@ -224,7 +224,7 @@ class ProjectionAligner:
         # ── 4. Pick the *k* most confident predictions (smallest distance) ─
         k = self.k if self.k > 0 else min_dists.numel()
         k = min(k, min_dists.numel())
-        topk_local = torch.argsort(min_dists)[:k]                         # (k,)
+        topk_local = torch.argsort(min_dists)[:k].cpu()                         # (k,)
 
         # ── 5. Map *local* rows back to *global* dataset indices ─────────
         unaligned_global = torch.nonzero(unaligned_mask, as_tuple=True)[0]  # (U,)
@@ -246,6 +246,8 @@ class ProjectionAligner:
                 prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before
             )
 
+        self._log_results(chosen_global)
+
         # ── 7. Build "moved" vector for the whole dataset ----------------
         moved = torch.full((proj_feats_mean.size(0),), float("inf"),
                            device=min_dists.device)
@@ -256,33 +258,43 @@ class ProjectionAligner:
         return proj_feats_mean.cpu(), moved
 
     def _assert_alignment_invariants(
-        self,
-        prev_aligned: torch.Tensor,
-        prev_real_vocab: torch.Tensor,
-        prev_syn_vocab: torch.Tensor,
-        vocab_size_before: int,
-    ) -> None:
-        """Check that alignment did not violate invariants.
+    self,
+    prev_aligned: torch.Tensor,
+    prev_real_vocab: torch.Tensor,
+    prev_syn_vocab: torch.Tensor,
+    vocab_size_before: int,
+) -> None:
+        """Check that this alignment step did not break any invariants.
 
-        Args:
-            prev_aligned (torch.Tensor): Alignment tensor before the update.
-            prev_real_vocab (torch.Tensor): Previous real-word indices.
-            prev_syn_vocab (torch.Tensor): Previous synthetic-word indices.
-            vocab_size_before (int): Vocabulary size prior to alignment.
+        Parameters
+        ----------
+        prev_aligned : torch.Tensor
+            Copy of ``dataset.aligned`` *before* the current update.
+        prev_real_vocab : torch.Tensor
+            Cached indices of real-word vocabulary entries.
+        prev_syn_vocab : torch.Tensor
+            Cached indices of synthetic-only vocabulary entries.
+        vocab_size_before : int
+            Length of ``dataset.unique_words`` before the update.
 
-        Returns:
-            None
+        Returns
+        -------
+        None
         """
-
-        changed = (prev_aligned != -1) & (
-            self.dataset.aligned != prev_aligned
-        )
+        # 1. Already-aligned samples must never be overwritten.
+        changed = (prev_aligned != -1) & (self.dataset.aligned != prev_aligned)
         assert not changed.any(), "Aligned samples were modified"
 
-        new_ids = self.dataset.aligned[prev_aligned == -1]
+        # 2. Isolate **only** the rows that were un-aligned and are now labelled.
+        mask_new = (prev_aligned == -1) & (self.dataset.aligned != -1)
+        new_ids = self.dataset.aligned[mask_new]
+
+        # 3. Every fresh label must refer to an existing real-word embedding.
         assert torch.isin(new_ids, self.real_word_indices).all(), (
             "New labels must come from real vocabulary"
         )
+
+        # 4. The vocabulary itself and its cached partitions must stay frozen.
         assert len(self.dataset.unique_words) == vocab_size_before, (
             "Vocabulary size changed during alignment"
         )
@@ -292,8 +304,75 @@ class ProjectionAligner:
         assert torch.equal(self.synth_word_indices, prev_syn_vocab), (
             "Synthetic-word indices changed"
         )
+
+        # 5. No more than ``k`` new samples should have been pseudo-labelled.
         if self.k > 0:
             assert new_ids.numel() <= self.k, "More than k new labels assigned"
+
+    def _log_results(self, new_indices: torch.Tensor) -> None:
+        """
+        Print pseudo‑label accuracy **for this round** *and* the
+        **cumulative** accuracy achieved so far ‒ both restricted to
+        **real** images (synthetic samples are ignored).
+
+        Parameters
+        ----------
+        new_indices : torch.Tensor
+            1‑D CPU tensor with the *global* dataset indices that have been
+            pseudo‑labelled in the current call to :meth:`align`.
+            Every index refers to ``self.dataset``.
+
+        Notes
+        -----
+        • A prediction is considered *correct* when the word obtained from
+          ``self.dataset.unique_words[self.dataset.aligned[i]]`` matches
+          the ground‑truth transcription in
+          ``self.dataset.transcriptions[i]`` (case‑ and whitespace‑
+          insensitive).
+
+        • The method has **no side‑effects** apart from its printouts.
+        """
+        # ── 0. Early exit when nothing new was labelled ────────────────
+        if new_indices.numel() == 0:
+            print("[Align] No new pseudo‑labels this round.")
+            return
+
+        # Helper that returns True when prediction equals ground truth
+        def _is_correct(idx: int) -> bool:
+            word_id = int(self.dataset.aligned[idx])
+            if word_id == -1:            # still unlabelled ‒ ignore
+                return False
+            pred = self.dataset.unique_words[word_id].strip().lower()
+            gt   = self.dataset.transcriptions[idx].strip().lower()
+            return pred == gt
+
+        # ── 1. Accuracy for the *newly* pseudo‑labelled real images ────
+        correct_now, total_now = 0, 0
+        for idx in new_indices.tolist():
+            if not bool(self.is_real[idx]):      # skip synthetic images
+                continue
+            total_now += 1
+            correct_now += int(_is_correct(idx))
+        acc_now = correct_now / total_now if total_now else float("nan")
+
+        # ── 2. Cumulative accuracy on *all* aligned real images ────────
+        real_and_aligned = torch.nonzero(
+            self.is_real & (self.dataset.aligned != -1), as_tuple=True
+        )[0].tolist()
+        total_cum = len(real_and_aligned)
+        correct_cum = sum(int(_is_correct(i)) for i in real_and_aligned)
+        acc_cum = correct_cum / total_cum if total_cum else float("nan")
+
+        # ── 3. Display the results ─────────────────────────────────────
+        if total_now:
+            print(
+                f"[Align] Round accuracy (real): "
+                f"{correct_now}/{total_now} correct  ({acc_now:.2%})"
+            )
+        print(
+            f"[Align] Cumulative accuracy (real): "
+            f"{correct_cum}/{total_cum}  ({acc_cum:.2%})"
+        )
 
 
         
