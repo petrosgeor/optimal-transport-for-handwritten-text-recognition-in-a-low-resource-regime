@@ -126,8 +126,6 @@ class ProjectionAligner:
             batch_size (int): Mini-batch size during descriptor harvesting.
             device (str): Device used for alignment.
             k (int): Number of least-moved descriptors to pseudo-label.
-            metric (str): Certainty metric ('gap', 'variance', 'closest').
-            agree_threshold (int): Minimum number of agreeing projectors.
 
         Returns:
             None
@@ -240,8 +238,8 @@ class ProjectionAligner:
         moved[unaligned_global] = min_dists
         moved = moved.cpu()
 
-        # API compatibility: return dummy transport projections + moved
-        proj_feats_mean.cpu(), moved
+        # Return mean projector features and moved distance
+        return proj_feats_mean.cpu(), moved
 
 
         
@@ -258,9 +256,7 @@ def align_more_instances(
     batch_size: int = 512,
     device: str = cfg.device,
     k: int = 0,
-    metric: str = "gap",
-    agree_threshold: int = 1,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """Pseudo-label new dataset instances using the projection ensemble.
 
     Args:
@@ -270,12 +266,10 @@ def align_more_instances(
         batch_size (int): Mini-batch size for descriptor extraction.
         device (str): Device used during alignment.
         k (int): Number of samples to pseudo-label.
-        metric (str): Selection metric ('gap', 'variance', 'closest').
-        agree_threshold (int): Minimum projector agreement for a label.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-            Dummy transport plan, mean projector features and zeros for moved distance.
+        Tuple[torch.Tensor, torch.Tensor]:
+            Mean projector features and moved distance for each sample.
 
     When ``cfg.pseudo_label_validation.enable`` is ``True`` this function
     calls :meth:`ProjectionAligner.validate_pseudo_labels` after the alignment
@@ -294,8 +288,6 @@ def align_more_instances(
         batch_size=batch_size,
         device=device,
         k=k,
-        metric=metric,
-        agree_threshold=agree_threshold,
     )
     proj_feats, moved = aligner.align()
 

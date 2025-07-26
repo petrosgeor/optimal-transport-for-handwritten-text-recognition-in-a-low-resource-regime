@@ -503,8 +503,6 @@ def alternating_refinement(
     align_kwargs.setdefault("batch_size", cfg.align_batch_size)
     align_kwargs.setdefault("device", cfg.align_device)
     align_kwargs.setdefault("k", cfg.align_k)
-    align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
-    align_kwargs.setdefault("metric", cfg.metric)
 
     real = dataset.real_ds
     test_dataset = HTRDataset(
