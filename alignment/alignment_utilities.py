@@ -102,59 +102,6 @@ def harvest_backbone_features(
     return feats_all, aligned_all
 
 
-def select_uncertain_instances(
-    m: int,
-    *,
-    transport_plan: Optional[np.ndarray] = None,
-    dist_matrix: Optional[np.ndarray] = None,
-    metric: str = "gap",
-) -> np.ndarray:
-    """Return indices of the ``m`` most uncertain instances.
-
-    Parameters
-    ----------
-    m : int
-        Number of indices to return.
-    transport_plan : np.ndarray, optional
-        OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.
-    dist_matrix : np.ndarray, optional
-        Pre-computed pairwise distances ``(N, V)``. Required for
-        ``metric='gap'``.
-    metric : str, optional
-        Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.
-
-    Returns
-    -------
-    np.ndarray
-        Array of ``m`` indices sorted by decreasing uncertainty.
-    """
-    if metric not in {"gap", "entropy"}:
-        raise ValueError("metric must be 'gap' or 'entropy'")
-
-    if m <= 0:
-        raise ValueError("m must be positive")
-
-    if metric == "gap":
-        if dist_matrix is None:
-            raise ValueError("dist_matrix required for metric='gap'")
-        assert dist_matrix.ndim == 2, "dist_matrix must be 2D"
-        n = dist_matrix.shape[0]
-        assert m <= n, "m cannot exceed number of dataset instances"
-        sorted_d = np.sort(dist_matrix, axis=1)
-        gaps = sorted_d[:, 1] - sorted_d[:, 0]
-        order = np.argsort(gaps)
-    else:
-        if transport_plan is None:
-            raise ValueError("transport_plan required for metric='entropy'")
-        assert transport_plan.ndim == 2, "transport_plan must be 2D"
-        n = transport_plan.shape[0]
-        assert m <= n, "m cannot exceed number of dataset instances"
-        row_sum = transport_plan.sum(axis=1, keepdims=True)
-        p = np.divide(transport_plan, row_sum, out=np.zeros_like(transport_plan), where=row_sum != 0)
-        ent = -np.sum(p * np.log(p + 1e-12), axis=1)
-        order = np.argsort(-ent)
-
-    return order[:m]
 
 
 class ProjectionAligner:
@@ -169,7 +116,6 @@ class ProjectionAligner:
         batch_size: int = 512,
         device: str = cfg.device,
         k: int = 0,
-        metric: str = "gap",
         agree_threshold: int = 1,
     ) -> None:
         """Initialise the projection aligner.
@@ -187,427 +133,123 @@ class ProjectionAligner:
         Returns:
             None
         """
-        if metric == "entropy" or metric not in {"gap", "variance", "closest"}:
-            raise ValueError("metric must be 'gap', 'variance' or 'closest'")
+
         self.dataset = dataset
         self.backbone = backbone
-        self.projectors = (
-            projectors if isinstance(projectors, Sequence) else [projectors]
-        )
+        self.projectors = projectors
         self.batch_size = batch_size
-        self.device = torch.device(device)
-        self.k = k
-        self.metric = metric
+        self.device = device
         self.agree_threshold = agree_threshold
+        self.k = k
 
-        assert agree_threshold <= len(self.projectors), (
-            "agree_threshold bigger than ensemble size"
-        )
-        assert hasattr(dataset, "unique_word_embeddings"), (
-            "Dataset missing unique_word_embeddings"
-        )
-        assert (
-            dataset.unique_word_embeddings.ndim == 2
-            and dataset.unique_word_embeddings.size(0) > 0
-        ), "Word-embedding matrix empty or wrong shape"
-        self.word_embs = dataset.unique_word_embeddings.to(self.device)
-        if isinstance(dataset, FusedHTRDataset):
-            self.real_vocab = set(dataset.real_ds.unique_words)
-        else:
-            self.real_vocab = set(dataset.unique_words)
+        self.word_embeddings = dataset.unique_word_embeddings.to(self.device)
+        self.real_word_indices = dataset.real_word_indices
+        self.synth_word_indices = dataset.synth_word_indices
+        self.is_real = dataset._is_real
+        self.is_syn = ~self.is_real
 
-    # ------------------------------------------------------------------
-    def _get_projector_outputs(self):
-        """Run projectors on all descriptors and compute ensemble statistics.
 
-        Returns:
-            dict: Dictionary containing the OT plan, mean projected features,
-            distance matrix, moved distances, nearest word indices,
-            per-sample variance scores and the ``aligned`` vector from the
-            dataset.
+    def _get_projector_features(self):
+        """Harvests backbone features and computes projector outputs.
+
+        This method runs the backbone on the entire dataset to get visual
+        descriptors, then passes these descriptors through each projector in
+        the ensemble to obtain their corresponding embeddings in the word
+        embedding space.
+
+        Returns
+        -------
+        Tuple[torch.Tensor, torch.Tensor]
+            - A 3D tensor of projected features with shape
+              (n_projectors, n_samples, embedding_dim).
+            - A 1D tensor of alignment information for each sample.
         """
-        # collect image descriptors from the backbone
+        # 1. Harvest visual descriptors from the backbone for the entire dataset.
         feats_all, aligned_all = harvest_backbone_features(
             self.dataset,
             self.backbone,
             batch_size=self.batch_size,
-            num_workers=0,
             device=self.device,
         )
 
-        assert len(self.dataset) == feats_all.size(0) == aligned_all.size(0), (
-            "Feature count mismatch"
-        )
+        word_emb_dim = self.projectors[0].output_dim
+        n_samles = feats_all.shape[0]
 
-        Z_list: list[torch.Tensor] = []
-        dist_list: list[torch.Tensor] = []
-        nearest_list: list[torch.Tensor] = []
-
-        # process each projector in the ensemble
-        for proj in self.projectors:
-            proj.eval().to(self.device)
-            proj_feats = proj(feats_all.to(self.device)).cpu()
-            assert proj_feats.shape[1] == self.word_embs.shape[1], (
-                "Embedding dim mismatch"
-            )
-            assert torch.isfinite(proj_feats).all(), "Non-finite projector output"
-
-            dist_matrix = torch.cdist(proj_feats, self.word_embs.cpu())
-            col_mask = torch.tensor(
-                [w not in self.real_vocab for w in self.dataset.unique_words],
-                dtype=torch.bool,
-                device=dist_matrix.device,
-            )
-            row_mask = (aligned_all == -1).to(dist_matrix.device)
-            rows = torch.nonzero(row_mask, as_tuple=True)[0]
-            if rows.numel() and col_mask.any():
-                dist_matrix[rows[:, None], col_mask] = float("inf")
-            assert not torch.isnan(dist_matrix).any()
-            nearest_word = dist_matrix.argmin(dim=1)
-            Z_list.append(proj_feats)
-            dist_list.append(dist_matrix)
-            nearest_list.append(nearest_word)
-
-        Z = torch.stack(Z_list)
-        var_scores = Z.var(dim=0, unbiased=False).sum(dim=1)
-        dist_matrix = torch.stack(dist_list).mean(dim=0)
-        preds = torch.stack(nearest_list)
-        nearest_word, _ = preds.mode(dim=0)
-        counts = (preds == nearest_word.unsqueeze(0)).sum(dim=0)
-        proj_feats_mean = Z.mean(dim=0)
-
-        assert counts.min() >= 0 and counts.max() <= len(self.projectors), (
-            "Agreement-count outside [0, ensemble_size]"
-        )
-
-        return {
-            "proj_feats_mean": proj_feats_mean,
-            "dist_matrix": dist_matrix,
-            "nearest_word": nearest_word,
-            "counts": counts,
-            "var_scores": var_scores,
-            "aligned_all": aligned_all,
-        }
-
-    # ------------------------------------------------------------------
-    def _select_closest_per_word(
-        self,
-        counts: torch.Tensor,
-        dist_matrix: torch.Tensor,
-        aligned_all: torch.Tensor,
-    ) -> torch.Tensor:
-        """Select one unaligned sample for each word embedding.
-
-        Args:
-            counts (torch.Tensor): Ensemble agreement counts.
-            dist_matrix (torch.Tensor): Mean Euclidean distances ``(N, V)``.
-            aligned_all (torch.Tensor): Current alignment flags ``(N,)``.
-
-        Returns:
-            torch.Tensor: Tensor containing the chosen dataset indices.
-        """
-        N, V = dist_matrix.shape
-        taken = aligned_all.clone()
-        chosen: list[int] = []
-        top_k_words = 100
-        if top_k_words > 0:
-            probs = np.asarray(self.dataset.unique_word_probs)  # Convert to np for sorting
-            top_indices = np.argsort(-probs)[:top_k_words]  # Top-K descending
-        else:
-            top_indices = range(V)  # All words (current behavior)
+        # 2. Initialize a tensor to store the outputs of each projector.
+        # The shape is (num_projectors, num_samples, word_embedding_dim).
+        proj_feats = torch.zeros((len(self.projectors), n_samles, word_emb_dim))
         
-        for w in top_indices:  # Changed: Loop over top_indices instead of range(V)
-            if (taken == w).any():
-                continue
-            mask = taken == -1
-            if not mask.any():
-                break
-            dist_col = dist_matrix[:, w].clone()
-            dist_col[~mask] = float("inf")
-            idx = int(dist_col.argmin().item())
-            if not mask[idx]:
-                continue
-            if counts[idx].item() >= self.agree_threshold:
-                chosen.append(idx)
-                taken[idx] = w
-        result = torch.tensor(chosen, dtype=torch.long)
-        assert len(set(chosen)) == len(chosen), (
-            "Duplicate dataset indices returned by _select_closest_per_word"
-        )
-        return result
+        # 3. Pass the descriptors through each projector to get embeddings.
+        with torch.no_grad():
+            for i, proj in enumerate(self.projectors):
+                proj_feats[i] = proj(feats_all.to(self.device)).cpu()
+        
+        return proj_feats, aligned_all
 
-    # ------------------------------------------------------------------
-    def _select_candidates(
-        self,
-        counts: torch.Tensor,
-        dist_matrix: torch.Tensor,
-        aligned_all: torch.Tensor,
-        var_scores: torch.Tensor,
-    ) -> torch.Tensor:
-        """Choose which dataset indices to pseudo-label this round.
 
-        Args:
-            counts (torch.Tensor): Agreement counts from the projector ensemble.
-            dist_matrix (torch.Tensor): Pairwise distances to word embeddings.
-            aligned_all (torch.Tensor): Current alignment vector ``(N,)``.
-            var_scores (torch.Tensor): Per-sample variance scores.
-
-        Returns:
-            torch.Tensor: 1-D tensor of selected dataset indices.
-        """
-        assert self.k >= 0, "k must be non-negative"
-
-        if self.metric == "closest":
-            return self._select_closest_per_word(counts, dist_matrix, aligned_all)
-
-        # rank samples by uncertainty according to the chosen metric
-        if self.metric == "variance":
-            order_unc = torch.argsort(var_scores).cpu().numpy()
-            # Expect chosen samples to come from the LOW-variance tail
-            assert var_scores[order_unc[: self.k]].max() <= var_scores[order_unc[-1]], (
-                "High-variance samples would be labelled – check sort direction"
-            )
-        else:
-            order_unc = select_uncertain_instances(
-                m=len(self.dataset),
-                dist_matrix=dist_matrix.numpy() if self.metric == "gap" else None,
-                metric=self.metric,
-            )
-        order_cert = order_unc[::-1]
-        mask_new = (aligned_all == -1).numpy()
-        assert self.agree_threshold > 0, "agree_threshold must be positive"
-        assert order_cert.size > 0, "No candidates produced"
-
-        # keep samples that are still unlabelled and meet the agreement threshold
-        chosen: list[int] = []
-        for idx in order_cert:
-            if mask_new[idx] and counts[idx].item() >= self.agree_threshold:
-                chosen.append(idx)
-                if len(chosen) == min(self.k, mask_new.sum()):
-                    break
-        result = torch.tensor(chosen, dtype=torch.long)
-        if self.metric != "closest" and self.k > 0:
-            assert result.numel() <= self.k, (
-                "More than k samples selected for pseudo-labelling"
-            )
-        return result
-
-    # ------------------------------------------------------------------
-    def _update_dataset(self, chosen: torch.Tensor, nearest_word: torch.Tensor) -> None:
-        """Write newly aligned indices back into ``dataset.aligned``.
-
-        Args:
-            chosen (torch.Tensor): Dataset indices selected for labelling.
-            nearest_word (torch.Tensor): Predicted word indices for each sample.
-
-        Returns:
-            None
-        """
-        if chosen.numel() > 0:
-            prev_vals = self.dataset.aligned[chosen]
-            assert (prev_vals == -1).all(), (
-                "Attempting to overwrite an existing alignment"
-            )
-            self.dataset.aligned[chosen] = nearest_word[chosen].to(torch.int32)
-            assert torch.equal(
-                self.dataset.aligned[chosen].to(nearest_word.dtype),
-                nearest_word[chosen],
-            ), "Dataset update failed"
-            if isinstance(self.dataset, FusedHTRDataset):
-                assert torch.all(self.dataset._is_real[chosen]), (
-                    "Synthetic sample selected for pseudo-labelling"
-                )
-                assert all(
-                    self.dataset.unique_words[w.item()] in self.real_vocab
-                    for w in nearest_word[chosen]
-                ), "Pseudo-label points outside the real vocabulary"
-            vocab_size = self.dataset.unique_word_embeddings.size(0)
-            assert (nearest_word[chosen] < vocab_size).all(), (
-                "Word index out of range for dataset vocabulary"
-            )
-
-    # ------------------------------------------------------------------
-    def _log_results(
-        self,
-        chosen: torch.Tensor,
-        nearest_word: torch.Tensor,
-        dist_matrix: torch.Tensor,
-        var_scores: torch.Tensor,
-    ) -> None:
-        """Print alignment statistics for the current round.
-
-        Args:
-            chosen (torch.Tensor): Newly aligned dataset indices.
-            nearest_word (torch.Tensor): Predicted word ids for each sample.
-            dist_matrix (torch.Tensor): Pairwise distances after projection.
-            var_scores (torch.Tensor): Variance scores for every dataset sample.
-
-        Returns:
-            None
-        """
-        # report statistics for the newly pseudo-labelled samples
-        chosen_list = chosen.tolist()
-        if self.k > 0 and chosen_list:
-            correct_new = sum(
-                self.dataset.unique_words[self.dataset.aligned[i].item()] ==
-                self.dataset.transcriptions[i].strip()
-                for i in chosen_list
-            )
-            print(
-                f"[Align] newly pseudo-labelled {len(chosen_list)} items; "
-                f"[Align] round accuracy {correct_new}/{len(chosen_list)} "
-                f"({correct_new/len(chosen_list):.1%})"
-            )
-
-            for idx in random.sample(chosen_list, min(10, len(chosen_list))):
-                gt = self.dataset.transcriptions[idx].strip()
-                pred = self.dataset.unique_words[self.dataset.aligned[idx].item()]
-                print(f"[Align] sample: '{gt}' → '{pred}'")
-
-            off_vocab = sum(
-                self.dataset.unique_words[self.dataset.aligned[i].item()] not in self.real_vocab
-                for i in chosen_list
-            )
-            if off_vocab:
-                print(f"[Debug] {off_vocab} pseudo-labels outside real vocab")
-
-            vs = var_scores[chosen]
-            print(
-                f"[Align] mean var score: {vs.mean():.4f} ± {vs.std(unbiased=False):.4f}"
-            )
-
-            if self.metric == "gap":
-                top2 = torch.topk(dist_matrix[chosen], 2, largest=False).values
-                gap_vals = top2[:, 1] - top2[:, 0]
-                print(
-                    f"[Align] mean NN-gap: {gap_vals.mean():.4f} ± {gap_vals.std(unbiased=False):.4f}"
-                )
-
-        # track running accuracy over all pseudo-labelled samples
-        aligned_idx = torch.nonzero(self.dataset.aligned != -1, as_tuple=True)[0]
-        if aligned_idx.numel():
-            correct_tot = sum(
-                self.dataset.unique_words[self.dataset.aligned[i].item()] ==
-                self.dataset.transcriptions[i].strip()
-                for i in aligned_idx.tolist()
-            )
-            print(
-                f"[Align] cumulative accuracy: {correct_tot}/{aligned_idx.numel()} "
-                f"({correct_tot/aligned_idx.numel():.1%}) – "
-                f"{aligned_idx.numel()} of {len(self.dataset)} samples aligned"
-            )
-
-    # ------------------------------------------------------------------
     @torch.no_grad()
-    def validate_pseudo_labels(
-        self,
-        *,
-        edit_threshold: int = 3,
-        batch_size: int = 256,
-        decode_cfg: dict = None,
-        num_workers: int = 0,
-    ) -> int:
-        """Drop unreliable pseudo-labels based on the backbone output.
-
-        Counts how many removed labels differ from the dataset transcriptions.
-
-        Parameters
-        ----------
-        edit_threshold : int, optional
-            Maximum allowed Levenshtein distance between prediction and label.
-        batch_size : int, optional
-            Mini-batch size for the evaluation pass.
-        decode_cfg : dict | None, optional
-            Decoding configuration forwarded to the decoding helper.
-        num_workers : int, optional
-            Workers used by the ``DataLoader``.
+    def align(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pseudo‑label up to ``self.k`` still‑unaligned samples by nearest‑
+        neighbour assignment in word‑embedding space and update
+        ``self.dataset.aligned`` *in‑place*.
 
         Returns
         -------
-        int
-            Number of samples that were un-aligned because the distance
-            exceeded ``edit_threshold``.
+        proj_feats_mean : torch.Tensor
+            Mean projector output for every dataset item (``(N, E)`` on *CPU*).
+        moved : torch.Tensor
+            1‑D tensor (length ``N``) whose *i*‑th entry is the distance
+            between sample *i* and its assigned embedding (``inf`` if the
+            sample is still un‑aligned).
         """
-        self.backbone.eval()
-        device = self.device
+        # ── 1. Ensemble projections for the whole dataset ─────────────────
+        proj_feats, aligned_all = self._get_projector_features()          # (P, N, E), (N,)
+        proj_feats_mean = proj_feats.mean(dim=0)                          # (N, E)
 
-        aligned_idx = torch.nonzero(self.dataset.aligned != -1, as_tuple=True)[0]
-        if not aligned_idx.numel():
-            return 0
+        # ── 2. Work on *unaligned* real samples only ----------------------
+        unaligned_mask = aligned_all == -1                                # (N,)
+        if unaligned_mask.sum() == 0:                                     # nothing to do
+            moved = torch.full((proj_feats_mean.size(0),), float("inf"))
+            return torch.empty(0), proj_feats_mean.cpu(), moved
 
-        loader = DataLoader(
-            Subset(self.dataset, aligned_idx.tolist()),
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=True,
-        )
+        proj_feats_acceptable = proj_feats_mean[unaligned_mask].to(self.device)  # (U, E)
 
-        removed = 0
-        correct_removed = 0
-        ptr = 0
-        _, i2c = load_vocab()
-        for imgs, *_ in loader:
-            imgs = imgs.to(device, non_blocking=True)
-            logits, *_ = self.backbone(imgs, return_feats=False)
+        # ── 3. Distance to every word embedding (exclude synthetic‑only) ──
+        dist_matrix = torch.cdist(proj_feats_acceptable,
+                                  self.word_embeddings, p=2)              # (U, V)
+        dist_matrix[:, self.synth_word_indices.to(self.device)] = float("inf")
 
-            if decode_cfg and decode_cfg.get("method") == "beam":
-                preds = beam_search_ctc_decode(
-                    logits.cpu(), i2c, beam_width=decode_cfg.get("beam_width", 3)
-                )
-            else:
-                preds = greedy_ctc_decode(logits.cpu(), i2c)
+        min_dists, pred_word_idx = dist_matrix.min(dim=1)                 # (U,)
 
-            for i, pred in enumerate(preds):
-                idx = aligned_idx[ptr + i].item()
-                gold_word = self.dataset.unique_words[self.dataset.aligned[idx].item()]
-                if editdistance.eval(pred, gold_word) > edit_threshold:
-                    self.dataset.aligned[idx] = -1
-                    removed += 1
-                    if hasattr(self.dataset, "transcriptions") and (
-                        self.dataset.transcriptions[idx] != gold_word
-                    ):
-                        correct_removed += 1
-            ptr += len(preds)
+        # ── 4. Pick the *k* most confident predictions (smallest distance) ─
+        k = self.k if self.k > 0 else min_dists.numel()
+        k = min(k, min_dists.numel())
+        topk_local = torch.argsort(min_dists)[:k]                         # (k,)
 
-        print(
-            f"[Validate] removed {removed} unreliable pseudo-labels "
-            f"(threshold = {edit_threshold}). {correct_removed} mismatched ground truth."
-        )
-        return removed
+        # ── 5. Map *local* rows back to *global* dataset indices ─────────
+        unaligned_global = torch.nonzero(unaligned_mask, as_tuple=True)[0]  # (U,)
+        chosen_global   = unaligned_global[topk_local]                    # (k,)
+        chosen_words    = pred_word_idx[topk_local].cpu().to(
+                             dtype=self.dataset.aligned.dtype)            # (k,)
 
-    # ------------------------------------------------------------------
-    def align(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        """Perform one OT pseudo-labelling iteration.
+        # ── 6. Update the dataset alignment tensor in‑place --------------
+        self.dataset.aligned[chosen_global] = chosen_words                # ✔ global mapping
 
-        Returns:
-            tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-                Transport plan, mean projected features and per-sample moved distance.
-        """
-        # gather features and OT statistics for the current dataset state
-        out = self._get_projector_outputs()
+        # ── 7. Build "moved" vector for the whole dataset ----------------
+        moved = torch.full((proj_feats_mean.size(0),), float("inf"),
+                           device=min_dists.device)
+        moved[unaligned_global] = min_dists
+        moved = moved.cpu()
 
-        chosen = self._select_candidates(
-            out["counts"],
-            out["dist_matrix"],
-            out["aligned_all"],
-            out["var_scores"],
-        )
+        # API compatibility: return dummy transport projections + moved
+        proj_feats_mean.cpu(), moved
 
-        self._update_dataset(chosen, out["nearest_word"])
-        self._log_results(
-            chosen,
-            out["nearest_word"],
-            out["dist_matrix"],
-            out["var_scores"],
-        )
 
-        # switch networks back to training mode
-        for proj in self.projectors:
-            proj.train()
-        self.backbone.train()
+        
 
-        return torch.empty(0), out["proj_feats_mean"], torch.zeros(len(self.dataset))
+
+
 
 @torch.no_grad()
 def align_more_instances(
@@ -657,19 +299,6 @@ def align_more_instances(
         metric=metric,
         agree_threshold=agree_threshold,
     )
-    plan, proj_feats, moved = aligner.align()
+    proj_feats, moved = aligner.align()
 
-    # --- conditional pseudo-label validation ---
-    vcfg = getattr(cfg, "pseudo_label_validation", None)
-    if (
-        vcfg
-        and vcfg.enable
-        and _ALIGN_CALL_COUNT >= int(getattr(vcfg, "start_iteration", 0))
-    ):
-        aligner.validate_pseudo_labels(
-            edit_threshold=int(vcfg.edit_distance),
-            batch_size=batch_size,
-            decode_cfg=getattr(cfg, "decode_config", None),
-        )
-
-    return plan, proj_feats, moved
+    return proj_feats, moved

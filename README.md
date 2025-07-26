@@ -408,39 +408,6 @@ class ProjectionAligner:
     ) -> None:
 ```
 
-*   Computes projector outputs and ensemble agreement; no additional optimal-transport step.
-*   `dataset` (HTRDataset | FusedHTRDataset): Dataset providing images and alignment information. When a `FusedHTRDataset` is used, only real-corpus words are considered for new pseudo-labels.
-*   `backbone` (HTRNet): Visual encoder used to extract per-image descriptors.
-*   `projectors` (Sequence[nn.Module]): List of projector modules.
-*   `batch_size` (int): Mini-batch size when forwarding the dataset.
-*   `device` (str): Device on which the backbone runs.
-*   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): Alignment certainty measure used to choose which samples
-    to pseudo-label. Supported values:
-    `'gap'`, `'variance'`, **`'closest'`**.
-    – **`'closest'`** assigns **one** still-unaligned image to **every**
-      word embedding: for each word *w* the unaligned descriptor with the
-      smallest Euclidean distance to *w* is pseudo-labelled (subject to the
-      ensemble agreement threshold).
-*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
-**Attributes:**
-*   `dataset` (HTRDataset): Dataset being aligned.
-*   `backbone` (HTRNet): Visual backbone network.
-*   `projectors` (list[nn.Module]): Projector ensemble.
-*   `batch_size` (int): Mini-batch size used during feature harvesting.
-*   `device` (torch.device): Device used during descriptor extraction.
-*   `k` (int): Number of descriptors to pseudo-label per iteration.
-*   `metric` (str): Measure to rank candidate descriptors.
-*   `agree_threshold` (int): Required number of agreeing projectors.
-*   `word_embs` (torch.Tensor): Word embeddings stored on `device`.
-
-**Methods:**
-*   `_get_projector_outputs()` -> dict: Run projectors on the dataset and gather statistics.
-*   `_select_candidates(counts, dist_matrix, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
-*   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
-*   `_log_results(chosen, nearest_word, dist_matrix, var_scores)` -> None: Print alignment statistics.
-*   `validate_pseudo_labels(edit_threshold, batch_size, decode_cfg, num_workers)` -> int: Drop unreliable pseudo-labels based on backbone predictions.
-*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one alignment iteration and return the (empty) transport plan, projected descriptors and moved distances.
 
 
 
