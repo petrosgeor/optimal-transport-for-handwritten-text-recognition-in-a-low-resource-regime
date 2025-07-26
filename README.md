@@ -403,10 +403,34 @@ class ProjectionAligner:
         batch_size: int = 512,
         device: str = cfg.device,
         k: int = 0,
-        metric: str = "gap",
-        agree_threshold: int = 1,
     ) -> None:
 ```
+
+*   `dataset` (FusedHTRDataset): Dataset providing images and alignment info.
+*   `backbone` (HTRNet): Visual backbone network used for descriptors.
+*   `projectors` (Sequence[nn.Module]): Ensemble mapping descriptors to the word embedding space.
+*   `batch_size` (int): Mini-batch size during descriptor harvesting.
+*   `device` (str): Device used for alignment.
+*   `k` (int): Number of least-moved descriptors to pseudo-label.
+
+**Attributes:**
+*   `dataset` (FusedHTRDataset): Stored dataset with alignment information.
+*   `backbone` (HTRNet): Backbone used for feature extraction.
+*   `projectors` (Sequence[nn.Module]): Ensemble of projector networks.
+*   `batch_size` (int): Mini-batch size when harvesting descriptors.
+*   `device` (str): Device on which computations run.
+*   `k` (int): Number of samples to pseudo-label per call.
+*   `word_embeddings` (torch.Tensor): Word embedding matrix on ``device``.
+*   `real_word_indices` (torch.IntTensor): Indices of real words in the vocabulary.
+*   `synth_word_indices` (torch.IntTensor): Indices of synthetic-only words.
+*   `is_real` (torch.BoolTensor): Mask of real dataset items.
+*   `is_syn` (torch.BoolTensor): Mask of synthetic dataset items.
+
+**Methods:**
+*   `_get_projector_features() -> Tuple[torch.Tensor, torch.Tensor]`: Harvests
+    descriptors and returns projector outputs and alignment flags.
+*   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels unaligned samples and
+    returns mean projector features and moved distances.
 
 
 
@@ -427,9 +451,7 @@ def align_more_instances(
     batch_size: int = 512,
     device: str = cfg.device,
     k: int = 0,
-    metric: str = "gap",
-    agree_threshold: int = 1,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
 ```
 
 Signature changed: OT-related arguments (`reg`, `unbalanced`, `reg_m`, `sinkhorn_kwargs`) were removed; the function is now a thin wrapper around the projection-only aligner.
@@ -440,13 +462,10 @@ Signature changed: OT-related arguments (`reg`, `unbalanced`, `reg_m`, `sinkhorn
 *   `batch_size` (int): Mini-batch size when harvesting descriptors.
 *   `device` (str): Device used for feature extraction, descriptor processing and the projector.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): `'gap'`, `'variance'`, or `'closest'` selecting the uncertainty measure.
-*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
 
 **Returns:**
-*   `torch.Tensor`: Empty transport plan placeholder.
-*   `torch.Tensor`: The projected descriptors.
-*   `torch.Tensor`: The distance moved by each descriptor.
+*   `torch.Tensor`: Mean projector descriptors for the dataset.
+*   `torch.Tensor`: Distance moved by each descriptor.
 
 #### harvest_backbone_features
 

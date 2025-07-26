@@ -419,124 +419,6 @@ def test_alternating_refinement_calls_cer(monkeypatch):
     assert {"train_val", "test"} == subsets
 
 
-def test_validate_pseudo_labels(monkeypatch):
-    """Samples with large edit distance are un-aligned."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    aligner = au.ProjectionAligner(ds, backbone, [proj], batch_size=2, device="cpu")
-
-    def fake_decode(logits, i2c, **kwargs):
-        return ["gt1", "oops"]
-
-    monkeypatch.setattr(au, "greedy_ctc_decode", fake_decode)
-
-    removed = aligner.validate_pseudo_labels(edit_threshold=3, batch_size=2)
-
-    assert removed == 1
-    assert ds.aligned.tolist() == [0, -1]
-
-
-def test_align_more_instances_gated_validation(monkeypatch):
-    """``validate_pseudo_labels`` runs only after ``start_iteration``."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    # patch align and validation to track invocations
-    monkeypatch.setattr(au.ProjectionAligner, "align", lambda self: (torch.empty(0), torch.empty(0), torch.empty(0)))
-
-    calls = []
-
-    def fake_validate(self, edit_threshold, batch_size, decode_cfg=None):
-        calls.append(edit_threshold)
-
-    monkeypatch.setattr(au.ProjectionAligner, "validate_pseudo_labels", fake_validate)
-
-    # set config and reset counter
-    au._ALIGN_CALL_COUNT = 0
-    if not hasattr(au.cfg, "pseudo_label_validation"):
-        au.cfg.pseudo_label_validation = OmegaConf.create({})
-    au.cfg.pseudo_label_validation.enable = True
-    au.cfg.pseudo_label_validation.edit_distance = 3
-    au.cfg.pseudo_label_validation.start_iteration = 2
-
-    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
-    assert len(calls) == 0
-
-    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
-    assert len(calls) == 1
-
-
-
-
-def test_align_closest_per_word():
-    """Each word receives one pseudo-label when metric='closest'."""
-
-    from alignment import alignment_utilities as au
-
-    class TinyDataset(torch.utils.data.Dataset):
-        def __init__(self):
-            self.unique_words = [f"w{i}" for i in range(5)]
-            self.word_emb_dim = 2
-            self.unique_word_embeddings = torch.stack([
-                torch.tensor([float(i), float(i)]) for i in range(5)
-            ])
-            self.unique_word_probs = [1 / 5] * 5
-            self.aligned = torch.full((5,), -1, dtype=torch.int32)
-            self.imgs = [torch.full((1, 2, 2), float(i)) for i in range(5)]
-            self.transcriptions = ["" for _ in range(5)]
-            self.transforms = None
-
-        def __len__(self):
-            return len(self.imgs)
-
-        def __getitem__(self, idx):
-            return self.imgs[idx], self.transcriptions[idx], self.aligned[idx]
-
-    class SimpleBackbone(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.phoc_head = None
-
-        def forward(self, x, *, return_feats=True):
-            B = x.size(0)
-            feats = x.mean(dim=(2, 3)).repeat(1, 2)
-            return torch.zeros(B, 1), feats
-
-    ds = TinyDataset()
-    backbone = SimpleBackbone()
-    proj = torch.nn.Identity()
-
-    au._ALIGN_CALL_COUNT = 0
-    if not hasattr(au.cfg, "pseudo_label_validation"):
-        au.cfg.pseudo_label_validation = OmegaConf.create({})
-    au.cfg.pseudo_label_validation.enable = False
-
-    au.align_more_instances(
-        ds,
-        backbone,
-        [proj],
-        batch_size=3,
-        device="cpu",
-        metric="closest",
-    )
-
-    assigned = ds.aligned[ds.aligned != -1]
-    assert assigned.numel() == len(ds.unique_words)
-    assert torch.unique(assigned).numel() == len(ds.unique_words)
-
 
 def test_initial_pseudo_labels_logged(monkeypatch):
     """Initial aligned samples are logged as round 0."""
@@ -681,6 +563,7 @@ def test_align_more_instances_real_vocab_only(monkeypatch):
 
     backbone = DummyBackbone()
     proj = torch.nn.Identity()
+    proj.output_dim = 1
 
     feats = torch.arange(1, len(fused) + 1, dtype=torch.float32).view(len(fused), 1)
     monkeypatch.setattr(au, "harvest_backbone_features", lambda *a, **k: (feats, fused.aligned))
@@ -776,55 +659,4 @@ def test_train_projector_fused_dataset(monkeypatch):
 
     assert captured["shape"][0] == 1
 
-
-def test_projection_aligner_entropy_error():
-    """Requesting metric='entropy' raises a ValueError."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    with pytest.raises(ValueError):
-        au.ProjectionAligner(ds, backbone, [proj], metric="entropy", device="cpu")
-
-
-def test_update_dataset_no_overwrite():
-    """_update_dataset rejects indices that are already labelled."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    aligner = au.ProjectionAligner(ds, backbone, [proj], device="cpu")
-
-    with pytest.raises(AssertionError):
-        aligner._update_dataset(torch.tensor([0]), torch.tensor([0, 0]))
-
-
-def test_update_dataset_fused_real_only():
-    """Fused dataset only accepts real samples for labelling."""
-
-    from alignment import alignment_utilities as au
-
-    real = DummyHTRDataset()
-    real.aligned = torch.tensor([-1, -1], dtype=torch.int64)
-    syn = DummyPretrainDataset()
-    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
-    fused.word_emb_dim = 2
-    fused.unique_word_embeddings = torch.zeros((len(fused.unique_words), 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    aligner = au.ProjectionAligner(fused, backbone, [proj], device="cpu")
-
-    with pytest.raises(AssertionError):
-        aligner._update_dataset(torch.tensor([len(real)]), torch.zeros(len(fused), dtype=torch.int64))
 
