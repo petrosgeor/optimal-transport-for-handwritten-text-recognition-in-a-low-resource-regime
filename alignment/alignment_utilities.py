@@ -116,6 +116,7 @@ class ProjectionAligner:
         batch_size: int = 512,
         device: str = cfg.device,
         k: int = 0,
+        debug_checks: bool = True,
     ) -> None:
         """Initialise the projection aligner.
 
@@ -126,6 +127,7 @@ class ProjectionAligner:
             batch_size (int): Mini-batch size during descriptor harvesting.
             device (str): Device used for alignment.
             k (int): Number of least-moved descriptors to pseudo-label.
+            debug_checks (bool): Whether to run sanity checks during alignment.
 
         Returns:
             None
@@ -137,6 +139,7 @@ class ProjectionAligner:
         self.batch_size = batch_size
         self.device = device
         self.k = k
+        self.debug_checks = debug_checks
 
         self.word_embeddings = dataset.unique_word_embeddings.to(self.device)
         self.real_word_indices = dataset.real_word_indices
@@ -229,8 +232,19 @@ class ProjectionAligner:
         chosen_words    = pred_word_idx[topk_local].cpu().to(
                              dtype=self.dataset.aligned.dtype)            # (k,)
 
+        if self.debug_checks:
+            prev_aligned = self.dataset.aligned.clone()
+            prev_real_vocab = self.real_word_indices.clone()
+            prev_syn_vocab = self.synth_word_indices.clone()
+            vocab_size_before = len(self.dataset.unique_words)
+
         # ── 6. Update the dataset alignment tensor in‑place --------------
         self.dataset.aligned[chosen_global] = chosen_words                # ✔ global mapping
+
+        if self.debug_checks:
+            self._assert_alignment_invariants(
+                prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before
+            )
 
         # ── 7. Build "moved" vector for the whole dataset ----------------
         moved = torch.full((proj_feats_mean.size(0),), float("inf"),
@@ -240,6 +254,46 @@ class ProjectionAligner:
 
         # Return mean projector features and moved distance
         return proj_feats_mean.cpu(), moved
+
+    def _assert_alignment_invariants(
+        self,
+        prev_aligned: torch.Tensor,
+        prev_real_vocab: torch.Tensor,
+        prev_syn_vocab: torch.Tensor,
+        vocab_size_before: int,
+    ) -> None:
+        """Check that alignment did not violate invariants.
+
+        Args:
+            prev_aligned (torch.Tensor): Alignment tensor before the update.
+            prev_real_vocab (torch.Tensor): Previous real-word indices.
+            prev_syn_vocab (torch.Tensor): Previous synthetic-word indices.
+            vocab_size_before (int): Vocabulary size prior to alignment.
+
+        Returns:
+            None
+        """
+
+        changed = (prev_aligned != -1) & (
+            self.dataset.aligned != prev_aligned
+        )
+        assert not changed.any(), "Aligned samples were modified"
+
+        new_ids = self.dataset.aligned[prev_aligned == -1]
+        assert torch.isin(new_ids, self.real_word_indices).all(), (
+            "New labels must come from real vocabulary"
+        )
+        assert len(self.dataset.unique_words) == vocab_size_before, (
+            "Vocabulary size changed during alignment"
+        )
+        assert torch.equal(self.real_word_indices, prev_real_vocab), (
+            "Real-word indices changed"
+        )
+        assert torch.equal(self.synth_word_indices, prev_syn_vocab), (
+            "Synthetic-word indices changed"
+        )
+        if self.k > 0:
+            assert new_ids.numel() <= self.k, "More than k new labels assigned"
 
 
         
