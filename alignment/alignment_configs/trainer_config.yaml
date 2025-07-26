@@ -48,7 +48,7 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
-gpu_id: 0                   # which CUDA device index to use
+gpu_id: 1                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle

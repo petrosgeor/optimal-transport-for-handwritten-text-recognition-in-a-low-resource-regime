@@ -222,7 +222,7 @@ def refine_visual_backbone(
             T, B, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
-            targets, tgt_lens = encode_for_ctc(list(words), c2i, device="cpu")
+            targets, tgt_lens = encode_for_ctc(list(words), c2i, device="cuda")
             inp_lens = torch.full((B,), T, dtype=torch.int32, device=device)
 
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
@@ -414,7 +414,7 @@ def train_projector(  # pylint: disable=too-many-arguments
                 # Backpropagation and optimization
                 loss.backward()
                 
-                torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0);
 
                 optimiser.step()
                 optimiser.zero_grad(set_to_none=True)
@@ -636,7 +636,7 @@ if __name__ == "__main__":
 
     real_ds = HTRDataset(
         basefolder=str(basefolder),
-        subset=ds_cfg.subset,
+        subset='test',
         fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,

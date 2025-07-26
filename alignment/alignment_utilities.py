@@ -162,7 +162,7 @@ class ProjectionAligner:
 
     def __init__(
         self,
-        dataset: HTRDataset | FusedHTRDataset,
+        dataset: FusedHTRDataset,
         backbone: HTRNet,
         projectors: Sequence[nn.Module],
         *,
@@ -611,7 +611,7 @@ class ProjectionAligner:
 
 @torch.no_grad()
 def align_more_instances(
-    dataset: HTRDataset | FusedHTRDataset,
+    dataset: FusedHTRDataset,
     backbone: HTRNet,
     projectors: Sequence[nn.Module],
     *,

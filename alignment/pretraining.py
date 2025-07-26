@@ -242,7 +242,7 @@ def main(config: dict | None = None) -> Path:
             for name, tens in {"main_logits":main_logits, "aux_logits":aux_logits, "features":features}.items(): _assert_finite(tens, name)
 
             # Prepare CTC targets
-            targets, lengths = encode_for_ctc(list(txts), c2i)
+            targets, lengths = encode_for_ctc(list(txts), c2i, device=device)
             assert targets.max() < nclasses, "target contains index out of nclasses range"
             inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
 
