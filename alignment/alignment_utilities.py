@@ -177,12 +177,19 @@ class ProjectionAligner:
         # 2. Initialize a tensor to store the outputs of each projector.
         # The shape is (num_projectors, num_samples, word_embedding_dim).
         proj_feats = torch.zeros((len(self.projectors), n_samles, word_emb_dim))
+
+        # set projectors in evaluation mode
+        for proj in self.projectors(): 
+            proj.eval()
         
         # 3. Pass the descriptors through each projector to get embeddings.
         with torch.no_grad():
             for i, proj in enumerate(self.projectors):
                 proj_feats[i] = proj(feats_all.to(self.device)).cpu()
         
+        for proj in self.projectors(): 
+            proj.train()
+
         return proj_feats, aligned_all
 
 
@@ -367,12 +374,25 @@ class ProjectionAligner:
         if total_now:
             print(
                 f"[Align] Round accuracy (real): "
-                f"{correct_now}/{total_now} correct  ({acc_now:.2%})"
+                f"{correct_now}/{total_now} correct ({acc_now:.2%}) "
             )
-        print(
-            f"[Align] Cumulative accuracy (real): "
-            f"{correct_cum}/{total_cum}  ({acc_cum:.2%})"
-        )
+            print(
+                f"[Align] Cumulative accuracy (real): "
+                f"{correct_cum}/{total_cum} ({acc_cum:.2%}) "
+            )
+
+            # ── 4. Print 5 random predictions and ground truths ─────────
+            # Filter new real indices for sampling
+            new_real_indices = [idx for idx in new_indices.tolist() if self.is_real[idx]]
+            if new_real_indices:
+                # Sample up to 5 indices
+                sampled_indices = random.sample(new_real_indices, min(5, len(new_real_indices)))
+                print("[Align] Sample predictions (index: prediction -> ground truth):")
+                for idx in sampled_indices:
+                    word_id = int(self.dataset.aligned[idx])
+                    pred_word = self.dataset.unique_words[word_id] if word_id != -1 else "<UNLABELLED>"
+                    true_word = self.dataset.transcriptions[idx]
+                    print(f"  {idx}: '{pred_word}' -> '{true_word}'")
 
 
         

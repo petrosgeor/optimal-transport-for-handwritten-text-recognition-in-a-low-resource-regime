@@ -140,9 +140,11 @@ def plot_tsne_embeddings(
     # print(f"Performing t-SNE transformation on {features.shape[0]} samples...")
     # Ensure features are on CPU and are NumPy arrays for scikit-learn
     features_np = features.cpu().numpy()
-
-    tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(features_np) - 1), init='pca', learning_rate='auto')
-    tsne_results = tsne.fit_transform(features_np)
+    import warnings
+    with warnings.catch_warnings(): 
+        warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.manifold._t_sne")
+        tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(features_np) - 1), init='pca', learning_rate='auto')
+        tsne_results = tsne.fit_transform(features_np)
 
     # print("t-SNE transformation complete.")
 

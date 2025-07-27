@@ -45,6 +45,15 @@ from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 
+
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    message=".*kenlm python bindings are not installed.*",
+    category=UserWarning, # Specify category if needed, or omit
+)
+
+
 def _assert_finite(t: torch.Tensor, where: str) -> None:
     """Assert that ``t`` contains no ``NaN`` or ``Inf`` values.
 
@@ -634,7 +643,7 @@ if __name__ == "__main__":
 
     real_ds = HTRDataset(
         basefolder=str(basefolder),
-        subset='test',
+        subset='train_val',
         fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,
