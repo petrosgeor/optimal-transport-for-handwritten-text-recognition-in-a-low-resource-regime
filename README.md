@@ -435,7 +435,7 @@ class ProjectionAligner:
 *   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels unaligned samples and
     returns mean projector features and moved distances.
 *   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Ensure dataset integrity after alignment.
-
+*   `_log_results(new_indices: torch.Tensor) -> None`:  Prints the current accuracy for the epoch we are on. Also prints 5 random predictions (index, predicted word, ground truth word) from the newly pseudo-labelled real samples for the current round.
 
 
 
