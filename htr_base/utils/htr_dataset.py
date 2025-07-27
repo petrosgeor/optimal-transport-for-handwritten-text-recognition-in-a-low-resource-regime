@@ -525,7 +525,7 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         # Compute joint vocabulary and word embeddings
         self.unique_words, self.unique_word_probs = self.word_frequencies()
         self.unique_word_embeddings = self.find_word_embeddings(
-            self.unique_words, n_components=50
+            self.unique_words, n_components=self.word_emb_dim
         )
 
         # Track indices of words originating from real and synthetic datasets
