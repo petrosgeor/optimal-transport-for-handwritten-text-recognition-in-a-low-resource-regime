@@ -304,7 +304,7 @@ def refine_visual_backbone(
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
             # Encode transcriptions for CTC loss
-            targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
+            targets, tgt_lens = encode_for_ctc(words, c2i, device=device)
 
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
             # Compute CTC losses for main and auxiliary heads
@@ -547,12 +547,7 @@ def alternating_refinement(
     # Set default alignment arguments from config
     align_kwargs.setdefault("batch_size", cfg.align_batch_size)
     align_kwargs.setdefault("device", cfg.align_device)
-    align_kwargs.setdefault("reg", cfg.align_reg)
-    align_kwargs.setdefault("unbalanced", cfg.align_unbalanced)
-    align_kwargs.setdefault("reg_m", cfg.align_reg_m)
     align_kwargs.setdefault("k", cfg.align_k)
-    align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
-    align_kwargs.setdefault("metric", cfg.metric)
 
     test_dataset = HTRDataset(
         basefolder=dataset.basefolder,
@@ -636,7 +631,14 @@ def alternating_refinement(
         # Save current alignment state before pseudo-labelling
         prev_aligned = dataset.aligned.clone()
         # Perform Optimal Transport alignment to pseudo-label more instances
-        align_more_instances(dataset, backbone, projectors, **align_kwargs)
+        align_more_instances(
+            dataset,
+            backbone,
+            projectors,
+            batch_size=align_kwargs.get("batch_size", cfg.align_batch_size),
+            device=align_kwargs.get("device", cfg.align_device),
+            k=align_kwargs.get("k", cfg.align_k),
+        )
         changed = torch.nonzero(
             (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
         )[0]
