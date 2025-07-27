@@ -179,7 +179,7 @@ class ProjectionAligner:
         proj_feats = torch.zeros((len(self.projectors), n_samles, word_emb_dim))
 
         # set projectors in evaluation mode
-        for proj in self.projectors(): 
+        for proj in self.projectors: 
             proj.eval()
         
         # 3. Pass the descriptors through each projector to get embeddings.
@@ -187,7 +187,7 @@ class ProjectionAligner:
             for i, proj in enumerate(self.projectors):
                 proj_feats[i] = proj(feats_all.to(self.device)).cpu()
         
-        for proj in self.projectors(): 
+        for proj in self.projectors: 
             proj.train()
 
         return proj_feats, aligned_all
