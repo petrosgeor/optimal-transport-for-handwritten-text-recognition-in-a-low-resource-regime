@@ -400,12 +400,12 @@ def align_more_instances(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
 ```
 
-*   `dataset` (HTRDataset): Dataset providing images and `unique_word_embeddings`.
+*   `dataset` (HTRDataset | FusedHTRDataset): Dataset to be aligned.
 *   `backbone` (HTRNet): `HTRNet` used to extract visual descriptors.
 *   `projectors` (Sequence[nn.Module]): List of projectors mapping descriptors to the embedding space.
 *   `batch_size` (int): Mini-batch size when harvesting descriptors.
 *   `device` (str): Device used for feature extraction and alignment.
-*   `k` (int): Number of least-moved descriptors to pseudo-label.
+*   `k` (int): Number of samples to pseudo-label.
 
 **Returns:**
 *   `torch.Tensor`: Mean projector features for each dataset item.
@@ -457,7 +457,6 @@ def select_uncertain_instances(
 *   `m` (int): Number of indices to return.
 *   `transport_plan` (np.ndarray | None): OT plan of shape `(N, V)`. Required for `metric='entropy'`.
 *   `dist_matrix` (np.ndarray | None): Pre-computed pairwise distances `(N, V)`. Required for `metric='gap'`.
-*   `metric` (str): Either `'gap'` or `'entropy'` selecting the uncertainty measure. Also supports `'variance'`.
 
 **Returns:**
 *   `np.ndarray`: Array of `m` indices sorted by decreasing uncertainty.
@@ -926,17 +925,12 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `alt_rounds` (int): Number of backbone/projector cycles per pass.
 *   `align_batch_size` (int): Mini-batch size when harvesting descriptors for alignment.
 *   `align_device` (str): Device used during alignment post-processing.
-*   `align_reg` (float): Entropic regularisation for Sinkhorn algorithm.
-*   `align_unbalanced` (bool): Use unbalanced Optimal Transport (OT) formulation.
-*   `align_reg_m` (float): Mass regularisation when unbalanced OT is used.
 *   `align_k` (int): Pseudo-label this many least-moved descriptors.
-*   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
 *   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
 *   `dataset.word_prob_mode` (str): `'empirical'` or `'wordfreq'` for word priors.
 *   `n_aligned` (int): Number of initially aligned instances.
 *   `ensemble_size` (int): Size of the projector ensemble.
-*   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
