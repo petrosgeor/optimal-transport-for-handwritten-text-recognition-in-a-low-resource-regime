@@ -395,11 +395,6 @@ def align_more_instances(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
             Mean projector features and moved distance for each sample.
-
-    When ``cfg.pseudo_label_validation.enable`` is ``True`` this function
-    calls :meth:`ProjectionAligner.validate_pseudo_labels` after the alignment
-    round once ``align_more_instances`` has been invoked at least
-    ``start_iteration`` times.
     """
     global _ALIGN_CALL_COUNT
     _ALIGN_CALL_COUNT += 1

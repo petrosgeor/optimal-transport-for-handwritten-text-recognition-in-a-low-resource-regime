@@ -124,7 +124,7 @@ The overall training proceeds in alternating cycles of three phases, tightly cou
 |      on aligned samples.                          |   |
 |   2. `train_projector`: Trains projector(s) to    |   |
 |      map features to embedding space.             |   |
-|   3. `align_more_instances` (via OTAligner):      |   |
+|   3. `align_more_instances` (via ProjectionAligner):      |   |
 |      Aligns more dataset instances using Optimal  |---+
 |      Transport.                                   |
 +-------------------------+-------------------------+

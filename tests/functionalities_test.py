@@ -392,70 +392,8 @@ def test_alternating_refinement_calls_cer(monkeypatch):
     assert {"train_val", "test"} == subsets
 
 
-def test_validate_pseudo_labels(monkeypatch):
-    """Samples with large edit distance are un-aligned."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    aligner = au.OTAligner(ds, backbone, [proj], batch_size=2, device="cpu")
-
-    def fake_decode(logits, i2c, **kwargs):
-        return ["gt1", "oops"]
-
-    monkeypatch.setattr(au, "greedy_ctc_decode", fake_decode)
-
-    removed = aligner.validate_pseudo_labels(edit_threshold=3, batch_size=2)
-
-    assert removed == 1
-    assert ds.aligned.tolist() == [0, -1]
-
-
-def test_align_more_instances_gated_validation(monkeypatch):
-    """``validate_pseudo_labels`` runs only after ``start_iteration``."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    # patch align and validation to track invocations
-    monkeypatch.setattr(au.OTAligner, "align", lambda self: (torch.empty(0), torch.empty(0), torch.empty(0)))
-
-    calls = []
-
-    def fake_validate(self, edit_threshold, batch_size, decode_cfg=None):
-        calls.append(edit_threshold)
-
-    monkeypatch.setattr(au.OTAligner, "validate_pseudo_labels", fake_validate)
-
-    # set config and reset counter
-    au._ALIGN_CALL_COUNT = 0
-    if not hasattr(au.cfg, "pseudo_label_validation"):
-        au.cfg.pseudo_label_validation = OmegaConf.create({})
-    au.cfg.pseudo_label_validation.enable = True
-    au.cfg.pseudo_label_validation.edit_distance = 3
-    au.cfg.pseudo_label_validation.start_iteration = 2
-
-    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
-    assert len(calls) == 0
-
-    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
-    assert len(calls) == 1
-
-
-
-
 def test_align_closest_per_word():
-    """Each word receives one pseudo-label when metric='closest'."""
+    """Each word receives one pseudo-label."""
 
     from alignment import alignment_utilities as au
 
@@ -468,6 +406,7 @@ def test_align_closest_per_word():
             ])
             self.unique_word_probs = [1 / 5] * 5
             self.aligned = torch.full((5,), -1, dtype=torch.int32)
+            self.real_word_indices = torch.arange(len(self.unique_words))
             self.imgs = [torch.full((1, 2, 2), float(i)) for i in range(5)]
             self.transcriptions = ["" for _ in range(5)]
             self.transforms = None
@@ -491,6 +430,7 @@ def test_align_closest_per_word():
     ds = TinyDataset()
     backbone = SimpleBackbone()
     proj = torch.nn.Identity()
+    proj.output_dim = 2
 
     au._ALIGN_CALL_COUNT = 0
     if not hasattr(au.cfg, "pseudo_label_validation"):
@@ -503,7 +443,6 @@ def test_align_closest_per_word():
         [proj],
         batch_size=3,
         device="cpu",
-        metric="closest",
     )
 
     assigned = ds.aligned[ds.aligned != -1]
