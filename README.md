@@ -334,73 +334,50 @@ class PretrainingHTRDataset(Dataset):
 
 ### Alignment Utilities
 
-#### OTAligner
+#### ProjectionAligner
 
 Located in: `alignment/alignment_utilities.py`
 
-Helper class implementing the Optimal Transport (OT) pseudo-labelling routine.
+Helper class implementing projection-based pseudo-labelling.
 
 ```python
-class OTAligner:
+class ProjectionAligner:
     def __init__(
         self,
         dataset: HTRDataset,
         backbone: HTRNet,
         projectors: Sequence[nn.Module],
         *,
-        batch_size: int = 512,
+        batch_size: int = 64,
         device: str = cfg.device,
-        reg: float = 0.1,
-        unbalanced: bool = False,
-        reg_m: float = 1.0,
-        sinkhorn_kwargs: Optional[dict] = None,
         k: int = 0,
-        metric: str = "entropy",
-        agree_threshold: int = 1,
+        debug_checks: bool = True,
     ) -> None:
 ```
 
-*   `dataset` (HTRDataset): Dataset providing images and alignment information.
-*   `backbone` (HTRNet): Visual encoder used to extract per-image descriptors.
-*   `projectors` (Sequence[nn.Module]): List of projector modules.
-*   `batch_size` (int): Mini-batch size when forwarding the dataset.
-*   `device` (str): Device on which the backbone runs.
-*   `reg` (float): Entropic regularisation strength.
-*   `unbalanced` (bool): Use unbalanced OT formulation.
-*   `reg_m` (float): Additional mass regularisation when unbalanced OT is used.
-*   `sinkhorn_kwargs` (dict): Additional arguments for the OT solver.
-*   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): Alignment certainty measure used to choose which samples
-    to pseudo-label. Supported values:
-    `'gap'`, `'entropy'`, `'variance'`, **`'closest'`**.
-    – **`'closest'`** assigns **one** still-unaligned image to **every**
-      word embedding: for each word *w* the unaligned descriptor with the
-      smallest Euclidean distance to *w* is pseudo-labelled (subject to the
-      ensemble agreement threshold).
-*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
+*   `dataset` (HTRDataset): Dataset providing images and alignment info.
+*   `backbone` (HTRNet): Visual backbone network.
+*   `projectors` (Sequence[nn.Module]): Ensemble of projectors.
+*   `batch_size` (int): Mini-batch size during descriptor harvesting.
+*   `device` (str): Device used for alignment.
+*   `k` (int): Number of descriptors to pseudo-label.
+*   `debug_checks` (bool): Enable sanity checks during alignment.
 **Attributes:**
 *   `dataset` (HTRDataset): Dataset being aligned.
 *   `backbone` (HTRNet): Visual backbone network.
 *   `projectors` (list[nn.Module]): Projector ensemble.
-*   `batch_size` (int): Mini-batch size used during feature harvesting.
-*   `device` (torch.device): Device used during descriptor extraction.
-*   `reg` (float): Entropic regularisation parameter.
-*   `unbalanced` (bool): Whether unbalanced OT is used.
-*   `reg_m` (float): Mass regularisation for unbalanced OT.
-*   `sinkhorn_kwargs` (dict): Extra arguments forwarded to the Sinkhorn solver.
-*   `k` (int): Number of descriptors to pseudo-label per iteration.
-*   `metric` (str): Measure to rank candidate descriptors.
-*   `agree_threshold` (int): Required number of agreeing projectors.
-*   `word_embs` (torch.Tensor): Word embeddings stored on `device`.
+*   `batch_size` (int): Mini-batch size used when extracting descriptors.
+*   `device` (torch.device): Device on which alignment is performed.
+*   `k` (int): Number of pseudo labels per alignment round.
+*   `debug_checks` (bool): Whether sanity checks are run.
+*   `word_embeddings` (torch.Tensor): Real-word embeddings stored on `device`.
+*   `real_word_indices` (torch.Tensor): Indices of real vocabulary entries.
 
 **Methods:**
-*   `_calculate_ot(proj_feats)` -> Tuple[torch.Tensor, np.ndarray]: Compute OT projection and transport plan.
-*   `_get_projector_outputs()` -> dict: Run projectors on the dataset and gather OT statistics.
-*   `_select_candidates(counts, dist_matrix, plan, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
-*   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
-*   `_log_results(chosen, nearest_word, moved_dist, dist_matrix, plan, var_scores)` -> None: Print alignment statistics.
-*   `validate_pseudo_labels(edit_threshold, batch_size, decode_cfg, num_workers)` -> int: Drop unreliable pseudo-labels based on backbone predictions.
-*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one OT iteration and return the transport plan, projected descriptors and moved distances.
+*   `_get_projector_features() -> Tuple[torch.Tensor, torch.Tensor]`: Harvest projector outputs and alignment flags for the whole dataset.
+*   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Perform one alignment round and return mean features and moved distances.
+*   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Verify dataset consistency after updating labels.
+*   `_log_results(new_indices) -> None`: Print alignment statistics for the current round.
 
 
 
@@ -409,7 +386,7 @@ class OTAligner:
 
 Located in: `alignment/alignment_utilities.py`
 
-Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility. When `pseudo_label_validation.enable` is set in the configuration, it calls `validate_pseudo_labels` after alignment once `align_more_instances` has been invoked at least `start_iteration` times.
+Pseudo-labels dataset images using ``ProjectionAligner``.
 
 ```python
 def align_more_instances(
@@ -417,35 +394,22 @@ def align_more_instances(
     backbone: HTRNet,
     projectors: Sequence[nn.Module],
     *,
-    batch_size: int = 512,
+    batch_size: int = 64,
     device: str = cfg.device,
-    reg: float = 0.1,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
-    sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
-    metric: str = "entropy",
-    agree_threshold: int = 1,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor]:
 ```
 
 *   `dataset` (HTRDataset): Dataset providing images and `unique_word_embeddings`.
 *   `backbone` (HTRNet): `HTRNet` used to extract visual descriptors.
 *   `projectors` (Sequence[nn.Module]): List of projectors mapping descriptors to the embedding space.
 *   `batch_size` (int): Mini-batch size when harvesting descriptors.
-*   `device` (str): Device used for feature extraction, descriptor processing and the projector.
-*   `reg` (float): Entropic regularisation for Sinkhorn.
-*   `unbalanced` (bool): Use unbalanced OT formulation.
-*   `reg_m` (float): Additional unbalanced regularisation parameter.
-*   `sinkhorn_kwargs` (dict): Extra arguments for the Sinkhorn solver.
+*   `device` (str): Device used for feature extraction and alignment.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): `'gap'`, `'entropy'`, `'variance'`, or `'closest'` selecting the uncertainty measure.
-*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
 
 **Returns:**
-*   `torch.Tensor`: The OT transport plan.
-*   `torch.Tensor`: The projected descriptors after OT.
-*   `torch.Tensor`: The distance moved by each descriptor.
+*   `torch.Tensor`: Mean projector features for each dataset item.
+*   `torch.Tensor`: Distance moved by each descriptor.
 
 #### harvest_backbone_features
 
