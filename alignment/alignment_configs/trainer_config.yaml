@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------
 # Backbone refinement
 # ----------------------------------------------------------------------
-refine_batch_size: 128      # mini-batch size used when fine-tuning the backbone
+refine_batch_size: 256      # mini-batch size used when fine-tuning the backbone
 refine_lr: 1e-3             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
@@ -74,7 +74,7 @@ dataset:
   word_emb_dim: 512         # Dimension of word embeddings
   two_views: false          # Enable or disable two-view training
   word_prob_mode: wordfreq # Can take the values 'empirical' or 'wordfreq'
-ensemble_size: 9            # Size of the projector ensemble
+ensemble_size: 3            # Size of the projector ensemble
 supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------

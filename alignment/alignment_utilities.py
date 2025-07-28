@@ -142,8 +142,6 @@ class ProjectionAligner:
         self.debug_checks = debug_checks
 
         self.word_embeddings = dataset.unique_word_embeddings.to(self.device)
-        self.real_word_indices = dataset.real_word_indices
-
 
     def _get_projector_features(self):
         """Harvests backbone features and computes projector outputs.

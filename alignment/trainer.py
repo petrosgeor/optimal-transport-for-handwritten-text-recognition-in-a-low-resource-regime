@@ -3,6 +3,13 @@ import os
 import sys
 from pathlib import Path
 from omegaconf import OmegaConf
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    message="The PCA initialization in TSNE will change to have the standard deviation of PC1 equal to 1e-4 in 1.2.",
+)
 
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
@@ -264,6 +271,7 @@ def refine_visual_backbone(
         contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
     # Training loop for backbone refinement
     for epoch in range(1, num_epochs + 1):
+        print(epoch)
         epoch_loss: float = 0.0
         effective_batches = 0
         for batch in epoch_loader:
@@ -683,7 +691,7 @@ if __name__ == "__main__":
 
     dataset = HTRDataset(
         basefolder=str(basefolder),
-        subset=ds_cfg.subset,
+        subset='test',
         fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,
