@@ -205,66 +205,60 @@ class ProjectionAligner:
         unbalanced: bool = False,
         reg_m: float = 1.0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Compute OT projections of ``X`` onto ``Y`` using the POT library.
+        """
+        Compute the barycentric projections of source features X onto target features Y
+        by solving an entropic-regularised optimal transport (OT) problem entirely in PyTorch.
+
+        This variant:
+        - Uses the input mass vectors pa and pb as-provided (no internal ℓ¹ normalisation).
+        - Computes projections for all samples, even if a sample receives zero total mass.
 
         Parameters
         ----------
-        pa : torch.Tensor
-            Source distribution over ``X`` of shape ``(N,)``.
-        X : torch.Tensor
-            Source features of shape ``(N, D)``.
-        pb : torch.Tensor
-            Target distribution over ``Y`` of shape ``(M,)``.
-        Y : torch.Tensor
-            Target features of shape ``(M, D)``.
-        reg : float, optional
-            Entropic regularisation.
-        unbalanced : bool, optional
-            Use unbalanced OT formulation if ``True``.
-        reg_m : float, optional
-            Unbalanced mass regularisation.
+        pa : torch.Tensor, shape (N,)
+            Source mass distribution over X. 
+        X : torch.Tensor, shape (N, D)
+            Source feature matrix.
+        pb : torch.Tensor, shape (M,)
+            Target mass distribution over Y.
+        Y : torch.Tensor, shape (M, D)
+            Target feature matrix.
+        reg : float, default 0.1
+            Entropic regularisation strength.
+        unbalanced : bool, default False
+            If True, uses the unbalanced OT formulation (requires  reg_m).
+        reg_m : float, default 1.0
+            Mass regularisation parameter when unbalanced=True.
 
         Returns
         -------
-        projections : torch.Tensor
-            ``X`` projected in the space of ``Y`` (``(N, D)``).
-        plan : torch.Tensor
-            Optimal transport plan of shape ``(N, M)``.
+        projections : torch.Tensor, shape (N, D)
+            Barycentric projections of X in the space of Y:
+                projection_i = (∑_j T_ij * Y_j) / (∑_j T_ij)
+            (division by zero yields NaN/Inf as appropriate).
+        plan : torch.Tensor, shape (N, M)
+            Optimal transport plan solving the regularised OT problem.
         """
+        # Bring pa, pb to same device and ensure contiguity
+        pa = pa.to(X.device, non_blocking=True).contiguous()
+        pb = pb.to(Y.device, non_blocking=True).contiguous()
 
+        # Squared-Euclidean cost matrix M_{i,j} = ||x_i - y_j||^2
+        M = torch.cdist(X, Y, p=2).pow(2)  # (N, M)
 
-        # Convert torch tensors to numpy for POT library
-        pa_np = pa.detach().cpu().numpy()
-        X_np = X.detach().cpu().numpy()
-        pb_np = pb.detach().cpu().numpy()
-        Y_np = Y.detach().cpu().numpy()
-
-        # Compute cost matrix
-        M_np = ot.dist(X_np, Y_np)
-
-        # Compute transport plan
+        # Solve OT in PyTorch backend
         if unbalanced:
-            T_np = ot.unbalanced.sinkhorn_unbalanced(
-                pa_np, pb_np, M_np, reg, reg_m)
+            plan = ot.unbalanced.sinkhorn_unbalanced(
+                pa, pb, M, reg=reg, reg_m=reg_m)                                # (N, M)
         else:
-            T_np = ot.sinkhorn(pa_np, pb_np, M_np, reg=reg)
+            plan = ot.sinkhorn(pa, pb, M, reg=reg)  # (N, M)
 
-        # Compute projections
-        row_sum_np = T_np.sum(axis=1, keepdims=True)
-        # Safe division to avoid NaNs
-        inv_row_sum_np = np.divide(
-            1.0, row_sum_np, out=np.zeros_like(row_sum_np), where=(row_sum_np != 0)
-        )
-        projections_np = inv_row_sum_np * (T_np @ Y_np)
-        
-        # Sanity check for finite values
-        assert np.all(np.isfinite(projections_np)), "Non-finite values in projections"
-
-        # Convert results back to torch tensors
-        projections = torch.from_numpy(projections_np).to(X.dtype).to(X.device)
-        plan = torch.from_numpy(T_np).to(X.dtype).to(X.device)
+        # Barycentric projections for all samples
+        row_sum = plan.sum(dim=1, keepdim=True)  # (N, 1)
+        projections = (plan @ Y) / row_sum       # (N, D)
 
         return projections, plan
+
 
     @torch.no_grad()
     def align(self) -> tuple[torch.Tensor, torch.Tensor]:
