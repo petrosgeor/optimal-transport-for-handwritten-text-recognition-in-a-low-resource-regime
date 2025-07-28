@@ -15,6 +15,7 @@ from omegaconf import OmegaConf
 import editdistance
 from torch.utils.data import DataLoader, Subset
 from alignment.ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
+import ot
 
 cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 
@@ -192,6 +193,78 @@ class ProjectionAligner:
 
         return proj_feats, aligned_all
 
+    @torch.no_grad()
+    def calculate_ot_projections(
+        self,
+        pa: torch.Tensor,
+        X: torch.Tensor,
+        pb: torch.Tensor,
+        Y: torch.Tensor,
+        reg: float = 0.1,
+        *,
+        unbalanced: bool = False,
+        reg_m: float = 1.0,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Compute OT projections of ``X`` onto ``Y`` using the POT library.
+
+        Parameters
+        ----------
+        pa : torch.Tensor
+            Source distribution over ``X`` of shape ``(N,)``.
+        X : torch.Tensor
+            Source features of shape ``(N, D)``.
+        pb : torch.Tensor
+            Target distribution over ``Y`` of shape ``(M,)``.
+        Y : torch.Tensor
+            Target features of shape ``(M, D)``.
+        reg : float, optional
+            Entropic regularisation.
+        unbalanced : bool, optional
+            Use unbalanced OT formulation if ``True``.
+        reg_m : float, optional
+            Unbalanced mass regularisation.
+
+        Returns
+        -------
+        projections : torch.Tensor
+            ``X`` projected in the space of ``Y`` (``(N, D)``).
+        plan : torch.Tensor
+            Optimal transport plan of shape ``(N, M)``.
+        """
+
+
+        # Convert torch tensors to numpy for POT library
+        pa_np = pa.detach().cpu().numpy()
+        X_np = X.detach().cpu().numpy()
+        pb_np = pb.detach().cpu().numpy()
+        Y_np = Y.detach().cpu().numpy()
+
+        # Compute cost matrix
+        M_np = ot.dist(X_np, Y_np)
+
+        # Compute transport plan
+        if unbalanced:
+            T_np = ot.unbalanced.sinkhorn_unbalanced(
+                pa_np, pb_np, M_np, reg, reg_m)
+        else:
+            T_np = ot.sinkhorn(pa_np, pb_np, M_np, reg=reg)
+
+        # Compute projections
+        row_sum_np = T_np.sum(axis=1, keepdims=True)
+        # Safe division to avoid NaNs
+        inv_row_sum_np = np.divide(
+            1.0, row_sum_np, out=np.zeros_like(row_sum_np), where=(row_sum_np != 0)
+        )
+        projections_np = inv_row_sum_np * (T_np @ Y_np)
+        
+        # Sanity check for finite values
+        assert np.all(np.isfinite(projections_np)), "Non-finite values in projections"
+
+        # Convert results back to torch tensors
+        projections = torch.from_numpy(projections_np).to(X.dtype).to(X.device)
+        plan = torch.from_numpy(T_np).to(X.dtype).to(X.device)
+
+        return projections, plan
 
     @torch.no_grad()
     def align(self) -> tuple[torch.Tensor, torch.Tensor]:
