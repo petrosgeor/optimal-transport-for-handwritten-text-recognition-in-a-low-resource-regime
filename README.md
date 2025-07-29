@@ -434,7 +434,7 @@ class ProjectionAligner:
     descriptors and returns projector outputs and alignment flags.
 *   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels unaligned samples and
     returns mean projector features and moved distances.
-*   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Ensure dataset integrity after alignment.
+*   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Raise an error if the dataset alignment tensor changed unexpectedly.
 *   `_log_results(new_indices: torch.Tensor) -> None`:  Prints the current accuracy for the epoch we are on. Also prints 5 random predictions (index, predicted word, ground truth word) from the newly pseudo-labelled real samples for the current round.
 
 
@@ -983,7 +983,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `refine_main_weight` (float): Weight for the main CTC loss branch.
 *   `refine_aux_weight` (float): Weight for the auxiliary CTC loss.
 *   `refine_epochs` (int): Epochs spent refining the backbone.
-*   `syn_batch_ratio` (float): Fraction of each batch drawn from `PretrainingHTRDataset`.
+*   `syn_batch_ratio` (float): Fraction of each batch drawn from the synthetic portion of the fused dataset.
 *   `enable_phoc` (bool): Turn PHOC loss on/off.
 *   `phoc_levels` (list): Descriptor levels for PHOC.
 *   `phoc_loss_weight` (float): Scaling factor for the PHOC loss.
