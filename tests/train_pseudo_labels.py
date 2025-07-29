@@ -14,9 +14,8 @@ Example
 -------
 python train_pseudo_labels.py \
        --results_dir results \
-       --dataset_folder htr_base/data/GW/processed_words \
        --pretrained_backbone htr_base/saved_models/pretrained_backbone.pt \
-       --batch_size 128 --epochs 200 --eval_every 20
+       --batch_size 64 --epochs 200 --eval_every 20
 """
 from __future__ import annotations
 import argparse, glob, os, random
@@ -29,12 +28,7 @@ from types import SimpleNamespace
 #
 #   GPU_ID           – CUDA device identifier.
 #   BATCH_SIZE       – mini-batch size during training.
-#   SYN_BATCH_RATIO  – fraction of each batch drawn from the synthetic
-#                       `PretrainingHTRDataset`.
 #   RESULTS_DIR      – folder containing `pseudo_labels_round_*.txt`.
-#   DATASET_FOLDER   – processed_words dataset folder.
-#   SYN_LIST_FILE    – image list for the synthetic corpus.
-#   SYN_BASE_PATH    – base path of the synthetic images.
 #   NUM_EPOCHS       – number of training epochs.
 #   LR               – optimiser learning rate.
 #   EVAL_EVERY       – evaluation frequency in epochs.
@@ -45,12 +39,8 @@ from types import SimpleNamespace
 GPU_ID = 1
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
 
-BATCH_SIZE = 128
-SYN_BATCH_RATIO = 0.3
+BATCH_SIZE = 64
 RESULTS_DIR = "results"
-DATASET_FOLDER = "htr_base/data/GW/processed_words"
-SYN_LIST_FILE = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
-SYN_BASE_PATH = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px"
 NUM_EPOCHS = 600
 LR = 1e-3
 EVAL_EVERY = 20
@@ -60,7 +50,7 @@ AUX_LOSS_WEIGHT = 0.1
 
 import torch, torch.optim as optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 
 from omegaconf import OmegaConf
 
@@ -71,7 +61,11 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
+from htr_base.utils.htr_dataset import (
+    HTRDataset,
+    PretrainingHTRDataset,
+    FusedHTRDataset,
+)
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
@@ -142,26 +136,6 @@ def _maybe_load_pretrained(net: HTRNet, path: str) -> None:
     else:
         raise FileNotFoundError(f"pretrained_backbone '{path}' not found")
 
-def _mix_batches(real_batch, pre_iter):
-    """Concatenate pseudo-labelled and synthetic batches.
-
-    Args:
-        real_batch (Tuple[torch.Tensor, list, torch.Tensor] | Tuple[torch.Tensor, list]):
-            Batch from the pseudo-labelled loader. The alignment tensor may be present.
-        pre_iter (Iterator | None): Cycling iterator over the synthetic loader.
-
-    Returns:
-        Tuple[torch.Tensor, list]: Combined images and transcriptions.
-    """
-    if len(real_batch) == 3:
-        imgs, words, _ = real_batch
-    else:
-        imgs, words = real_batch
-    if pre_iter is not None:
-        imgs_syn, words_syn = next(pre_iter)
-        imgs = torch.cat([imgs, imgs_syn], dim=0)
-        words = list(words) + list(words_syn)
-    return imgs, list(words)
 
 # ──────────────────── main training routine ----------------------------------
 def main(args) -> None:
@@ -179,18 +153,34 @@ def main(args) -> None:
     config_path = root / "alignment" / "alignment_configs" / "trainer_config.yaml"
     cfg = OmegaConf.load(config_path)
     arch_cfg = SimpleNamespace(**cfg["architecture"])
-    fixed_size = tuple(cfg.dataset.fixed_size)
+    ds_cfg = cfg.dataset
+    syn_cfg = cfg.synthetic_dataset
+
+    fixed_size = tuple(ds_cfg.fixed_size)
 
     # 2. ── build dataset & inject pseudo‑labels ─────────────────────────────
-    basefolder = args.dataset_folder
-    ds_cfg = SimpleNamespace(n_aligned=0, word_emb_dim=cfg.dataset.word_emb_dim)
-    full_ds = HTRDataset(
+    basefolder = ds_cfg.basefolder
+    real_ds = HTRDataset(
         basefolder=basefolder,
         subset="train_val",
-        fixed_size=fixed_size,
+        fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,
+        two_views=ds_cfg.two_views,
+        word_prob_mode=ds_cfg.word_prob_mode,
     )
+
+    syn_ds = PretrainingHTRDataset(
+        list_file=syn_cfg.list_file,
+        base_path=syn_cfg.base_path,
+        n_random=syn_cfg.n_random,
+        fixed_size=tuple(syn_cfg.fixed_size),
+        transforms=aug_transforms,
+        preload_images=syn_cfg.preload_images,
+        random_seed=syn_cfg.random_seed,
+    )
+
+    full_ds = FusedHTRDataset(real_ds, syn_ds, n_aligned=ds_cfg.n_aligned)
 
     pseudo_map, n_correct = _parse_pseudo_files(
         args.results_dir,
@@ -200,34 +190,21 @@ def main(args) -> None:
     if not pseudo_map:
         raise RuntimeError("No pseudo‑labels left after filtering – aborting.")
 
-    # Overwrite the transcriptions *in‑place* with the predicted words
     for idx, pred in pseudo_map.items():
         full_ds.transcriptions[idx] = pred
-        img_path, _old = full_ds.data[idx]
-        full_ds.data[idx] = (img_path, pred)
+        word_id = full_ds.unique_words.index(pred)
+        full_ds.aligned[idx] = word_id
 
-    subset_idx = sorted(pseudo_map.keys())
-    train_ds = Subset(full_ds, subset_idx)
+    aligned_idx = torch.nonzero(full_ds.aligned != -1, as_tuple=True)[0]
+
     unique_words = {
-        full_ds.transcriptions[i].strip().lower()
-        for i in subset_idx
+        full_ds.transcriptions[i].strip().lower() for i in aligned_idx.tolist()
     }
     print(
-        f"[Data] using {len(train_ds)} pseudo‑labelled samples "
-        f"from {len(unique_words)} unique words"
+        f"[Data] using {len(aligned_idx)} pseudo‑labelled samples from {len(unique_words)} unique words"
     )
     print(
-        f"[Data] {n_correct} out of {len(train_ds)} pseudo-labels match the ground truth"
-    )
-
-
-    pretrain_ds = PretrainingHTRDataset(
-        list_file=args.syn_list_file,
-        fixed_size=fixed_size,
-        base_path=args.syn_base_path,
-        transforms=aug_transforms,
-        n_random=20000,
-        preload_images=False,
+        f"[Data] {n_correct} out of {len(aligned_idx)} pseudo-labels match the ground truth"
     )
 
     # 3. ── model, vocab, optimiser ─────────────────────────────────────────
@@ -241,29 +218,13 @@ def main(args) -> None:
     scheduler = optim.lr_scheduler.StepLR(opt, step_size=200, gamma=0.1)
 
     # 4. ── loaders ─────────────────────────────────────────────────────────
-    syn_bs = int(args.batch_size * args.syn_batch_ratio)
-    gt_bs = args.batch_size - syn_bs
-
     train_loader = DataLoader(
-        train_ds,
-        batch_size=gt_bs if syn_bs > 0 else args.batch_size,
+        torch.utils.data.Subset(full_ds, aligned_idx.tolist()),
+        batch_size=args.batch_size,
         shuffle=True,
         num_workers=2,
         pin_memory=(device.type == "cuda"),
     )
-
-    if syn_bs > 0:
-        pretrain_loader = DataLoader(
-            pretrain_ds,
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        from itertools import cycle
-        pre_iter = cycle(pretrain_loader)
-    else:
-        pre_iter = None
     test_ds = HTRDataset(
         basefolder=basefolder,
         subset="test",
@@ -277,7 +238,7 @@ def main(args) -> None:
         running_loss = 0.0
         batches = 0
         for batch in train_loader:
-            imgs, words = _mix_batches(batch, pre_iter)
+            imgs, words, _ = batch
             imgs = imgs.to(device)
             words = [f" {w.strip()} " if not w.startswith(" ") else w for w in words]
 
@@ -341,8 +302,6 @@ if __name__ == "__main__":
         action="store_true",
         help="Skip pseudo-label rows where prediction \u2260 ground-truth",
     )
-    p.add_argument("--dataset_folder", default=DATASET_FOLDER,
-                   help="root folder with processed_words/{train,val,test}/")
     p.add_argument("--pretrained_backbone", default=PRETRAINED_BACKBONE,
                    help="path to pretrained backbone .pt file")
     p.add_argument("--batch_size", type=int, default=BATCH_SIZE)
@@ -350,12 +309,6 @@ if __name__ == "__main__":
     p.add_argument("--eval_every", type=int, default=EVAL_EVERY)
     p.add_argument("--lr", type=float, default=LR)
     p.add_argument("--gpu_id", type=int, help="GPU to use")
-    p.add_argument("--syn_list_file", default=SYN_LIST_FILE,
-                   help="text file listing synthetic image paths")
-    p.add_argument("--syn_base_path", default=SYN_BASE_PATH,
-                   help="root directory of the synthetic corpus")
-    p.add_argument("--syn_batch_ratio", type=float, default=SYN_BATCH_RATIO,
-                   help="fraction of each batch drawn from synthetic data")
     p.add_argument("--main_loss_weight", type=float, default=MAIN_LOSS_WEIGHT)
     p.add_argument("--aux_loss_weight", type=float, default=AUX_LOSS_WEIGHT)
     args = p.parse_args()
