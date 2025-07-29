@@ -404,6 +404,8 @@ class ProjectionAligner:
         device: str = cfg.device,
         k: int = 0,
         debug_checks: bool = True,
+        agree_threshold: int = 1,
+        use_agreement: bool = False,
     ) -> None:
 ```
 
@@ -414,6 +416,8 @@ class ProjectionAligner:
 *   `device` (str): Device used for alignment.
 *   `k` (int): Number of least-moved descriptors to pseudo-label.
 *   `debug_checks` (bool): Whether to run extra sanity checks.
+*   `agree_threshold` (int): Require this many projector votes for a word.
+*   `use_agreement` (bool): Enable agreement-filtering when ``True``.
 
 **Attributes:**
 *   `dataset` (FusedHTRDataset): Stored dataset with alignment information.
@@ -428,12 +432,15 @@ class ProjectionAligner:
 *   `is_real` (torch.BoolTensor): Mask of real dataset items.
 *   `is_syn` (torch.BoolTensor): Mask of synthetic dataset items.
 *   `debug_checks` (bool): Whether runtime assertions are enabled.
+*   `agree_threshold` (int): Minimum votes needed for a consensus.
+*   `use_agreement` (bool): Whether agreement filtering is active.
 
 **Methods:**
 *   `_get_projector_features() -> Tuple[torch.Tensor, torch.Tensor]`: Harvests
     descriptors and returns projector outputs and alignment flags.
 *   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels unaligned samples and
     returns mean projector features and moved distances.
+*   `align_agreement() -> Tuple[torch.Tensor, torch.Tensor]`: Pseudo-labels using agreement filtering.
 *   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Ensure dataset integrity after alignment.
 *   `_log_results(new_indices: torch.Tensor) -> None`:  Prints the current accuracy for the epoch we are on. Also prints 5 random predictions (index, predicted word, ground truth word) from the newly pseudo-labelled real samples for the current round.
 
@@ -1007,6 +1014,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `align_unbalanced` (bool): Use unbalanced Optimal Transport (OT) formulation.
 *   `align_reg_m` (float): Mass regularisation when unbalanced OT is used.
 *   `align_k` (int): Pseudo-label this many least-moved descriptors.
+*   `align_use_agreement` (bool): Enable agreement-filtering during alignment.
 *   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
 *   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
@@ -1014,6 +1022,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `n_aligned` (int): Number of initially aligned instances.
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
+*   `align_use_agreement` (bool): Enable agreement filtering during alignment.
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
