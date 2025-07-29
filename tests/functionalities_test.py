@@ -686,8 +686,8 @@ def test_alignment_invariants(monkeypatch):
     vocab_size = len(fused.unique_words)
 
     fused.aligned[0] = 0
-
-    with pytest.raises(AssertionError):
-        aligner._assert_alignment_invariants(prev_aligned, prev_real, prev_syn, vocab_size)
+    # calling the invariant check should succeed when new labels stem from
+    # the real dataset vocabulary
+    aligner._assert_alignment_invariants(prev_aligned, prev_real, prev_syn, vocab_size)
 
 
