@@ -118,6 +118,8 @@ class ProjectionAligner:
         device: str = cfg.device,
         k: int = 0,
         debug_checks: bool = True,
+        agree_threshold: int = 1,
+        use_agreement: bool = False,
     ) -> None:
         """Initialise the projection aligner.
 
@@ -129,9 +131,27 @@ class ProjectionAligner:
             device (str): Device used for alignment.
             k (int): Number of least-moved descriptors to pseudo-label.
             debug_checks (bool): Whether to run sanity checks during alignment.
+            agree_threshold (int): Minimum number of matching votes required.
+            use_agreement (bool): Use agreement filtering when ``True``.
 
         Returns:
             None
+
+        Attributes:
+            dataset (FusedHTRDataset): Stored dataset with alignment info.
+            backbone (HTRNet): Backbone used for feature extraction.
+            projectors (Sequence[nn.Module]): Projector ensemble.
+            batch_size (int): Mini-batch size for descriptor harvesting.
+            device (str): Device used for alignment.
+            k (int): Number of samples to pseudo-label per call.
+            debug_checks (bool): Whether runtime assertions are enabled.
+            agree_threshold (int): Number of matching votes needed.
+            use_agreement (bool): Whether agreement filtering is used.
+            word_embeddings (torch.Tensor): Word embedding matrix on ``device``.
+            real_word_indices (torch.IntTensor): Indices of real words.
+            synth_word_indices (torch.IntTensor): Indices of synthetic words.
+            is_real (torch.BoolTensor): Mask of real dataset items.
+            is_syn (torch.BoolTensor): Mask of synthetic dataset items.
         """
 
         self.dataset = dataset
@@ -141,6 +161,8 @@ class ProjectionAligner:
         self.device = device
         self.k = k
         self.debug_checks = debug_checks
+        self.agree_threshold = int(agree_threshold)
+        self.use_agreement = bool(use_agreement)
 
         self.word_embeddings = dataset.unique_word_embeddings.to(self.device)
         self.real_word_indices = dataset.real_word_indices
@@ -207,25 +229,62 @@ class ProjectionAligner:
                 consensus[i] = int(votes[idx])
         return consensus
 
+    def _nearest_word_ids(self, proj_feats: torch.Tensor) -> torch.Tensor:
+        """Return nearest vocabulary id for each projector output.
+
+        Args:
+            proj_feats (torch.Tensor): Projector embeddings ``(P, N, E)`` on CPU.
+
+        Returns:
+            torch.Tensor: Predicted ids ``(P, N)`` and distances ``(P, N)``.
+        """
+        dist = torch.cdist(
+            proj_feats.to(self.device).view(-1, proj_feats.size(-1)),
+            self.word_embeddings
+        ).view(proj_feats.size(0), proj_feats.size(1), -1)
+        dist[..., self.synth_word_indices.to(self.device)] = float("inf")
+        dists, pred = dist.min(dim=2)
+        return pred.cpu(), dists.cpu()
+
+    def _select_by_agreement(
+        self, pred_ids: torch.Tensor, dists: torch.Tensor, aligned_all: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Select samples agreed upon by multiple projectors.
+
+        Args:
+            pred_ids (torch.Tensor): Voted ids per projector ``(P, N)``.
+            dists (torch.Tensor): Distances for each prediction ``(P, N)``.
+            aligned_all (torch.Tensor): Current alignment flags ``(N,)``.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]:
+                Global indices and mean distances of agreed samples.
+        """
+        consensus = self._vote_consensus(pred_ids)
+        mask = (consensus != -1) & (aligned_all == -1) & self.is_real
+        idx_global = torch.nonzero(mask, as_tuple=True)[0]
+        mean_d = dists.mean(dim=0)[idx_global]
+        return idx_global, mean_d
+
 
 
 
     @torch.no_grad()
     def align(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Pseudo‑label up to ``self.k`` still‑unaligned samples by nearest‑
-        neighbour assignment in word‑embedding space and update
-        ``self.dataset.aligned`` *in‑place*.
+        """Pseudo-label unaligned samples via nearest neighbours.
+
+        If ``use_agreement`` was enabled at construction time this
+        method defers to :meth:`align_agreement`.
 
         Returns
         -------
         proj_feats_mean : torch.Tensor
-            Mean projector output for every dataset item (``(N, E)`` on *CPU*).
+            Mean projector output for every dataset item (``(N, E)`` on CPU).
         moved : torch.Tensor
-            1‑D tensor (length ``N``) whose *i*‑th entry is the distance
-            between sample *i* and its assigned embedding (``inf`` if the
-            sample is still un‑aligned).
+            Distance to the assigned embedding (``inf`` for unlabelled samples).
         """
+        if self.use_agreement:
+            return self.align_agreement()
         # ── 1. Ensemble projections for the whole dataset ─────────────────
         proj_feats, aligned_all = self._get_projector_features()          # (P, N, E), (N,)
         proj_feats_mean = proj_feats.mean(dim=0)                          # (N, E)
@@ -280,6 +339,43 @@ class ProjectionAligner:
 
         # Return mean projector features and moved distance
         return proj_feats_mean.cpu(), moved
+
+    @torch.no_grad()
+    def align_agreement(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """Pseudo-label using agreement filtering among projectors.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Mean projector features and moved distances for all samples.
+        """
+        proj_feats, aligned_all = self._get_projector_features()
+        pred_ids, dists = self._nearest_word_ids(proj_feats)
+        idx_global, mean_d = self._select_by_agreement(pred_ids, dists, aligned_all)
+
+        k = self.k or len(idx_global)
+        if k > 0:
+            order = torch.argsort(mean_d)[:k]
+            chosen = idx_global[order]
+            words = self._vote_consensus(pred_ids)[chosen]
+            if self.debug_checks:
+                prev_aligned = self.dataset.aligned.clone()
+                prev_real_vocab = self.real_word_indices.clone()
+                prev_syn_vocab = self.synth_word_indices.clone()
+                vocab_size_before = len(self.dataset.unique_words)
+
+            self.dataset.aligned[chosen] = words
+
+            if self.debug_checks:
+                self._assert_alignment_invariants(
+                    prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before
+                )
+
+            self._log_results(chosen)
+
+        moved = torch.full((self.dataset.__len__(),), float("inf"))
+        moved[idx_global] = mean_d
+        return proj_feats.mean(dim=0).cpu(), moved.cpu()
 
     def _assert_alignment_invariants(
     self,

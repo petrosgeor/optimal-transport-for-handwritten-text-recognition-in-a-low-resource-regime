@@ -64,6 +64,7 @@ align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
 align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
+align_use_agreement: false   # enable agreement-filtering during alignment
 metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy', 'closest')
 eval_batch_size: 64         # mini-batch size during CER evaluation
 

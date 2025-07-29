@@ -691,3 +691,43 @@ def test_alignment_invariants(monkeypatch):
     aligner._assert_alignment_invariants(prev_aligned, prev_real, prev_syn, vocab_size)
 
 
+def test_align_agreement(monkeypatch):
+    """Only samples with projector consensus are labelled."""
+
+    from alignment import alignment_utilities as au
+    real = DummyHTRDataset()
+    real.aligned = torch.tensor([-1, -1], dtype=torch.int64)
+    syn = DummyPretrainDataset()
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+    fused.word_emb_dim = 1
+    fused.unique_word_embeddings = torch.arange(len(fused.unique_words)).float().view(-1, 1)
+
+    proj_feats = torch.tensor([
+        [[0.0], [0.0], [2.0], [3.0]],
+        [[0.0], [1.0], [2.0], [3.0]],
+    ])
+
+    monkeypatch.setattr(
+        au.ProjectionAligner,
+        "_get_projector_features",
+        lambda self: (proj_feats, fused.aligned),
+    )
+
+    proj = torch.nn.Identity()
+    proj.output_dim = 1
+    aligner = au.ProjectionAligner(
+        fused,
+        DummyBackbone(),
+        [proj, proj],
+        batch_size=2,
+        device="cpu",
+        k=2,
+        agree_threshold=2,
+        use_agreement=True,
+    )
+
+    aligner.align()
+
+    assert fused.aligned[:2].tolist() == [0, -1]
+
+
