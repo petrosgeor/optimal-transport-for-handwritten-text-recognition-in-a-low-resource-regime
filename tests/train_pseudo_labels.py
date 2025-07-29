@@ -71,7 +71,11 @@ root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 
-from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
+from htr_base.utils.htr_dataset import (
+    HTRDataset,
+    PretrainingHTRDataset,
+    FusedHTRDataset,
+)
 from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
@@ -180,17 +184,34 @@ def main(args) -> None:
     cfg = OmegaConf.load(config_path)
     arch_cfg = SimpleNamespace(**cfg["architecture"])
     fixed_size = tuple(cfg.dataset.fixed_size)
+    syn_cfg = cfg.get("synthetic_dataset")
+    assert syn_cfg is not None, "synthetic_dataset block missing in trainer_config.yaml"
 
     # 2. ── build dataset & inject pseudo‑labels ─────────────────────────────
     basefolder = args.dataset_folder
     ds_cfg = SimpleNamespace(n_aligned=0, word_emb_dim=cfg.dataset.word_emb_dim)
-    full_ds = HTRDataset(
+
+    real_ds = HTRDataset(
         basefolder=basefolder,
         subset="train_val",
         fixed_size=fixed_size,
         transforms=aug_transforms,
         config=ds_cfg,
+        two_views=False,
+        word_prob_mode=cfg.dataset.word_prob_mode,
     )
+
+    syn_ds = PretrainingHTRDataset(
+        list_file=syn_cfg.list_file,
+        base_path=syn_cfg.base_path,
+        n_random=syn_cfg.n_random,
+        fixed_size=tuple(syn_cfg.fixed_size),
+        preload_images=syn_cfg.preload_images,
+        random_seed=syn_cfg.random_seed,
+        transforms=aug_transforms,
+    )
+
+    fused_ds = FusedHTRDataset(real_ds, syn_ds, n_aligned=0)
 
     pseudo_map, n_correct = _parse_pseudo_files(
         args.results_dir,
@@ -201,34 +222,36 @@ def main(args) -> None:
         raise RuntimeError("No pseudo‑labels left after filtering – aborting.")
 
     # Overwrite the transcriptions *in‑place* with the predicted words
-    for idx, pred in pseudo_map.items():
-        full_ds.transcriptions[idx] = pred
-        img_path, _old = full_ds.data[idx]
-        full_ds.data[idx] = (img_path, pred)
+    for idx, pred_word in pseudo_map.items():
+        fused_ds.transcriptions[idx] = pred_word
+        img_path, _old = fused_ds.data[idx]
+        fused_ds.data[idx] = (img_path, pred_word)
+        try:
+            fused_ds.aligned[idx] = fused_ds.unique_words.index(pred_word.lower())
+        except ValueError as e:
+            raise ValueError(f"Prediction '{pred_word}' not in dataset vocabulary") from e
 
-    subset_idx = sorted(pseudo_map.keys())
-    train_ds = Subset(full_ds, subset_idx)
+    real_idx = torch.nonzero(
+        fused_ds._is_real & (fused_ds.aligned != -1), as_tuple=True
+    )[0]
+    syn_idx = torch.nonzero(fused_ds._is_syn, as_tuple=True)[0]
+
+    real_train_subset = Subset(fused_ds, real_idx.tolist())
+    syn_train_subset = Subset(fused_ds, syn_idx.tolist())
+
     unique_words = {
-        full_ds.transcriptions[i].strip().lower()
-        for i in subset_idx
+        fused_ds.transcriptions[i].strip().lower()
+        for i in real_idx.tolist()
     }
     print(
-        f"[Data] using {len(train_ds)} pseudo‑labelled samples "
+        f"[Data] using {len(real_train_subset)} pseudo‑labelled samples "
         f"from {len(unique_words)} unique words"
     )
     print(
-        f"[Data] {n_correct} out of {len(train_ds)} pseudo-labels match the ground truth"
+        f"[Data] {n_correct} out of {len(real_train_subset)} pseudo-labels match the ground truth"
     )
 
 
-    pretrain_ds = PretrainingHTRDataset(
-        list_file=args.syn_list_file,
-        fixed_size=fixed_size,
-        base_path=args.syn_base_path,
-        transforms=aug_transforms,
-        n_random=20000,
-        preload_images=False,
-    )
 
     # 3. ── model, vocab, optimiser ─────────────────────────────────────────
     c2i, i2c = load_vocab()
@@ -242,26 +265,26 @@ def main(args) -> None:
 
     # 4. ── loaders ─────────────────────────────────────────────────────────
     syn_bs = int(args.batch_size * args.syn_batch_ratio)
-    gt_bs = args.batch_size - syn_bs
+    real_bs = args.batch_size - syn_bs
 
-    train_loader = DataLoader(
-        train_ds,
-        batch_size=gt_bs if syn_bs > 0 else args.batch_size,
+    real_loader = DataLoader(
+        real_train_subset,
+        batch_size=real_bs if syn_bs > 0 else args.batch_size,
         shuffle=True,
         num_workers=2,
         pin_memory=(device.type == "cuda"),
     )
 
     if syn_bs > 0:
-        pretrain_loader = DataLoader(
-            pretrain_ds,
+        syn_loader = DataLoader(
+            syn_train_subset,
             batch_size=syn_bs,
             shuffle=True,
             num_workers=2,
             pin_memory=(device.type == "cuda"),
         )
         from itertools import cycle
-        pre_iter = cycle(pretrain_loader)
+        pre_iter = cycle(syn_loader)
     else:
         pre_iter = None
     test_ds = HTRDataset(
@@ -276,7 +299,7 @@ def main(args) -> None:
     for epoch in range(1, args.epochs + 1):
         running_loss = 0.0
         batches = 0
-        for batch in train_loader:
+        for batch in real_loader:
             imgs, words = _mix_batches(batch, pre_iter)
             imgs = imgs.to(device)
             words = [f" {w.strip()} " if not w.startswith(" ") else w for w in words]

@@ -685,7 +685,7 @@ def test_alignment_invariants(monkeypatch):
     prev_syn = aligner.synth_word_indices.clone()
     vocab_size = len(fused.unique_words)
 
-    fused.aligned[0] = 0
+    fused.aligned[2] = fused.aligned[2] + 1
 
     with pytest.raises(AssertionError):
         aligner._assert_alignment_invariants(prev_aligned, prev_real, prev_syn, vocab_size)
