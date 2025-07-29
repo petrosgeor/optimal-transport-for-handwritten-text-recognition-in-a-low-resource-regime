@@ -193,71 +193,21 @@ class ProjectionAligner:
 
         return proj_feats, aligned_all
 
-    @torch.no_grad()
-    def calculate_ot_projections(
-        self,
-        pa: torch.Tensor,
-        X: torch.Tensor,
-        pb: torch.Tensor,
-        Y: torch.Tensor,
-        reg: float = 0.1,
-        *,
-        unbalanced: bool = False,
-        reg_m: float = 1.0,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    def _vote_consensus(self, pred_ids: torch.Tensor) -> torch.Tensor:
         """
-        Compute the barycentric projections of source features X onto target features Y
-        by solving an entropic-regularised optimal transport (OT) problem entirely in PyTorch.
-
-        This variant:
-        - Uses the input mass vectors pa and pb as-provided (no internal ℓ¹ normalisation).
-        - Computes projections for all samples, even if a sample receives zero total mass.
-
-        Parameters
-        ----------
-        pa : torch.Tensor, shape (N,)
-            Source mass distribution over X. 
-        X : torch.Tensor, shape (N, D)
-            Source feature matrix.
-        pb : torch.Tensor, shape (M,)
-            Target mass distribution over Y.
-        Y : torch.Tensor, shape (M, D)
-            Target feature matrix.
-        reg : float, default 0.1
-            Entropic regularisation strength.
-        unbalanced : bool, default False
-            If True, uses the unbalanced OT formulation (requires  reg_m).
-        reg_m : float, default 1.0
-            Mass regularisation parameter when unbalanced=True.
-
-        Returns
-        -------
-        projections : torch.Tensor, shape (N, D)
-            Barycentric projections of X in the space of Y:
-                projection_i = (∑_j T_ij * Y_j) / (∑_j T_ij)
-            (division by zero yields NaN/Inf as appropriate).
-        plan : torch.Tensor, shape (N, M)
-            Optimal transport plan solving the regularised OT problem.
+        Return a tensor consensus of shape (N,) where
+        consensus[i] = vocab index agreed by >= self.agree_threshold projectors, or -1 when no agreement
         """
-        # Bring pa, pb to same device and ensure contiguity
-        pa = pa.to(X.device, non_blocking=True).contiguous()
-        pb = pb.to(Y.device, non_blocking=True).contiguous()
+        P, N = pred_ids.shape
+        consensus = torch.full((N,), -1, dtype=torch.int32, device=pred_ids.device)
+        for i in range(N):
+            votes, counts = torch.unique(pred_ids[:, i], return_counts=True)
+            max_cnt, idx = counts.max(dim=0)
+            if max_cnt >= self.agree_threshold:
+                consensus[i] = int(votes[idx])
+        return consensus
 
-        # Squared-Euclidean cost matrix M_{i,j} = ||x_i - y_j||^2
-        M = torch.cdist(X, Y, p=2).pow(2)  # (N, M)
 
-        # Solve OT in PyTorch backend
-        if unbalanced:
-            plan = ot.unbalanced.sinkhorn_unbalanced(
-                pa, pb, M, reg=reg, reg_m=reg_m)                                # (N, M)
-        else:
-            plan = ot.sinkhorn(pa, pb, M, reg=reg)  # (N, M)
-
-        # Barycentric projections for all samples
-        row_sum = plan.sum(dim=1, keepdim=True)  # (N, 1)
-        projections = (plan @ Y) / row_sum       # (N, D)
-
-        return projections, plan
 
 
     @torch.no_grad()
