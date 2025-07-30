@@ -96,6 +96,20 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     return images[perm], [words[i] for i in perm.tolist()]
 
 
+def _aligned_to_words(aligned: torch.Tensor, vocab: List[str]) -> List[str]:
+    """Map alignment indices to word strings surrounded by spaces.
+
+    Args:
+        aligned (torch.Tensor): 1-D tensor with indices into ``vocab``.
+        vocab (List[str]): Vocabulary of unique words.
+
+    Returns:
+        List[str]: Text strings for CTC training.
+    """
+
+    return [f" {vocab[int(i)]} " for i in aligned.tolist()]
+
+
 def log_pseudo_labels(
     new_indices: torch.Tensor,
     dataset: HTRDataset,
@@ -182,8 +196,10 @@ def refine_visual_backbone(
     """Refine ``backbone`` using only the aligned portion of ``dataset``.
 
     Only instances where ``dataset.aligned`` is not ``-1`` are used for
-    training. Each epoch iterates over a ``DataLoader`` built from these
-    aligned samples.
+    training. The ground‑truth transcriptions are ignored in favour of
+    pseudo‑labels taken from ``dataset.unique_words`` at the indices stored
+    in ``dataset.aligned``. Each epoch iterates over a ``DataLoader`` built
+    from the aligned samples.
 
     Args:
         dataset (FusedHTRDataset): Combined dataset with alignment flags.
@@ -217,7 +233,8 @@ def refine_visual_backbone(
 
     optimizer = optim.AdamW(backbone.parameters(), lr=cfg.refine_lr)
     for _ in range(epochs):
-        for imgs, words, _ in loader:
+        for imgs, _gt_words, aligned in loader:
+            assert (aligned != -1).all(), "batch contains unaligned samples"
             imgs = imgs.to(device)
 
             _assert_finite(imgs, "images")
@@ -231,7 +248,8 @@ def refine_visual_backbone(
             T, B, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
-            targets, tgt_lens = encode_for_ctc(list(words), c2i, device="cuda")
+            pseudo_words = _aligned_to_words(aligned, dataset.unique_words)
+            targets, tgt_lens = encode_for_ctc(pseudo_words, c2i, device=device)
             inp_lens = torch.full((B,), T, dtype=torch.int32, device=device)
 
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
@@ -239,7 +257,7 @@ def refine_visual_backbone(
 
             if ENABLE_PHOC and backbone.phoc_head is not None:
                 phoc_logits = out[-1]
-                phoc_targets = build_phoc_description(list(words), c2i, levels=PHOC_LEVELS).float().to(device)
+                phoc_targets = build_phoc_description(pseudo_words, c2i, levels=PHOC_LEVELS).float().to(device)
                 loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
             else:
                 loss_phoc = torch.tensor(0.0, device=device)

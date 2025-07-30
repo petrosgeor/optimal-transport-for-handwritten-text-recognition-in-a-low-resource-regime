@@ -881,6 +881,8 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 Located in: `alignment/trainer.py`
 
 Refines the backbone on aligned instances from a `FusedHTRDataset`.
+Pseudo‑labels come from ``dataset.unique_words`` using the ``aligned`` indices
+instead of the ground‑truth transcriptions.
 
 ```python
 def refine_visual_backbone(
@@ -910,6 +912,21 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
 
 ```python
 imgs, texts = _shuffle_batch(imgs, texts)
+```
+
+#### _aligned_to_words
+
+Located in: `alignment/trainer.py`
+
+Convert a tensor of alignment indices into pseudo‑labels using the dataset
+vocabulary.
+
+```python
+def _aligned_to_words(aligned: torch.Tensor, vocab: List[str]) -> List[str]:
+```
+
+```python
+pseudo = _aligned_to_words(torch.tensor([0, 1]), ["a", "b"])
 ```
 
 #### _parse_pseudo_files
