@@ -229,6 +229,83 @@ def test_refine_visual_backbone_loader(monkeypatch):
         assert all(a != -1 for a in flags)
 
 
+def test_refine_visual_backbone_pseudolabels(monkeypatch):
+    """Pseudo-labels are derived from ``dataset.unique_words``."""
+
+    real = DummyHTRDataset()
+    syn = DummyPretrainDataset()
+    fused = FusedHTRDataset(real, syn, n_aligned=0, random_seed=0)
+    fused.word_emb_dim = 1
+    fused.unique_word_embeddings = torch.arange(len(fused.unique_words)).float().view(-1, 1)
+    fused.aligned = torch.tensor([0, 1, 2, 3], dtype=torch.int32)
+
+    backbone = DummyBackbone()
+
+    from alignment import trainer
+    captured = {"labels": []}
+
+    class FakeLoader:
+        def __init__(self, ds, batch_size, shuffle=True, num_workers=0, pin_memory=False):
+            self.samples = [ds[i] for i in range(len(ds))]
+            self.bs = batch_size
+
+        def __len__(self):
+            return len(self.samples) // self.bs
+
+        def __iter__(self):
+            for i in range(0, len(self.samples), self.bs):
+                batch = self.samples[i:i + self.bs]
+                imgs, words, aligned = zip(*batch)
+                yield torch.stack(list(imgs)), list(words), torch.tensor(aligned)
+
+    def fake_encode(words, c2i, device="cuda"):
+        captured["labels"].append(list(words))
+        B = len(words)
+        return torch.zeros(B, 1, dtype=torch.int32), torch.tensor([1] * B)
+
+    monkeypatch.setattr(trainer, "DataLoader", FakeLoader)
+    monkeypatch.setattr(trainer, "encode_for_ctc", fake_encode)
+    monkeypatch.setattr(trainer, "plot_tsne_embeddings", lambda *a, **k: None)
+    orig_to = torch.Tensor.to
+    orig_full = torch.full
+    orig_tensor = torch.tensor
+
+    def fake_to(self, *args, **kwargs):
+        if args and (args[0] == torch.device("cuda") or args[0] == "cuda"):
+            return self
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_to(self, *args, **kwargs)
+
+    def fake_full(size, fill_value, **kwargs):
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_full(size, fill_value, **kwargs)
+
+    def fake_tensor(*args, **kwargs):
+        if kwargs.get("device") in {torch.device("cuda"), "cuda"}:
+            kwargs = {**kwargs, "device": torch.device("cpu")}
+        return orig_tensor(*args, **kwargs)
+
+    monkeypatch.setattr(torch.Tensor, "to", fake_to, raising=False)
+    monkeypatch.setattr(torch, "full", fake_full, raising=False)
+    monkeypatch.setattr(torch, "tensor", fake_tensor, raising=False)
+
+    trainer.refine_visual_backbone(
+        fused,
+        backbone,
+        batch_size=2,
+        epochs=1,
+        device=torch.device("cuda"),
+    )
+
+    expected = [
+        [f" {w} " for w in fused.unique_words[i:i + 2]]
+        for i in range(0, len(fused), 2)
+    ]
+    assert captured["labels"] == expected
+
+
 def test_word_frequencies():
     """Unique words and probabilities from transcriptions."""
 
