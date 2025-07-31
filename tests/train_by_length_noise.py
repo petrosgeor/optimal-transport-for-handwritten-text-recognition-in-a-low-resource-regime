@@ -396,9 +396,9 @@ def refine_visual_model(dataset: HTRDataset,
             T, B, _ = main_logits.shape
             targets, tgt_lens = encode_for_ctc(targets_s, c2i, device="cpu")
             inp_lens = torch.full((B,), T, dtype=torch.int32)
-            loss_m = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
+            loss_m = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens).mean()
             loss_a = (
-                _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+                _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens).mean()
                 if aux_logits is not None
                 else torch.tensor(0.0, device=main_logits.device)
             )

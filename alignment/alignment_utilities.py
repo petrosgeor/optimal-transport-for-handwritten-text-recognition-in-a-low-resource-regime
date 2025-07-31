@@ -553,8 +553,10 @@ class ProjectionAligner:
 
         dist[:, self.synth_word_indices.to(device)] = float('inf')
 
-        r_X = dist_real.topk(K, dim=1, largest=False).values.mean(dim=1, keepdim=True)
-        r_Y = dist_real.topk(K, dim=0, largest=False).values.mean(dim=0, keepdim=True)
+        k_eff = min(K, dist_real.size(1))
+        r_X = dist_real.topk(k_eff, dim=1, largest=False).values.mean(dim=1, keepdim=True)
+        k_eff_y = min(K, dist_real.size(0))
+        r_Y = dist_real.topk(k_eff_y, dim=0, largest=False).values.mean(dim=0, keepdim=True)
 
         csls = 2.0 * dist - r_X - r_Y
         csls_max = csls.max()

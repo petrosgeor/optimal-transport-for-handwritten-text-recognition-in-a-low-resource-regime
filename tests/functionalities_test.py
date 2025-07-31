@@ -184,9 +184,14 @@ def test_refine_visual_backbone_loader(monkeypatch):
         def __iter__(self):
             for i in range(0, len(self.samples), self.bs):
                 batch = self.samples[i:i + self.bs]
-                imgs, words, aligned = zip(*batch)
+                imgs, words, aligned, w = zip(*batch)
                 captured["batches"].append(aligned)
-                yield torch.stack(list(imgs)), list(words), torch.tensor(aligned)
+                yield (
+                    torch.stack(list(imgs)),
+                    list(words),
+                    torch.tensor(aligned),
+                    torch.tensor(w),
+                )
 
     monkeypatch.setattr(trainer, "DataLoader", FakeLoader)
     monkeypatch.setattr(trainer, "plot_tsne_embeddings", lambda *a, **k: None)
@@ -238,6 +243,7 @@ def test_refine_visual_backbone_pseudolabels(monkeypatch):
     fused.word_emb_dim = 1
     fused.unique_word_embeddings = torch.arange(len(fused.unique_words)).float().view(-1, 1)
     fused.aligned = torch.tensor([0, 1, 2, 3], dtype=torch.int32)
+    fused.weights[:] = 1.0
 
     backbone = DummyBackbone()
 
@@ -255,8 +261,13 @@ def test_refine_visual_backbone_pseudolabels(monkeypatch):
         def __iter__(self):
             for i in range(0, len(self.samples), self.bs):
                 batch = self.samples[i:i + self.bs]
-                imgs, words, aligned = zip(*batch)
-                yield torch.stack(list(imgs)), list(words), torch.tensor(aligned)
+                imgs, words, aligned, w = zip(*batch)
+                yield (
+                    torch.stack(list(imgs)),
+                    list(words),
+                    torch.tensor(aligned),
+                    torch.tensor(w),
+                )
 
     def fake_encode(words, c2i, device="cuda"):
         captured["labels"].append(list(words))
@@ -612,6 +623,17 @@ def test_fused_dataset_alignment():
     assert set(fused.unique_words) == {"gt1", "gt2", "syn1", "syn2"}
 
 
+def test_fused_dataset_weights():
+    """Initial weights mirror the aligned mask."""
+
+    real = DummyHTRDataset()
+    syn = DummyPretrainDataset()
+
+    fused = FusedHTRDataset(real, syn, n_aligned=1, random_seed=0)
+
+    assert fused.weights.sum().item() == (fused.aligned != -1).sum().item()
+
+
 def test_fused_dataset_word_indices():
     """real_word_indices and synth_word_indices select the correct words."""
 
@@ -663,6 +685,7 @@ def test_train_projector_fused_dataset(monkeypatch):
             self.unique_word_probs = torch.tensor([0.5, 0.5])
             self.aligned = torch.tensor([0, 1, 0], dtype=torch.int64)
             self._is_real = torch.tensor([True, False, True])
+            self.weights = torch.ones(3)
 
     dataset = DummyDataset()
 
@@ -693,8 +716,10 @@ def test_train_projector_fused_dataset(monkeypatch):
 
     captured = {}
 
-    def fake_mse(pred, tgt):
+    def fake_mse(pred, tgt, reduction="mean"):
         captured["shape"] = pred.shape
+        if reduction == "none":
+            return torch.zeros_like(pred, requires_grad=True)
         return torch.tensor(0.0, requires_grad=True)
 
     monkeypatch.setattr(trainer.F, "mse_loss", fake_mse)

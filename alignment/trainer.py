@@ -233,9 +233,10 @@ def refine_visual_backbone(
 
     optimizer = optim.AdamW(backbone.parameters(), lr=cfg.refine_lr)
     for _ in range(epochs):
-        for imgs, _gt_words, aligned in loader:
+        for imgs, _gt_words, aligned, samp_w in loader:
             assert (aligned != -1).all(), "batch contains unaligned samples"
             imgs = imgs.to(device)
+            samp_w = samp_w.to(device)
 
             _assert_finite(imgs, "images")
 
@@ -252,13 +253,16 @@ def refine_visual_backbone(
             targets, tgt_lens = encode_for_ctc(pseudo_words, c2i, device=device)
             inp_lens = torch.full((B,), T, dtype=torch.int32, device=device)
 
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+            loss_main_vec = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
+            loss_aux_vec = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+            loss_main = (samp_w * loss_main_vec).sum() / samp_w.sum()
+            loss_aux = (samp_w * loss_aux_vec).sum() / samp_w.sum()
 
             if ENABLE_PHOC and backbone.phoc_head is not None:
                 phoc_logits = out[-1]
                 phoc_targets = build_phoc_description(pseudo_words, c2i, levels=PHOC_LEVELS).float().to(device)
-                loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+                loss_phoc_vec = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets, reduction="none").mean(dim=1)
+                loss_phoc = (loss_phoc_vec * samp_w).sum() / samp_w.sum()
             else:
                 loss_phoc = torch.tensor(0.0, device=device)
 
@@ -387,13 +391,14 @@ def train_projector(  # pylint: disable=too-many-arguments
         is_real_all = dataset._is_real.clone()
     else:
         is_real_all = torch.ones_like(aligned_all, dtype=torch.bool)
+    weights_all = dataset.weights.clone()
     assert feats_all.shape[1] == backbone.feat_dim, \
         "Descriptor dimension mismatch after harvesting features."
     
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
     proj_loader = DataLoader(
-        TensorDataset(feats_all, aligned_all, is_real_all),
+        TensorDataset(feats_all, aligned_all, is_real_all, weights_all),
         batch_size=batch_size,
         shuffle=True, # Shuffle is True here for training
         pin_memory=(device.type == "cuda"),
@@ -409,10 +414,11 @@ def train_projector(  # pylint: disable=too-many-arguments
         for epoch in range(1, num_epochs + 1):
             running_loss = 0.0
             num_batches = 0
-            for feats_cpu, align_cpu, real_mask_cpu in proj_loader:
+            for feats_cpu, align_cpu, real_mask_cpu, weights_cpu in proj_loader:
                 feats = feats_cpu.to(device)
                 align = align_cpu.to(device)
                 real_m = real_mask_cpu.to(device)
+                samp_w = weights_cpu.to(device)
                 syn_m = ~real_m
 
                 pred = proj(feats)
@@ -429,12 +435,14 @@ def train_projector(  # pylint: disable=too-many-arguments
                         sub_embs,
                         align_real,
                         sub_probs,
+                        weights=samp_w[real_m],
                     )
 
                 loss_syn = torch.tensor(0.0, device=device)
                 if syn_m.any():
                     target_syn = word_embs[align[syn_m]]
-                    loss_syn = F.mse_loss(pred[syn_m], target_syn)
+                    mse_vec = F.mse_loss(pred[syn_m], target_syn, reduction="none").sum(dim=1)
+                    loss_syn = (mse_vec * samp_w[syn_m]).sum() / samp_w[syn_m].sum()
 
                 loss = loss_real + loss_syn
 

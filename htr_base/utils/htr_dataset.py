@@ -453,6 +453,7 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         unique_word_probs (list[float]): Probability vector for ``unique_words``.
         unique_word_embeddings (torch.Tensor): Embeddings for ``unique_words``.
         aligned (torch.IntTensor): Alignment index for each sample.
+        weights (torch.FloatTensor): Per-sample curriculum weights.
         _is_real (torch.BoolTensor): Mask of real samples.
         _is_syn (torch.BoolTensor): Mask of synthetic samples.
         _real2global (list[int]): Mapping of real indices to global positions.
@@ -563,6 +564,9 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
             # Synthetic samples are pre-aligned to their labels
             self.aligned[offset + j] = self.unique_words.index(word)
 
+        self.weights = torch.zeros(total, dtype=torch.float32)
+        self.weights[self.aligned != -1] = 1.0
+
         self._is_real = torch.zeros(total, dtype=torch.bool)
         self._is_real[: len(real_ds)] = True
         self._is_syn = ~self._is_real
@@ -583,7 +587,12 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
         else:
             local = idx - len(self.real_ds)
             img, trans = self.syn_ds[local]
-        return img, trans, self.aligned[idx]
+        return img, trans, self.aligned[idx], float(self.weights[idx])
+
+    def set_weights(self, indices: torch.Tensor, values: torch.Tensor) -> None:
+        """Update sample weights in-place."""
+
+        self.weights[indices] = values
 
     def find_word_embeddings(self, word_list, n_components: int = 512):
         """Compute embeddings of words using pairwise Levenshtein distances."""

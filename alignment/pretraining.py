@@ -247,8 +247,8 @@ def main(config: dict | None = None) -> Path:
             inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
 
             # Compute losses
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
-            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
+            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths).mean()
+            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths).mean()
 
             loss_contr = torch.tensor(0.0, device=device)
             if ENABLE_CONTR:

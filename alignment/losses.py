@@ -18,7 +18,7 @@ def _ctc_loss_fn(
         targets,
         inp_lens,
         tgt_lens,
-        reduction="mean",
+        reduction="none",
         zero_infinity=True,
     )
     return loss
@@ -58,6 +58,8 @@ class ProjectionLoss(torch.nn.Module):
     tgt_probs : torch.Tensor                  # shape (M,)
         Marginal probabilities for the target distribution.  For the balanced
         version it will be renormalised to sum to 1.
+    weights : torch.Tensor | None             # shape (N,)
+        Optional per-sample weights applied to the supervised distance term.
 
     Returns
     -------
@@ -95,6 +97,7 @@ class ProjectionLoss(torch.nn.Module):
         word_embeddings: torch.Tensor,
         aligned: torch.Tensor,
         tgt_probs: torch.Tensor,
+        weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # sanity checks on shapes
         assert descriptors.ndim == 2, "descriptors must be 2-D (N, d)"
@@ -137,7 +140,11 @@ class ProjectionLoss(torch.nn.Module):
         else:
             aligned_descriptors = descriptors[aligned_indices]
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
-            distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
+            loss_vec = F.mse_loss(aligned_descriptors, corresp_word_embeddings, reduction="none").sum(dim=1)
+            if weights is None:
+                distance_loss = loss_vec.mean()
+            else:
+                distance_loss = (loss_vec * weights[aligned_indices]).sum() / weights[aligned_indices].sum()
         return ot_loss + self.supervised_weight * distance_loss
 
 # ------------------------------------------------------------------

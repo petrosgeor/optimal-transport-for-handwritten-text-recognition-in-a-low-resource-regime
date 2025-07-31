@@ -251,9 +251,9 @@ def main(args) -> None:
             targets, t_lens = encode_for_ctc(words, c2i, device="cpu")
             inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32)
 
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, t_lens)
+            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, t_lens).mean()
             if aux_logits is not None:
-                loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, t_lens)
+                loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, t_lens).mean()
             else:
                 loss_aux = torch.tensor(0.0, device=device)
 

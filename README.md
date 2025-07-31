@@ -362,6 +362,7 @@ class FusedHTRDataset(HTRDataset, PretrainingHTRDataset):
 *   `real_word_indices` (torch.IntTensor): Indices of `unique_words` from the real dataset.
 *   `synth_word_indices` (torch.IntTensor): Indices of `unique_words` from the synthetic dataset.
 *   `aligned` (torch.IntTensor): Alignment index for each sample.
+*   `weights` (torch.FloatTensor): Per-sample curriculum weights ∈ [0, 1].
 *   `character_classes` (list[str]): Characters from `real_ds`.
 *   `prior_char_probs` (dict): Character priors copied from `real_ds`.
 *   `word_prob_mode` (str): Probability mode copied **and locked** from real_ds.
@@ -376,7 +377,8 @@ for new pseudo-labels. Synthetic samples keep their provided labels.
 
 **Methods:**
 *   `__len__()` -> int: Total number of items.
-*   `__getitem__(index)` -> tuple: Item as provided by underlying datasets.
+*   `__getitem__(index)` -> tuple: Item as provided by underlying datasets plus the sample weight.
+*   `set_weights(indices, values)` -> None: Update sample weights in-place.
 *   `word_frequencies` -> -> (unique_words, probs):
     Returns the joint vocabulary and probability vector.
     If mode is supplied it **must equal** self.word_prob_mode; otherwise a
@@ -546,7 +548,7 @@ class ProjectionLoss(torch.nn.Module):
 *   `supervised_weight` (float): Weight for supervised term.
 
 **Methods:**
-*   `forward(descriptors, word_embeddings, aligned, tgt_probs) -> torch.Tensor`: returns the combined loss without side effects.
+*   `forward(descriptors, word_embeddings, aligned, tgt_probs, weights=None) -> torch.Tensor`: returns the combined weighted loss.
 *   `train_projector` restricts the OT computation to the real dataset vocabulary by
     creating a subset tensor of word embeddings and re-normalised probabilities.
 
@@ -668,7 +670,7 @@ def _ctc_loss_fn(
 *   `tgt_lens` (torch.IntTensor): Lengths of the target sequences.
 
 **Returns:**
-*   `torch.Tensor`: The computed CTC loss.
+*   `torch.Tensor`: Per-sample CTC loss values.
 
 #### _unflatten_targets
 
