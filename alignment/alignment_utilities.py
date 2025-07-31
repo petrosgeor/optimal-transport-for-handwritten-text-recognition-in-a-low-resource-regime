@@ -298,10 +298,11 @@ class ProjectionAligner:
         proj_feats_acceptable = proj_feats_mean[unaligned_mask].to(self.device)  # (U, E)
 
         # ── 3. Distance to every word embedding (exclude synthetic‑only) ──
-        dist_matrix = torch.cdist(proj_feats_acceptable,
-                                  self.word_embeddings, p=2)              # (U, V)
-        dist_matrix[:, self.synth_word_indices.to(self.device)] = float("inf")
+        # dist_matrix = torch.cdist(proj_feats_acceptable,
+        #                           self.word_embeddings, p=2)              # (U, V)
+        # dist_matrix[:, self.synth_word_indices.to(self.device)] = float("inf")
 
+        dist_matrix = self.csls_euclidean(projections=proj_feats_acceptable, K=30)
         min_dists, pred_word_idx = dist_matrix.min(dim=1)                 # (U,)
 
         # ── 4. Pick the *k* most confident predictions (smallest distance) ─
@@ -508,7 +509,60 @@ class ProjectionAligner:
                     print(f"  {idx}: '{pred_word}' -> '{true_word}'")
 
 
-        
+    @torch.no_grad()
+    def csls_euclidean(
+        self,
+        projections: torch.Tensor,
+        K: int = 10,
+        eps: float = 1e-8,
+    ) -> torch.Tensor:
+        """
+        Compute the shifted Euclidean CSLS score between *projections*
+        and every word embedding in the vocabulary.
+
+        Parameters
+        ----------
+        projections : torch.Tensor           # shape (N, E)
+            Output of a projector (one row per image).
+        K           : int, optional
+            Number of nearest neighbours used to estimate the two
+            local‑density terms *r_X* and *r_Y*.  Default = 10.
+        eps         : float, optional
+            Numeric stability when normalising.  Default = 1e‑8.
+
+        Returns
+        -------
+        torch.Tensor                          # shape (N, V)
+            CSLS distance in the interval [0, 8] where smaller means
+            “closer”.  Columns that correspond to **synthetic** words
+            are set to ``+∞`` so they can never win a nearest‑neighbour
+            query downstream.
+        """
+
+        device = torch.device(self.device)
+        X = projections.to(device)
+        Y = self.word_embeddings.to(device)
+        synth_cols = self.synth_word_indices.to(device)
+
+        dist = torch.cdist(X, Y, p=2)
+
+
+        dist_real = dist.clone()
+        dist_real[:, synth_cols] = float('inf')
+
+
+        dist[:, self.synth_word_indices.to(device)] = float('inf')
+
+        r_X = dist_real.topk(K, dim=1, largest=False).values.mean(dim=1, keepdim=True)
+        r_Y = dist_real.topk(K, dim=0, largest=False).values.mean(dim=0, keepdim=True)
+
+        csls = 2.0 * dist - r_X - r_Y
+        csls_max = csls.max()
+        csls_min = csls.min()
+
+        csls = (csls - csls_min) / (csls_max - csls_min + eps)
+        csls[:, synth_cols] = float('inf')
+        return csls
 
 
 
@@ -522,6 +576,10 @@ def align_more_instances(
     batch_size: int = 512,
     device: str = cfg.device,
     k: int = 0,
+    use_agreement: bool = False,
+    agree_threshold: int = 1,
+    debug_checks: bool = True,               # stays opt‑in
+    **_ignored,                              # swallow future kwargs safely
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Pseudo-label new dataset instances using the projection ensemble.
 
@@ -554,6 +612,9 @@ def align_more_instances(
         batch_size=batch_size,
         device=device,
         k=k,
+        agree_threshold=agree_threshold,
+        use_agreement=use_agreement,
+        debug_checks=debug_checks,
     )
     proj_feats, moved = aligner.align()
 

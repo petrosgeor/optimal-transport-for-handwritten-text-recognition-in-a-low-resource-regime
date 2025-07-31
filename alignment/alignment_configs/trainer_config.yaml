@@ -64,8 +64,7 @@ align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
 align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
-align_use_agreement: false   # enable agreement-filtering during alignment
-metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy', 'closest')
+align_use_agreement: true   # enable agreement-filtering during alignment
 eval_batch_size: 64         # mini-batch size during CER evaluation
 
 # ----------------------------------------------------------------------
@@ -80,7 +79,7 @@ dataset:
   two_views: false          # Enable or disable two-view training
   word_prob_mode: empirical # Can take the values 'empirical' or 'wordfreq'
 ensemble_size: 3            # Size of the projector ensemble
-agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
+agree_threshold: 2          # Minimum number of projectors that must agree for pseudo-labeling
 supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------
@@ -100,10 +99,3 @@ synthetic_dataset:
   preload_images: true      # Preload images into memory for faster access
   random_seed: 0            # Random seed for reproducibility
 
-# ----------------------------------------------------------------------
-# Optional pseudo-label validation
-# ----------------------------------------------------------------------
-pseudo_label_validation:
-  enable: false        # set false to skip the new check
-  edit_distance: 4    # maximum Levenshtein distance allowed
-  start_iteration: 4  # first round that runs the check
