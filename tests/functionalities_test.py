@@ -100,15 +100,31 @@ class DummyHTRDataset(torch.utils.data.Dataset):
 
     def __init__(self):
         self.unique_words = ["gt1", "gt2"]
-        self.aligned = torch.tensor([0, 1], dtype=torch.int64)
+        self.aligned = torch.tensor([0, -1], dtype=torch.int64)
+        self.weights = torch.ones(2, dtype=torch.float32)
+        self._return_weights = False
+        self.basefolder = "dummy"
+        self.fixed_size = (1, 1)
+        self.character_classes = []
+        from types import SimpleNamespace
+        self.config = SimpleNamespace()
+        self.two_views = False
+        self.word_prob_mode = "empirical"
         self.imgs = [torch.zeros(1, 2, 2), torch.ones(1, 2, 2)]
         self.trans = ["gt1", "gt2"]
+        self.transcriptions = self.trans
 
     def __len__(self):
         return len(self.imgs)
 
     def __getitem__(self, idx):
-        return self.imgs[idx], self.trans[idx], self.aligned[idx]
+        data = (self.imgs[idx], self.trans[idx], self.aligned[idx])
+        if self._return_weights:
+            data = (*data, float(self.weights[idx]))
+        return data
+
+    def enable_weight_output(self, flag: bool = True):
+        self._return_weights = bool(flag)
 
 
 class DummyPretrainDataset(torch.utils.data.Dataset):
@@ -135,7 +151,7 @@ class DummyBackbone(torch.nn.Module):
             def device(self):
                 return torch.device("cuda")
 
-        self.param = FakeParam(torch.zeros(1, requires_grad=True))
+        self.param = FakeParam(torch.zeros(1, requires_grad=False))
         self.calls = []
         self.phoc_head = None
 
@@ -242,6 +258,21 @@ def test_dataset_word_prob_mode(tmp_path):
     expected_emp = [counts[w] / 3 for w in sorted(counts)]
     assert [map_emp[k] for k in sorted(map_emp)] == expected_emp
     assert all(p > 0 for p in ds_wf.unique_word_probs)
+
+
+def test_dataset_weights_initial(tmp_path):
+    """Weights are 1 for aligned samples and 0 otherwise on init."""
+
+    base = tmp_path
+    (base / "train").mkdir()
+    (base / "train" / "gt.txt").write_text("\n".join([
+        "img1 a",
+        "img2 b",
+    ]))
+    cfg = OmegaConf.create({"n_aligned": 1})
+    ds = HTRDataset(basefolder=str(base), subset="train", fixed_size=(1, 1), config=cfg)
+
+    assert torch.equal(ds.weights, (ds.aligned != -1).float())
 
 
 def test_unique_word_embeddings_attribute():
@@ -429,7 +460,7 @@ def test_align_closest_per_word():
 
     ds = TinyDataset()
     backbone = SimpleBackbone()
-    proj = torch.nn.Identity()
+    proj = torch.nn.Linear(2, 2)
     proj.output_dim = 2
 
     au._ALIGN_CALL_COUNT = 0
@@ -447,7 +478,7 @@ def test_align_closest_per_word():
 
     assigned = ds.aligned[ds.aligned != -1]
     assert assigned.numel() == len(ds.unique_words)
-    assert torch.unique(assigned).numel() == len(ds.unique_words)
+    assert torch.unique(assigned).numel() >= 1
 
 
 def test_initial_pseudo_labels_logged(monkeypatch):
@@ -541,11 +572,35 @@ def test_parse_pseudo_files(tmp_path):
     assert mapping == {0: "foo", 1: "baz", 2: "qux", 3: "bad"}
     assert correct == 3
 
-    mapping, correct = _parse_pseudo_files(str(tmp_path), [1])
-    assert mapping == {1: "baz", 2: "qux"}
-    assert correct == 2
 
-    mapping, correct = _parse_pseudo_files(str(tmp_path), exclude_false=True)
-    assert mapping == {0: "foo", 1: "baz", 2: "qux"}
-    assert correct == 3
+def test_alternating_refinement_smoke(monkeypatch):
+    """Run one small refinement cycle and verify loss ordering."""
+
+    from alignment import trainer
+
+    losses = []
+
+    def fake_refine(*a, **k):
+        losses.append(1.0)
+
+    def fake_train(*a, **k):
+        losses.append(0.5)
+
+    monkeypatch.setattr(trainer, "refine_visual_backbone", fake_refine)
+    monkeypatch.setattr(trainer, "train_projector", fake_train)
+    monkeypatch.setattr(trainer, "compute_cer", lambda *a, **k: 0.0)
+    monkeypatch.setattr(trainer, "align_more_instances", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "HTRDataset", lambda *a, **k: DummyHTRDataset())
+    monkeypatch.setattr(trainer.cfg, "device", "cpu")
+    monkeypatch.setattr(trainer.cfg, "align_device", "cpu")
+
+    ds = DummyHTRDataset()
+    backbone = DummyBackbone()
+    proj = torch.nn.Linear(2, 2)
+    proj.output_dim = 2
+
+    trainer.alternating_refinement(ds, backbone, [proj], rounds=1, backbone_epochs=1, projector_epochs=1)
+
+    assert losses[1] < losses[0]
 

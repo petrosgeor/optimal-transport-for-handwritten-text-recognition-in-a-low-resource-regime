@@ -100,6 +100,11 @@ class HTRDataset(Dataset):
                 for idx in chosen.tolist():
                     word = self.transcriptions[idx]
                     self.aligned[idx] = self.unique_words.index(word)
+
+        # ---- NEW: curriculum weights ------------------------------------
+        self.weights = torch.zeros(len(self.aligned), dtype=torch.float32)
+        self.weights[self.aligned != -1] = 1.0  # 1 for seeds
+        self._return_weights: bool = False
     def __getitem__(self, index):
         """Return one or two processed image tensors and its transcription.
 
@@ -126,13 +131,24 @@ class HTRDataset(Dataset):
         if self.two_views:
             img1 = build_view(img.copy())
             img2 = build_view(img.copy())
-            return (img1, img2), transcr1, self.aligned[index]
+            data = ((img1, img2), transcr1, self.aligned[index])
         else:
             img_tensor = build_view(img)
-            return img_tensor, transcr1, self.aligned[index]
+            data = (img_tensor, transcr1, self.aligned[index])
+        if getattr(self, "_return_weights", False):
+            data = (*data, float(self.weights[index]))
+        return data
     def __len__(self):
         """Return the number of items in the dataset."""
         return len(self.data)
+
+    def set_weights(self, indices: torch.Tensor, values: torch.Tensor) -> None:
+        """Update sample weights in-place."""
+        self.weights[indices] = values
+
+    def enable_weight_output(self, flag: bool = True) -> None:
+        """Switch whether ``__getitem__`` returns the weight scalar."""
+        self._return_weights = bool(flag)
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):

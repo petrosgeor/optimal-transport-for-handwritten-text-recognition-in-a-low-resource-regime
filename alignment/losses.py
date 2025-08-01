@@ -24,6 +24,24 @@ def _ctc_loss_fn(
     return loss
 
 
+def _ctc_loss_vec(
+    logits: torch.Tensor,
+    targets: torch.IntTensor,
+    inp_lens: torch.IntTensor,
+    tgt_lens: torch.IntTensor,
+) -> torch.Tensor:
+    """Per-sample CTC loss – returns a vector of shape ``(B,)``."""
+    log_probs = F.log_softmax(logits, dim=2)
+    return F.ctc_loss(
+        log_probs,
+        targets,
+        inp_lens,
+        tgt_lens,
+        reduction="none",
+        zero_infinity=True,
+    )
+
+
 class ProjectionLoss(torch.nn.Module):
     """
     Entropic‑regularised optimal‑transport projection loss with optional
@@ -58,6 +76,8 @@ class ProjectionLoss(torch.nn.Module):
     tgt_probs : torch.Tensor                  # shape (M,)
         Marginal probabilities for the target distribution.  For the balanced
         version it will be renormalised to sum to 1.
+    weights : torch.Tensor | None, optional
+        Optional per-sample vector weighting the supervised term.
 
     Returns
     -------
@@ -95,6 +115,7 @@ class ProjectionLoss(torch.nn.Module):
         word_embeddings: torch.Tensor,
         aligned: torch.Tensor,
         tgt_probs: torch.Tensor,
+        weights: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # sanity checks on shapes
         assert descriptors.ndim == 2, "descriptors must be 2-D (N, d)"
@@ -137,7 +158,15 @@ class ProjectionLoss(torch.nn.Module):
         else:
             aligned_descriptors = descriptors[aligned_indices]
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
-            distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
+            err_vec = F.mse_loss(
+                aligned_descriptors,
+                corresp_word_embeddings,
+                reduction="none",
+            ).sum(dim=1)
+            if weights is not None:
+                distance_loss = (err_vec * weights[aligned_indices]).sum() / weights[aligned_indices].sum()
+            else:
+                distance_loss = err_vec.mean()
         return ot_loss + self.supervised_weight * distance_loss
 
 # ------------------------------------------------------------------
