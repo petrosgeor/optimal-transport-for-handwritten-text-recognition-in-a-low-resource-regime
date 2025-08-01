@@ -275,6 +275,31 @@ def test_dataset_weights_initial(tmp_path):
     assert torch.equal(ds.weights, (ds.aligned != -1).float())
 
 
+def test_margin_based_weights_range():
+    """Weights computed by the aligner stay in [0, 1]."""
+
+    from alignment import alignment_utilities as au
+
+    ds = DummyHTRDataset()
+    ds.unique_word_probs = [0.6, 0.4]
+    ds.unique_word_embeddings = torch.zeros(2, 2)
+    ds.real_word_indices = torch.arange(2)
+
+    backbone = DummyBackbone()
+    proj = torch.nn.Linear(2, 2)
+    proj.output_dim = 2
+
+    aligner = au.ProjectionAligner(ds, backbone, [proj], k=1, device="cpu")
+
+    dist = torch.tensor([[0.1, 0.2]])
+    pred_idx = torch.tensor([0])
+    w = aligner._margin_based_weights(dist, pred_idx, torch.tensor([0]))
+
+    assert w.shape == (1,)
+    assert 0.0 <= float(w[0]) <= 1.0
+    assert w.device.type == "cpu"
+
+
 def test_unique_word_embeddings_attribute():
     """Word embeddings tensor is stored under ``unique_word_embeddings``."""
 
@@ -438,6 +463,7 @@ def test_align_closest_per_word():
             self.unique_word_probs = [1 / 5] * 5
             self.aligned = torch.full((5,), -1, dtype=torch.int32)
             self.real_word_indices = torch.arange(len(self.unique_words))
+            self.weights = torch.zeros(len(self.unique_words), dtype=torch.float32)
             self.imgs = [torch.full((1, 2, 2), float(i)) for i in range(5)]
             self.transcriptions = ["" for _ in range(5)]
             self.transforms = None

@@ -272,7 +272,7 @@ class HTRDataset(Dataset):
 *   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `unique_words`.
 *   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
     If ``aligned[i] = k`` and ``k != -1``, ``image[i]`` is aligned with ``unique_words[k]``.
-*   `weights` (torch.FloatTensor): Per-sample curriculum weights ∈ [0, 1].
+*   `weights (torch.FloatTensor)`: Curriculum weights ∈ [0, 1] for every sample.  Seeds start at 1; the vector is **updated in-place by `ProjectionAligner.align()` using a margin-based confidence heuristic.**
 *   `word_prob_mode` (str): How `unique_word_probs` are computed (`empirical` or `wordfreq`).
 
 **Methods:**
@@ -381,9 +381,15 @@ class ProjectionAligner:
 
 **Methods:**
 *   `_get_projector_features() -> Tuple[torch.Tensor, torch.Tensor]`: Harvest projector outputs and alignment flags for the whole dataset.
+*   `_margin_based_weights(dist_matrix, pred_word_idx, topk_local) -> torch.Tensor`
+    Compute confidence weights for the *k* newly pseudo-labelled descriptors using the distance-margin & word-prior rule. Returns a `(k,)` tensor in the same order as `topk_local`.
 *   `align() -> Tuple[torch.Tensor, torch.Tensor]`: Perform one alignment round and return mean features and moved distances.
 *   `_assert_alignment_invariants(prev_aligned, prev_real_vocab, prev_syn_vocab, vocab_size_before) -> None`: Verify dataset consistency after updating labels.
 *   `_log_results(new_indices) -> None`: Print alignment statistics for the current round.
+
+**Side-effects:**
+*   `dataset.aligned[...]` is updated with new pseudo-labels.
+*   `dataset.weights[...]` is refreshed for the k pseudo-labelled items, giving each a confidence score between 0 and 1.
 
 
 

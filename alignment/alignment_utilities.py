@@ -182,10 +182,46 @@ class ProjectionAligner:
             for i, proj in enumerate(self.projectors):
                 proj_feats[i] = proj(feats_all.to(self.device)).cpu()
         
-        for proj in self.projectors: 
+
+        for proj in self.projectors:
             proj.train()
 
         return proj_feats, aligned_all
+
+    def _margin_based_weights(
+        self,
+        dist_matrix: torch.Tensor,
+        pred_word_idx: torch.Tensor,
+        topk_local: torch.Tensor,
+    ) -> torch.Tensor:
+        """Compute confidence weights for newly pseudo-labelled samples.
+
+        Args:
+            dist_matrix (torch.Tensor): Pairwise distances between unaligned
+                descriptors and word embeddings with shape ``(U, V)``.
+            pred_word_idx (torch.Tensor): Indices of the nearest embedding for
+                each unaligned descriptor (length ``U``).
+            topk_local (torch.Tensor): Local positions of the ``k`` descriptors
+                selected for pseudo-labelling.
+
+        Returns:
+            torch.Tensor: A 1-D tensor of length ``k`` containing confidence
+            weights on the CPU.
+        """
+
+        d1d2 = dist_matrix[topk_local].topk(2, largest=False)
+        margin = d1d2.values[:, 1] - d1d2.values[:, 0]
+        conf_gap = torch.sigmoid(margin / (margin.mean() + 1e-9))
+
+        word_priors = torch.as_tensor(
+            self.dataset.unique_word_probs, device=margin.device
+        )[pred_word_idx[topk_local]]
+        prior_norm = word_priors / word_priors.max()
+
+        w = torch.sqrt(conf_gap * prior_norm).clamp_(0.0, 1.0)
+        assert torch.isfinite(w).all() and (w >= 0).all() and (w <= 1).all()
+
+        return w.cpu()
 
 
     @torch.no_grad()
@@ -244,6 +280,9 @@ class ProjectionAligner:
         self.dataset.aligned[chosen_global_indices] = pseudo_labels.cpu().to(
             self.dataset.aligned.dtype
         )
+
+        w = self._margin_based_weights(dist_matrix, pred_word_idx, topk_local)
+        self.dataset.weights[chosen_global_indices] = w
 
         # ── 6. Create the 'moved' tensor for this round ──────────────────
         moved = torch.full((proj_feats_mean.size(0),), float("inf"), device="cpu")
