@@ -34,7 +34,7 @@ from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss, SoftContrastiveLoss
 from alignment.ctc_utils import encode_for_ctc
-from alignment.losses import _ctc_loss_fn
+from alignment.losses import _ctc_loss_fn, _ctc_loss_vec
 from alignment.alignment_utilities import (
     align_more_instances,
     harvest_backbone_features,
@@ -222,6 +222,8 @@ def refine_visual_backbone(
     Returns:
         None
     """
+    dataset.enable_weight_output(True)
+
     device = next(backbone.parameters()).device
     assert device.type == "cuda", "Backbone is not on a CUDA device"
     backbone.train().to(device)
@@ -275,20 +277,15 @@ def refine_visual_backbone(
         epoch_loss: float = 0.0
         effective_batches = 0
         for batch in epoch_loader:
-            if pretrain_loader is not None:
-                imgs, trans = batch
-                words = list(trans)
-                if gt_iter is not None:
-                    imgs_gt, _, aligned = next(gt_iter)
-                    imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
-                    words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()] + words
-                    imgs, words = _shuffle_batch(imgs, words)
-                else:
-                    imgs = imgs.to(device)
-            else:
-                imgs, _, aligned = batch
-                words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()]
-                imgs = imgs.to(device)
+            if len(batch) == 4:            # real data
+                imgs, words, aligned, samp_w = batch
+            else:                          # synthetic data => weight 1
+                imgs, words = batch[:2]
+                aligned = torch.full((imgs.size(0),), -1, dtype=torch.int32)
+                samp_w = torch.ones(imgs.size(0))
+            samp_w = samp_w.to(device)
+            words = list(words)
+            imgs = imgs.to(device)
 
             _assert_finite(imgs, "images")
 
@@ -316,13 +313,18 @@ def refine_visual_backbone(
 
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
             # Compute CTC losses for main and auxiliary heads
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+            loss_main_vec = _ctc_loss_vec(main_logits, targets, inp_lens, tgt_lens)
+            loss_aux_vec = _ctc_loss_vec(aux_logits, targets, inp_lens, tgt_lens)
+            loss_main = (samp_w * loss_main_vec).sum() / samp_w.sum()
+            loss_aux = (samp_w * loss_aux_vec).sum() / samp_w.sum()
             loss_phoc = torch.tensor(0.0, device=device)
             if enable_phoc and phoc_logits is not None:
                 phoc_targets = build_phoc_description(words, c2i, levels=phoc_levels)
                 phoc_targets = phoc_targets.float().to(device)
-                loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+                phoc_vec = F.binary_cross_entropy_with_logits(
+                    phoc_logits, phoc_targets, reduction="none"
+                ).mean(dim=1)
+                loss_phoc = (samp_w * phoc_vec).sum() / samp_w.sum()
 
             loss_contr = torch.tensor(0.0, device=device)
             if enable_contrastive and feats is not None:
@@ -354,6 +356,7 @@ def refine_visual_backbone(
     plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')
     backbone.eval()
+    dataset.enable_weight_output(False)
 
 # File: alignment/trainer.py
 
@@ -440,10 +443,12 @@ def train_projector(  # pylint: disable=too-many-arguments
     
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
+    weights_cpu = dataset.weights.clone()
+
     proj_loader = DataLoader(
-        TensorDataset(feats_all, aligned_all),
+        TensorDataset(feats_all, aligned_all, weights_cpu),
         batch_size=batch_size,
-        shuffle=True, # Shuffle is True here for training
+        shuffle=True,
         pin_memory=(device.type == "cuda"),
     )
 
@@ -457,14 +462,15 @@ def train_projector(  # pylint: disable=too-many-arguments
         for epoch in range(1, num_epochs + 1):
             running_loss = 0.0
             num_batches = 0
-            for feats_cpu, align_cpu in proj_loader:
-                feats = feats_cpu.to(device);
-                align = align_cpu.to(device);
+            for feats_cpu, align_cpu, w_cpu in proj_loader:
+                feats = feats_cpu.to(device)
+                align = align_cpu.to(device)
+                w = w_cpu.to(device)
                 
                 # Forward pass through the projector
                 pred = proj(feats)
                 # Compute the projection loss
-                loss = criterion.forward(pred, word_embs, align, word_probs)
+                loss = criterion.forward(pred, word_embs, align, word_probs, weights=w)
 
                 # Backpropagation and optimization
                 loss.backward()

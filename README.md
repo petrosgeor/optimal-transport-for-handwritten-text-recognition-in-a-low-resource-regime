@@ -272,6 +272,7 @@ class HTRDataset(Dataset):
 *   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `unique_words`.
 *   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
     If ``aligned[i] = k`` and ``k != -1``, ``image[i]`` is aligned with ``unique_words[k]``.
+*   `weights` (torch.FloatTensor): Per-sample curriculum weights ∈ [0, 1].
 *   `word_prob_mode` (str): How `unique_word_probs` are computed (`empirical` or `wordfreq`).
 
 **Methods:**
@@ -281,6 +282,11 @@ class HTRDataset(Dataset):
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
 *   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of unique-word usage.
+*   `set_weights(indices, values) → None`  
+   Update `weights[indices]` in-place.
+
+*   `enable_weight_output(flag=True) → None`  
+   When *flag* is `True` `__getitem__` returns a 4-tuple  `(image, transcription, aligned, weight)`; otherwise the original 3-tuple.
 *   `word_frequencies(mode=None)` -> (unique_words, probs): Returns the dataset
     vocabulary and its probability vector. When mode is None (default) the
     computation honours `self.word_prob_mode`.
@@ -487,6 +493,7 @@ class ProjectionLoss(torch.nn.Module):
 *   `reg_m` (float): Unbalanced mass regularisation.
 *   `supervised_weight` (float): Scale for the supervised descriptor distance term.
 *   `sinkhorn_kwargs` (dict): Extra keyword arguments forwarded to the solver.
+*   `weights` (torch.Tensor | None): Optional (N,) vector that re-weights the supervised MSE term.
 **Attributes:**
 *   `reg` (float): OT regularisation strength.
 *   `unbalanced` (bool): Flag for unbalanced OT formulation.
@@ -494,7 +501,7 @@ class ProjectionLoss(torch.nn.Module):
 *   `supervised_weight` (float): Weight for supervised term.
 
 **Methods:**
-*   `forward(descriptors, word_embeddings, aligned, tgt_probs) -> torch.Tensor`: returns the combined loss without side effects.
+*   `forward(descriptors, word_embeddings, aligned, tgt_probs, weights=None) -> torch.Tensor`: returns the combined loss without side effects.
 
 
 #### SoftContrastiveLoss
@@ -810,7 +817,7 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 Located in: `alignment/trainer.py`
 
-Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled. Setting `syn_batch_ratio=1` yields purely synthetic batches, while `syn_batch_ratio=0` uses only real data.
+Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled. Setting `syn_batch_ratio=1` yields purely synthetic batches, while `syn_batch_ratio=0` uses only real data. This function automatically reads `dataset.weights` and scales per-sample losses accordingly when present.
 
 ```python
 def refine_visual_backbone(
@@ -836,6 +843,31 @@ def refine_visual_backbone(
 
 ```python
 refine_visual_backbone(ds, backbone, pretrain_ds=synthetic_ds)
+```
+
+#### train_projector
+
+Located in: `alignment/trainer.py`
+
+Trains projector networks on cached descriptors from the backbone. This function automatically reads `dataset.weights` and scales per-sample losses accordingly when present.
+
+```python
+def train_projector(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    projector: nn.Module | List[nn.Module],
+    num_epochs: int = cfg.projector_epochs,
+    batch_size: int = cfg.projector_batch_size,
+    lr: float = cfg.projector_lr,
+    num_workers: int = cfg.projector_workers,
+    weight_decay: float = cfg.projector_weight_decay,
+    device: torch.device | str = cfg.device,
+    plot_tsne: bool = cfg.plot_tsne,
+) -> None:
+```
+
+```python
+train_projector(ds, backbone, proj)
 ```
 
 #### _shuffle_batch
