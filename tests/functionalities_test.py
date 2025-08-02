@@ -8,7 +8,7 @@ import itertools
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
-from alignment.trainer import _shuffle_batch
+from alignment.trainer import _shuffle_batch, log_round_metrics
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 
 
@@ -36,6 +36,15 @@ def test_shuffle_batch():
     ]
     assert observed_pairs == expected_pairs
     assert not torch.equal(imgs, shuffled_imgs)
+
+
+def test_log_round_metrics(tmp_path):
+    """Metrics are appended as TSV lines."""
+    path = tmp_path / "round_metrics.txt"
+    log_round_metrics(1, 2, 0.1234, str(path))
+    log_round_metrics(2, 3, 0.5, str(path))
+    content = path.read_text().splitlines()
+    assert content == ["1\t2\t0.1234", "2\t3\t0.5000"]
 
 
 def test_ctc_target_probability():
@@ -292,8 +301,8 @@ def test_model_components_forward():
     assert main.shape == aux.shape == (10, 1, 5)
 
 
-def test_alternating_refinement_calls_cer(monkeypatch):
-    """compute_cer is invoked for train and test datasets."""
+def test_alternating_refinement_calls_cer(monkeypatch, tmp_path):
+    """compute_cer and log_round_metrics are invoked appropriately."""
 
     from types import SimpleNamespace
     from alignment import trainer
@@ -334,6 +343,7 @@ def test_alternating_refinement_calls_cer(monkeypatch):
             return x
 
     calls = []
+    metrics = []
 
     def fake_compute_cer(ds, model, **kwargs):
         calls.append(ds)
@@ -342,6 +352,9 @@ def test_alternating_refinement_calls_cer(monkeypatch):
     def fake_align(ds, *a, **k):
         ds.aligned.fill_(0)
 
+    def fake_log_round_metrics(r, c, cer, out_file):
+        metrics.append((r, c, cer, out_file))
+
     monkeypatch.setattr(trainer, "compute_cer", fake_compute_cer)
     monkeypatch.setattr(trainer, "refine_visual_backbone", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "train_projector", lambda *a, **k: None)
@@ -349,8 +362,10 @@ def test_alternating_refinement_calls_cer(monkeypatch):
     monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "HTRDataset", FakeDataset)
     monkeypatch.setattr(trainer, "log_pseudo_labels", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "log_round_metrics", fake_log_round_metrics)
     monkeypatch.setattr(trainer.cfg, "device", "cpu")
     monkeypatch.setattr(trainer.cfg, "align_device", "cpu")
+    monkeypatch.setattr(trainer.cfg, "round_metrics_file", str(tmp_path / "m.txt"))
 
     ds = FakeDataset()
     backbone = DummyBackbone()
@@ -360,6 +375,7 @@ def test_alternating_refinement_calls_cer(monkeypatch):
 
     subsets = {getattr(getattr(d, "dataset", d), "subset", None) for d in calls}
     assert {"train_val", "test"} == subsets
+    assert metrics == [(1, 1, 0.0, str(tmp_path / "m.txt"))]
 
 
 def test_validate_pseudo_labels(monkeypatch):

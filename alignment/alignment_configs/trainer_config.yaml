@@ -66,6 +66,7 @@ align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
+round_metrics_file: "results/round_metrics.txt"  # path to TSV log for refinement rounds
 
 # ----------------------------------------------------------------------
 # Dataset parameters

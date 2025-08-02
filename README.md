@@ -834,6 +834,50 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 * `pretraining.py` – trains a CTC-based network on the synthetic 90k dataset.
 
+#### log_pseudo_labels
+
+Located in: `alignment/trainer.py`
+
+```python
+def log_pseudo_labels(
+        new_indices: torch.Tensor,
+        dataset: HTRDataset,
+        round_idx: int,
+        out_dir: str = "results",
+) -> None:
+```
+
+* **Purpose:** Save pseudo‑labelled samples for the current refinement round.
+  The TSV file lists dataset index, predicted transcription and ground truth.
+
+#### log_round_metrics
+
+Located in: `alignment/trainer.py`
+
+```python
+def log_round_metrics(
+        round_idx: int,
+        correct_pseudo: int,
+        cer_test: float,
+        out_file: str
+) -> None:
+```
+
+* **Purpose:** Persist the key numbers that summarise each refinement
+  iteration:
+
+  1. the current round index (starting from `1`);
+  2. the *absolute* number of correctly pseudo‑labelled samples in that round;
+  3. the character error rate (CER) on the *test* split immediately
+     after the refinement round.
+* The function appends one TSV line
+  `<round>	<correct_pseudo>	<cer_test>` to `out_file`.
+* If `out_file` does not yet exist it is created automatically; the file
+  is **never** deleted by `trainer.py` so that long‑running experiments
+  accumulate their history in a single place.
+* The file name and directory are set through
+  `trainer_config.yaml → round_metrics_file`.
+
 
 #### refine_visual_backbone
 
