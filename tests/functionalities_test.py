@@ -475,3 +475,50 @@ def test_select_seed_indices_limits():
 
     assert len(indices) == 2
 
+
+def test_final_backbone_refinement_runs(monkeypatch):
+    """Call ``refine_visual_backbone`` once all samples are aligned."""
+
+    from types import SimpleNamespace
+    import alignment.trainer as trainer
+
+    flag = {"called": False}
+
+    def _fake_refine(dataset, backbone, num_epochs, **kwargs):
+        flag["called"] = True
+
+    # Avoid file access and heavy initialisation inside the trainer.
+    monkeypatch.setattr(trainer, "refine_visual_backbone", _fake_refine)
+    monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
+
+    class TinyModule:
+        def to(self, device):
+            return self
+
+        def parameters(self):
+            return []
+
+    dataset = SimpleNamespace(
+        basefolder=".",
+        fixed_size=(1, 1),
+        character_classes=[],
+        config=None,
+        aligned=torch.tensor([0]),
+    )
+
+    # Prevent construction of a real HTRDataset for the test split.
+    monkeypatch.setattr(trainer, "HTRDataset", lambda *a, **k: dataset)
+
+    backbone = TinyModule()
+    projector = TinyModule()
+
+    trainer.alternating_refinement(
+        dataset,
+        backbone,
+        [projector],
+        rounds=0,
+        backbone_epochs=1,
+    )
+
+    assert flag["called"]
+
