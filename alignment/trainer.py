@@ -702,7 +702,17 @@ def alternating_refinement(
         )
         cycle_idx += 1
 
-
+    # ────────────────────────────────────────────────────────────────────────────────────────
+    #   FINISH: every sample has an alignment – keep refining
+    # ────────────────────────────────────────────────────────────────────────────────────────
+    if not (dataset.aligned == -1).any():
+        print("[Info] All samples aligned – continuing backbone training …")
+        refine_visual_backbone(
+            dataset,
+            backbone,
+            num_epochs=backbone_epochs,
+            **refine_kwargs
+        )
 
 if __name__ == "__main__":
     """Run a *tiny* end‑to‑end refinement cycle to verify code execution."""
