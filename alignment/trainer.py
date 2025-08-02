@@ -140,6 +140,29 @@ def log_pseudo_labels(
         fh.write("\n".join(rows))
 
 
+def log_round_metrics(
+    round_idx: int,
+    correct_pseudo: int,
+    cer_test: float,
+    out_file: str,
+) -> None:
+    """Append refinement metrics to a TSV file.
+
+    Args:
+        round_idx (int): Current refinement round index.
+        correct_pseudo (int): Number of correctly pseudo-labelled samples.
+        cer_test (float): Character error rate on the test split.
+        out_file (str): Destination file for the appended metrics.
+
+    Returns:
+        None
+    """
+    Path(out_file).parent.mkdir(parents=True, exist_ok=True)
+    mode = "a" if Path(out_file).is_file() else "w"
+    with open(out_file, mode, encoding="utf-8") as fh:
+        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\n")
+
+
 
 
 # PHOC configuration defaults
@@ -648,12 +671,22 @@ def alternating_refinement(
             (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
         )[0]
         log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
-        compute_cer(
+        correct_round = sum(
+            dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
+            for i in changed.tolist()
+        )
+        cer_test = compute_cer(
             test_dataset,
             backbone,
             batch_size=cfg.eval_batch_size,
             device=cfg.device,
             k=4
+        )
+        log_round_metrics(
+            cycle_idx,
+            correct_round,
+            cer_test,
+            cfg.round_metrics_file,
         )
 
         # --- restrict CER to already-aligned samples -------------------
