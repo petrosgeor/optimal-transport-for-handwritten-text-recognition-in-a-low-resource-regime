@@ -15,9 +15,9 @@ def _ctc_loss_fn(
     log_probs = F.log_softmax(logits, dim=2)
     loss = F.ctc_loss(
         log_probs,
-        targets.cpu(),
-        inp_lens.cpu(),
-        tgt_lens.cpu(),
+        targets,
+        inp_lens,
+        tgt_lens,
         reduction="mean",
         zero_infinity=True,
     )

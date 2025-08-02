@@ -20,6 +20,13 @@ from alignment.alignment_utilities import harvest_backbone_features
 
 cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    module="sklearn.manifold._t_sne"
+)
+
 
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
     """Save a figure showing three images and their augmentations side by side.

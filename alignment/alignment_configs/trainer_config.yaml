@@ -16,7 +16,7 @@ phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss defaults
 # ----------------------------------------------------------------------
-contrastive_enable: true  # turn on to activate the loss
+contrastive_enable: false  # turn on to activate the loss
 contrastive_weight: 0.3    # β – scales the new loss inside total_loss
 contrastive_tau: 0.07      # τ – temperature for descriptor similarities
 contrastive_text_T: 3.0    # T_txt – softness in edit‑distance space
@@ -48,7 +48,7 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
-gpu_id: 0                   # which CUDA device index to use
+gpu_id: 1                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
@@ -102,6 +102,6 @@ synthetic_dataset:
 # Optional pseudo-label validation
 # ----------------------------------------------------------------------
 pseudo_label_validation:
-  enable: true        # set false to skip the new check
+  enable: false        # set false to skip the new check
   edit_distance: 4    # maximum Levenshtein distance allowed
   start_iteration: 4  # first round that runs the check

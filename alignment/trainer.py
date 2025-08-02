@@ -43,6 +43,19 @@ from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
 
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    module="sklearn.manifold._t_sne"
+)
+from requests.exceptions import RequestsDependencyWarning
+warnings.filterwarnings(
+    "ignore",
+    category=RequestsDependencyWarning
+)
+
+
 def _assert_finite(t: torch.Tensor, where: str) -> None:
     """Assert that ``t`` contains no ``NaN`` or ``Inf`` values.
 
@@ -304,7 +317,7 @@ def refine_visual_backbone(
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
             # Encode transcriptions for CTC loss
-            targets, tgt_lens = encode_for_ctc(words, c2i, device="cpu")
+            targets, tgt_lens = encode_for_ctc(words, c2i, device=device)
 
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
             # Compute CTC losses for main and auxiliary heads
@@ -337,11 +350,11 @@ def refine_visual_backbone(
             optimizer.step()
             epoch_loss += loss.item()
             effective_batches += 1
-        if effective_batches:
-            avg_loss = epoch_loss / effective_batches
-            print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
-        else:
-            print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
+        # if effective_batches:
+        #     avg_loss = epoch_loss / effective_batches
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
+        # else:
+        #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     
     plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')
