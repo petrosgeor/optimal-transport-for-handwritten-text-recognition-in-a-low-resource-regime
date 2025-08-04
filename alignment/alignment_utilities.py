@@ -409,7 +409,8 @@ class OTAligner:
                 dist_matrix=dist_matrix.numpy() if self.metric == "gap" else None,
                 metric=self.metric,
             )
-        order_cert = order_unc[::-1]
+            order_cert = order_unc[::-1]
+            
         mask_new = (aligned_all == -1).numpy()
         assert self.agree_threshold > 0, "agree_threshold must be positive"
         assert order_cert.size > 0, "No candidates produced"

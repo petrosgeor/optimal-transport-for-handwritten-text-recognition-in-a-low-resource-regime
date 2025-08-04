@@ -16,7 +16,7 @@ phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss defaults
 # ----------------------------------------------------------------------
-contrastive_enable: false  # turn on to activate the loss
+contrastive_enable: true  # turn on to activate the loss
 contrastive_weight: 0.3    # β – scales the new loss inside total_loss
 contrastive_tau: 0.07      # τ – temperature for descriptor similarities
 contrastive_text_T: 3.0    # T_txt – softness in edit‑distance space
@@ -48,7 +48,7 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
-gpu_id: 1                   # which CUDA device index to use
+gpu_id: 2                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
@@ -66,7 +66,7 @@ align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
-round_metrics_file: "results/round_metrics.txt"  # path to TSV log for refinement rounds
+round_metrics_file: "results/test_512dim.txt"  # path to TSV log for refinement rounds
 
 # ----------------------------------------------------------------------
 # Dataset parameters

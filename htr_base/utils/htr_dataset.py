@@ -42,7 +42,7 @@ class HTRDataset(Dataset):
         self.config = config
         self.two_views = two_views
         self.n_aligned = 0
-        self.word_emb_dim = 512
+        # self.word_emb_dim = 512
         if self.config is not None:
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
@@ -68,14 +68,6 @@ class HTRDataset(Dataset):
         transcrs = []
         for img_path, transcr in self.data:
             transcrs.append(transcr)
-            # img = load_image(img_path)
-            # img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
-            # img = torch.tensor(img).float().unsqueeze(0)
-            # imgs.append(img)
-        # if len(imgs) > 0:
-        #     self.images = torch.stack(imgs)
-        # else:
-        #     self.images = torch.empty((0, 1, self.fixed_size[0], self.fixed_size[1]))
         self.transcriptions = transcrs
         self.prior_char_probs = self.letter_priors()
         if self.character_classes is None:
@@ -83,7 +75,7 @@ class HTRDataset(Dataset):
             self.character_classes = list(c2i.keys())
         # Vocabulary derived from dataset transcriptions
         self.unique_words, self.unique_word_probs = self.word_frequencies()
-        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words)
+        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=self.word_emb_dim)
 
         # All transcriptions are present in ``unique_words``
         self.is_in_dict = torch.ones(len(self.transcriptions), dtype=torch.int32)
