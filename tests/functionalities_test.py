@@ -522,3 +522,29 @@ def test_final_backbone_refinement_runs(monkeypatch):
 
     assert flag["called"]
 
+
+def test_use_wordfreq_probs(tmp_path):
+    """wordfreq prior replaces empirical counts and normalises to 1."""
+
+    from types import SimpleNamespace
+
+    base = tmp_path / "data"
+    train = base / "train"
+    train.mkdir(parents=True)
+    with open(train / "gt.txt", "w") as f:
+        f.write("0 alpha\n")
+        f.write("1 beta\n")
+        f.write("2 alpha\n")
+        f.write("3 zzzzzzzz\n")
+
+    cfg = SimpleNamespace(n_aligned=0, word_emb_dim=2, use_wordfreq_probs=False)
+    ds = HTRDataset(str(base), subset="train", fixed_size=(1, 1), config=cfg)
+    assert ds.unique_word_probs == [0.5, 0.25, 0.25]
+
+    cfg_true = SimpleNamespace(n_aligned=0, word_emb_dim=2, use_wordfreq_probs=True)
+    ds_wf = HTRDataset(str(base), subset="train", fixed_size=(1, 1), config=cfg_true)
+    probs = ds_wf.unique_word_probs
+    assert abs(sum(probs) - 1.0) < 1e-6
+    assert all(p > 0 for p in probs)
+    assert probs != [0.5, 0.25, 0.25]
+
