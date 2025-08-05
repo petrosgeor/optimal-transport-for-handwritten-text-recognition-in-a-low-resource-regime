@@ -14,6 +14,38 @@ import random
 from typing import List
 from htr_base.utils.vocab import load_vocab
 class HTRDataset(Dataset):
+    """Dataset of handwritten text images with optional alignment data.
+
+    Args:
+        basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
+        subset (str): Portion of the dataset to load.
+        fixed_size (tuple): ``(height, width)`` used to resize images.
+        transforms (list | None): Optional Albumentations pipeline.
+        character_classes (list | None): Characters making up the vocabulary.
+        config (Any): Optional configuration object with alignment parameters.
+        two_views (bool): Return two augmented views when ``True``.
+
+    Attributes:
+        basefolder (str): Root folder containing dataset splits.
+        subset (str): Selected subset to load.
+        fixed_size (tuple): Target image size ``(height, width)``.
+        transforms (list | None): Albumentations pipeline applied to images.
+        character_classes (list[str]): Dataset vocabulary of characters.
+        config (Any): Optional configuration object with alignment parameters.
+        two_views (bool): Whether to return two augmented views per sample.
+        n_aligned (int): Number of initially aligned instances.
+        word_emb_dim (int): Dimension of word embeddings.
+        use_wordfreq_probs (bool): Use language-model priors instead of empirical counts.
+        data (list[tuple[str, str]]): Image paths and their transcriptions.
+        transcriptions (list[str]): Text strings for each image.
+        prior_char_probs (dict): Prior probabilities for each character.
+        unique_words (list[str]): Unique words present in the dataset.
+        unique_word_probs (list[float]): Prior probability of each unique word.
+        unique_word_embeddings (torch.Tensor): Embeddings for unique words.
+        is_in_dict (torch.IntTensor): ``1`` if a transcription is in ``unique_words``.
+        aligned (torch.IntTensor): Alignment indices or ``-1`` when unknown.
+    """
+
     def __init__(self,
         basefolder: str = 'IAM/',                # Root folder
         subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
@@ -31,7 +63,7 @@ class HTRDataset(Dataset):
             fixed_size (tuple): ``(height, width)`` used to resize images.
             transforms (list | None): Optional Albumentations pipeline.
             character_classes (list | None): Characters making up the vocabulary.
-            config (Any): Optional configuration object with alignment params.
+            config (Any): Optional configuration object with alignment parameters.
             two_views (bool): Return two augmented views when ``True``.
         """
         self.basefolder = basefolder
@@ -42,10 +74,11 @@ class HTRDataset(Dataset):
         self.config = config
         self.two_views = two_views
         self.n_aligned = 0
-        # self.word_emb_dim = 512
+        self.use_wordfreq_probs = False
         if self.config is not None:
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
+            self.use_wordfreq_probs = bool(getattr(self.config, "use_wordfreq_probs", False))
         # Load gt.txt from basefolder - each line contains image path and transcription
         if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
             raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
@@ -75,6 +108,8 @@ class HTRDataset(Dataset):
             self.character_classes = list(c2i.keys())
         # Vocabulary derived from dataset transcriptions
         self.unique_words, self.unique_word_probs = self.word_frequencies()
+        if self.use_wordfreq_probs:
+            self.unique_word_probs = self._estimated_word_probs(self.unique_words)
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=self.word_emb_dim)
 
         # All transcriptions are present in ``unique_words``
@@ -294,6 +329,23 @@ class HTRDataset(Dataset):
         unique = list(counts.keys())
         probs = [counts[w] / total for w in unique]
         return unique, probs
+
+    def _estimated_word_probs(self, words):
+        """Return probabilities for *words* using the wordfreq corpus.
+
+        The values are ``word_frequency(w, "en")``; zeros are replaced with a
+        tiny epsilon and the vector is normalised to sum to 1.
+
+        Args:
+            words (list[str]): Tokens to query the language model.
+
+        Returns:
+            list[float]: Normalised prior probabilities.
+        """
+        eps = 1e-12
+        freqs = [max(word_frequency(w, "en"), eps) for w in words]
+        total = float(sum(freqs))
+        return [f / total for f in freqs]
 
 
 class PretrainingHTRDataset(Dataset):
