@@ -456,6 +456,7 @@ def test_select_seed_indices_longest_distinct():
         "longer",
     ]
     ds.n_aligned = 3
+    ds.is_in_dict = torch.ones(len(ds.transcriptions), dtype=torch.int32)
 
     indices = HTRDataset._select_seed_indices(ds)
     words = [ds.transcriptions[i] for i in indices]
@@ -470,6 +471,7 @@ def test_select_seed_indices_limits():
     ds = HTRDataset.__new__(HTRDataset)
     ds.transcriptions = ["a", "b", "a"]
     ds.n_aligned = 5
+    ds.is_in_dict = torch.ones(len(ds.transcriptions), dtype=torch.int32)
 
     indices = HTRDataset._select_seed_indices(ds)
 
@@ -547,4 +549,36 @@ def test_use_wordfreq_probs(tmp_path):
     assert abs(sum(probs) - 1.0) < 1e-6
     assert all(p > 0 for p in probs)
     assert probs != [0.5, 0.25, 0.25]
+
+
+def test_lexicon_top_k_prunes_words(tmp_path):
+    """Prunes vocabulary and updates flags when ``lexicon_top_k`` > 0."""
+
+    from types import SimpleNamespace
+
+    base = tmp_path / "data"
+    train = base / "train"
+    train.mkdir(parents=True)
+    with open(train / "gt.txt", "w") as f:
+        f.write("0 alpha\n")
+        f.write("1 beta\n")
+        f.write("2 alpha\n")
+        f.write("3 gamma\n")
+
+    cfg = SimpleNamespace(
+        n_aligned=0,
+        word_emb_dim=2,
+        use_wordfreq_probs=False,
+        lexicon_top_k=2,
+    )
+
+    ds = HTRDataset(str(base), subset="train", fixed_size=(1, 1), config=cfg)
+    assert ds.unique_words == ["alpha", "beta"]
+    assert len(ds.unique_word_probs) == 2
+    assert abs(sum(ds.unique_word_probs) - 1.0) < 1e-6
+    assert ds.is_in_dict.tolist() == [1, 1, 1, 0]
+
+    ds.n_aligned = 3
+    idx = ds._select_seed_indices()
+    assert idx == [0, 1]
 

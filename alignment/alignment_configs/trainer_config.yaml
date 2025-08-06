@@ -78,6 +78,7 @@ dataset:
   n_aligned: 50            # Number of initially aligned instances
   word_emb_dim: 512         # Dimension of word embeddings
   use_wordfreq_probs: false    # when true → use wordfreq prior, else GT prior
+  lexicon_top_k: 0        # keep the k most-probable words; 0 ⇒ no pruning
   two_views: false          # Enable or disable two-view training
 ensemble_size: 9            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling

@@ -258,6 +258,11 @@ class HTRDataset(Dataset):
 *   `config` (Any): Optional configuration object with alignment parameters.
 *   `two_views` (bool): Return two augmented views when `True`.
 *   `use_wordfreq_probs` *(bool, default **False**)* – when *True*, the list `unique_word_probs` is computed with the [`wordfreq`](https://pypi.org/project/wordfreq/) language model (`word_frequency(word, "en")`) instead of empirical counts.
+*   `lexicon_top_k` *(int, default **0**)* – if **> 0**, `HTRDataset`
+    first sorts `unique_words` by their prior probability and keeps
+    only the *k* most‑probable ones before computing embeddings and
+    alignment data.  A value of **0** disables pruning (previous
+    behaviour).
 **Attributes:**
 *   `data` (list[tuple]): Pairs of image paths and transcriptions.
 *   `transcriptions` (list[str]): Text strings for each image.
@@ -993,6 +998,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
 *   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
 *   `n_aligned` (int): Number of initially aligned instances.
+*   `lexicon_top_k` (int): keep the k most‑probable words in the lexicon (0 = no pruning, default).
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
 *   `supervised_weight` (int): Weight for supervised loss component.

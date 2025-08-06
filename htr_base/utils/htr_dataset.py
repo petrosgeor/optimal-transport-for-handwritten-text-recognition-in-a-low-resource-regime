@@ -35,6 +35,7 @@ class HTRDataset(Dataset):
         two_views (bool): Whether to return two augmented views per sample.
         n_aligned (int): Number of initially aligned instances.
         word_emb_dim (int): Dimension of word embeddings.
+        lexicon_top_k (int): Keep only the ``k`` most-probable words; ``0`` disables pruning.
         use_wordfreq_probs (bool): Use language-model priors instead of empirical counts.
         data (list[tuple[str, str]]): Image paths and their transcriptions.
         transcriptions (list[str]): Text strings for each image.
@@ -75,10 +76,12 @@ class HTRDataset(Dataset):
         self.two_views = two_views
         self.n_aligned = 0
         self.use_wordfreq_probs = False
+        self.lexicon_top_k = 0
         if self.config is not None:
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
             self.use_wordfreq_probs = bool(getattr(self.config, "use_wordfreq_probs", False))
+            self.lexicon_top_k = int(getattr(self.config, "lexicon_top_k", 0))
         # Load gt.txt from basefolder - each line contains image path and transcription
         if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
             raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
@@ -110,10 +113,24 @@ class HTRDataset(Dataset):
         self.unique_words, self.unique_word_probs = self.word_frequencies()
         if self.use_wordfreq_probs:
             self.unique_word_probs = self._estimated_word_probs(self.unique_words)
+        # ---- optional lexicon pruning ---------------------------------
+        if self.lexicon_top_k and self.lexicon_top_k > 0:
+            pairs = sorted(
+                zip(self.unique_words, self.unique_word_probs),
+                key=lambda t: t[1],          # sort by probability
+                reverse=True                 # most-probable first
+            )[: self.lexicon_top_k]
+            self.unique_words, self.unique_word_probs = map(list, zip(*pairs))
+            # re-normalise to ∑ = 1
+            s = float(sum(self.unique_word_probs))
+            self.unique_word_probs = [p / s for p in self.unique_word_probs]
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=self.word_emb_dim)
 
-        # All transcriptions are present in ``unique_words``
-        self.is_in_dict = torch.ones(len(self.transcriptions), dtype=torch.int32)
+        word_set = set(self.unique_words)
+        self.is_in_dict = torch.tensor(
+            [1 if t.strip().lower() in word_set else 0 for t in self.transcriptions],
+            dtype=torch.int32
+        )
         # Alignment tensor
         self.aligned = torch.full((len(self.transcriptions),), fill_value=-1, dtype=torch.int32)
         if self.n_aligned > 0:
@@ -181,6 +198,8 @@ class HTRDataset(Dataset):
 
         chosen, seen_words = [], set()
         for i in sorted_idx:
+            if self.is_in_dict[i] == 0:
+                continue       # skip words that were pruned out
             w = self.transcriptions[i]
             if w not in seen_words:
                 chosen.append(i)
