@@ -28,10 +28,10 @@ from pathlib import Path
 GPU_ID = 1
 os.environ["CUDA_VISIBLE_DEVICES"] = str(GPU_ID)
 
-MAX_LENGTH = 3
+MAX_LENGTH = 20
 MIN_LENGTH = 0
 EVAL_K = 4
-N_ALIGNED = 30
+N_ALIGNED = 2751
 NUM_EPOCHS = 600
 BATCH_SIZE = 128
 SYN_BATCH_RATIO = 0.7 # if 0 then we only use gt samples. If 1 then we use only synthetic samples
@@ -49,7 +49,7 @@ ARCHITECTURE_CONFIG = {
     "stn": False,
     "feat_dim": None,
 }
-DATASET_BASE_FOLDER_NAME = "GW"
+DATASET_BASE_FOLDER_NAME = "IAM"
 FIGURE_OUTPUT_DIR = "tests/figures"
 FIGURE_FILENAME = "long.png"
 LOAD_PRETRAINED_BACKBONE = True
@@ -268,7 +268,9 @@ def refine_visual_model(dataset: HTRDataset,
     # Test loader
     test_set = HTRDataset(dataset.basefolder, subset="test",
                           fixed_size=dataset.fixed_size, transforms=None,
-                          config=dataset.config)
+                          config=dataset.config,
+                          normalize=True,
+                          drop_empty_after_normalization=True)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False,
                              num_workers=0, pin_memory=(device.type == "cuda"))
     # Optimiser & scheduler
@@ -371,8 +373,9 @@ def refine_visual_model(dataset: HTRDataset,
                 main_logits = outputs
                 aux_logits = None
             T, B, _ = main_logits.shape
-            targets, tgt_lens = encode_for_ctc(targets_s, c2i, device="cpu")
-            inp_lens = torch.full((B,), T, dtype=torch.int32)
+            # Ensure CTC targets and lengths are on the same device as logits
+            targets, tgt_lens = encode_for_ctc(targets_s, c2i, device=device)
+            inp_lens = torch.full((B,), T, dtype=torch.int32, device=device)
             loss_m = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
             loss_a = (
                 _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
@@ -423,6 +426,8 @@ if __name__ == "__main__":
         fixed_size=DATASET_FIXED_SIZE,
         transforms=aug_transforms,
         config=DummyCfg(),
+        normalize=True,
+        drop_empty_after_normalization=True,
     )
     corp_root = Path("/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px")
     list_file = corp_root / "imlist.txt"
@@ -431,7 +436,7 @@ if __name__ == "__main__":
         fixed_size=DATASET_FIXED_SIZE,
         base_path=str(corp_root),
         transforms=aug_transforms,
-        n_random=10000,
+        n_random=20,
         preload_images=False
     )
     c2i, _ = load_vocab()
