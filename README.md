@@ -614,42 +614,6 @@ class WER:
 
 
 
-#### knn_density_probabilities
-
-Located in: `alignment/alignment_utilities.py`
-
-Estimates a non-uniform source distribution over images from their embeddings, assigning lower mass to dense clusters and higher mass to sparse regions. Intended for building the visual-side marginal a before the OT step.
-
-```python
-def knn_density_probabilities(
-    embeddings: torch.Tensor,
-    *,
-    k: int = 16,
-    tau: float = 1.0,
-    mix: float = 1.0,
-    clip: tuple[float, float] | None = (0.1, 10.0),
-    metric: str = "euclidean",
-    block_size: int | None = None,
-    return_rho: bool = False,
-) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
-```
-
-- `embeddings` (torch.Tensor): Shape `(N, D)` projected image features.
-- `k` (int): Neighbors used to estimate local density (mean k-NN distance).
-- `tau` (float): Temperature; larger = gentler weighting.
-- `mix` (float): Convex mix with uniform (0→uniform only, 1→full density weighting).
-- `clip` (tuple|None): Relative caps to avoid extreme weights.
-- `metric` (str): `"euclidean"` or `"cosine"` for neighborhood distances.
-- `block_size` (int|None): Optional chunking for memory-friendly distance comps.
-- `return_rho` (bool): If True, also returns raw local-scale scores.
-
-Returns:
-
-- `torch.Tensor`: Probabilities over images, shape `(N,)`, summing to 1.
-- (optional) `torch.Tensor`: The local scale rho used to form the weights.
-
-Usage note: Call this right before the OT step inside the alignment routine to replace the uniform visual marginal with density-aware weights. Interfaces of `OTAligner` and `align_more_instances` are unchanged.
-
 ### CTC Utilities
 
 #### encode_for_ctc

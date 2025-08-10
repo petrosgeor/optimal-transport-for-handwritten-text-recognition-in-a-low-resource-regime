@@ -489,7 +489,7 @@ def train_projector(  # pylint: disable=too-many-arguments
 
         # Training loop for the current projector
         for epoch in range(1, num_epochs + 1):
-            print('the epoch is: ', epoch)
+            # print('the epoch is: ', epoch)
             running_loss = 0.0
             num_batches = 0
             for feats_cpu, align_cpu in proj_loader:
