@@ -38,7 +38,7 @@ architecture:
 # Projector training
 # ----------------------------------------------------------------------
 projector_epochs: 150       # number of epochs for the projector network
-projector_batch_size: 4000  # mini-batch size when collecting descriptors
+projector_batch_size: 16000  # mini-batch size when collecting descriptors
 projector_lr: 1e-4          # learning rate for projector optimisation
 projector_workers: 0        # dataloader workers used during descriptor caching
 projector_weight_decay: 1e-4  # weight decay for the projector optimiser
@@ -48,7 +48,7 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
-gpu_id: 2                   # which CUDA device index to use
+gpu_id: 1                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
@@ -66,20 +66,20 @@ align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
-round_metrics_file: "results/test_512dim.txt"  # path to TSV log for refinement rounds
+round_metrics_file: "results/test_IAM_500_initial.txt"  # path to TSV log for refinement rounds
 
 # ----------------------------------------------------------------------
 # Dataset parameters
 # ----------------------------------------------------------------------
 dataset:
-  basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
+  basefolder: 'htr_base/data/IAM/processed_words' # Base folder for the dataset
   subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 50            # Number of initially aligned instances
-  word_emb_dim: 512         # Dimension of word embeddings
+  n_aligned: 500            # Number of initially aligned instances
+  word_emb_dim: 100         # Dimension of word embeddings
   use_wordfreq_probs: false    # when true → use wordfreq prior, else GT prior
   two_views: false          # Enable or disable two-view training
-ensemble_size: 9            # Size of the projector ensemble
+ensemble_size: 3            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
 supervised_weight: 100       # Weight for supervised loss component
 

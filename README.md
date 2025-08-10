@@ -247,6 +247,9 @@ class HTRDataset(Dataset):
         character_classes: list = None,
         config=None,
         two_views: bool = False,
+        normalize: bool = True,
+        drop_empty_after_normalization: bool = True,
+        c2i: dict | None = None,
         ):
 ```
 
@@ -257,6 +260,9 @@ class HTRDataset(Dataset):
 *   `character_classes` (list | None): Characters making up the vocabulary.
 *   `config` (Any): Optional configuration object with alignment parameters.
 *   `two_views` (bool): Return two augmented views when `True`.
+*   `normalize` (bool, default True): Lowercases transcriptions and removes characters not in the active vocabulary.
+*   `drop_empty_after_normalization` (bool, default True): Skips samples that become empty after normalization.
+*   `c2i` (dict | None): Optional character-to-index mapping used when `normalize=True`. Falls back to `htr_base.utils.vocab.load_vocab()` when `None`.
 *   `use_wordfreq_probs` *(bool, default **False**)* – when *True*, the list `unique_word_probs` is computed with the [`wordfreq`](https://pypi.org/project/wordfreq/) language model (`word_frequency(word, "en")`) instead of empirical counts.
 **Attributes:**
 *   `data` (list[tuple]): Pairs of image paths and transcriptions.
@@ -283,6 +289,15 @@ class HTRDataset(Dataset):
 
 **Initial seed alignment (`n_aligned`)**
 When `n_aligned > 0`, the dataset now selects **the `n_aligned` *distinct* words with the longest transcriptions** as the initial aligned set (ties are broken arbitrarily). This replaces the previous random sampling strategy and guarantees that each seed corresponds to a unique word, maximising lexical coverage from the outset.
+
+**Normalization (IAM compatibility)**
+- Enable `normalize=True` to lowercase transcriptions and drop any character not found in the active `c2i` vocabulary. Optionally combine with `drop_empty_after_normalization=True` to skip entries that become empty after filtering. This reconciles IAM’s broader symbol set (uppercase/punctuation) with a restricted working vocab (e.g., a–z, 0–9).
+
+**Word Embeddings (Landmark MDS)**
+- `find_word_embeddings` now uses a Landmark (Nyström) MDS approach with Levenshtein distances: it embeds up to 1000 landmark words with classical MDS and places the rest out-of-sample via double-centering. The API and output dimensionality (`word_emb_dim`) are unchanged, but runtime and memory scale much better for large vocabularies (e.g., IAM).
+
+**Seeding note**
+- Alignment seeding looks up unique-word indices using the lowercased transcription (`word.strip().lower()`), matching the lowercased vocabulary and preventing lookup errors on mixed-case labels.
 
 
 
@@ -598,6 +613,42 @@ class WER:
 
 
 
+
+#### knn_density_probabilities
+
+Located in: `alignment/alignment_utilities.py`
+
+Estimates a non-uniform source distribution over images from their embeddings, assigning lower mass to dense clusters and higher mass to sparse regions. Intended for building the visual-side marginal a before the OT step.
+
+```python
+def knn_density_probabilities(
+    embeddings: torch.Tensor,
+    *,
+    k: int = 16,
+    tau: float = 1.0,
+    mix: float = 1.0,
+    clip: tuple[float, float] | None = (0.1, 10.0),
+    metric: str = "euclidean",
+    block_size: int | None = None,
+    return_rho: bool = False,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+```
+
+- `embeddings` (torch.Tensor): Shape `(N, D)` projected image features.
+- `k` (int): Neighbors used to estimate local density (mean k-NN distance).
+- `tau` (float): Temperature; larger = gentler weighting.
+- `mix` (float): Convex mix with uniform (0→uniform only, 1→full density weighting).
+- `clip` (tuple|None): Relative caps to avoid extreme weights.
+- `metric` (str): `"euclidean"` or `"cosine"` for neighborhood distances.
+- `block_size` (int|None): Optional chunking for memory-friendly distance comps.
+- `return_rho` (bool): If True, also returns raw local-scale scores.
+
+Returns:
+
+- `torch.Tensor`: Probabilities over images, shape `(N,)`, summing to 1.
+- (optional) `torch.Tensor`: The local scale rho used to form the weights.
+
+Usage note: Call this right before the OT step inside the alignment routine to replace the uniform visual marginal with density-aware weights. Interfaces of `OTAligner` and `align_more_instances` are unchanged.
 
 ### CTC Utilities
 

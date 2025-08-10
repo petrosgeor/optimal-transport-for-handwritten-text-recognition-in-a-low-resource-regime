@@ -11,7 +11,7 @@ from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
 import random
-from typing import List
+from typing import List, Set, Optional
 from htr_base.utils.vocab import load_vocab
 class HTRDataset(Dataset):
     """Dataset of handwritten text images with optional alignment data.
@@ -54,6 +54,9 @@ class HTRDataset(Dataset):
         character_classes: list = None,          # If None, computed automatically; else list of characters
         config=None,                            # Configuration object with optional parameters
         two_views: bool = False,                # Whether to return two views of each image
+        normalize: bool = True,                # Lowercase + drop OOV characters
+        drop_empty_after_normalization: bool = True,  # Skip samples that become empty
+        c2i: Optional[dict] = None,            # Optional explicit vocabulary mapping
         ):
         """Load handwritten text images and optional alignment info.
 
@@ -65,6 +68,13 @@ class HTRDataset(Dataset):
             character_classes (list | None): Characters making up the vocabulary.
             config (Any): Optional configuration object with alignment parameters.
             two_views (bool): Return two augmented views when ``True``.
+            normalize (bool): When ``True``, lowercase transcriptions and
+                remove characters not present in the active vocabulary.
+            drop_empty_after_normalization (bool): If ``True``, drop samples
+                whose transcription becomes empty after normalization.
+            c2i (dict | None): Character-to-index mapping used to define the
+                allowed character set when ``normalize=True``. When ``None``,
+                it is loaded via ``htr_base.utils.vocab.load_vocab``.
         """
         self.basefolder = basefolder
         self.subset = subset
@@ -73,6 +83,10 @@ class HTRDataset(Dataset):
         self.character_classes = character_classes
         self.config = config
         self.two_views = two_views
+        # Normalization flags
+        self._normalize = normalize
+        self._drop_empty_after_norm = drop_empty_after_normalization
+        self._c2i = c2i
         self.n_aligned = 0
         self.use_wordfreq_probs = False
         if self.config is not None:
@@ -89,12 +103,27 @@ class HTRDataset(Dataset):
             subsets = ['train', 'val']
         else:
             subsets = [subset]
+        # Prepare allowed character set if normalization is enabled
+        allowed_chars = None
+        if self._normalize:
+            if self._c2i is None:
+                self._c2i, _ = load_vocab()
+            allowed_chars = set(self._c2i.keys())
         for sub in subsets:
             gt_file = os.path.join(basefolder, sub, 'gt.txt')
-            with open(gt_file, 'r') as f:
+            with open(gt_file, 'r', encoding='utf-8') as f:
                 for line in f:
-                    img_path, transcr = line.strip().split(' ')[0], ' '.join(line.strip().split(' ')[1:])
-                    data.append((os.path.join(basefolder, sub, img_path + '.png'), transcr))
+                    parts = line.strip().split(' ')
+                    if not parts:
+                        continue
+                    img_id, transcr = parts[0], ' '.join(parts[1:])
+                    # Optional normalization: lowercase and remove OOV characters
+                    if self._normalize and allowed_chars is not None:
+                        transcr_norm = self._normalize_text(transcr, allowed_chars)
+                        if self._drop_empty_after_norm and transcr_norm.strip() == "":
+                            continue
+                        transcr = transcr_norm
+                    data.append((os.path.join(basefolder, sub, img_id + '.png'), transcr))
         self.data = data
         # Load images into memory and store transcriptions
         # imgs = []
@@ -124,8 +153,23 @@ class HTRDataset(Dataset):
             if self.n_aligned > 0:
                 chosen = torch.tensor(self._select_seed_indices(), dtype=torch.long)
                 for idx in chosen.tolist():
-                    word = self.transcriptions[idx]
-                    self.aligned[idx] = self.unique_words.index(word)
+                    word_key = self.transcriptions[idx].strip().lower()
+                    if word_key in self.unique_words:
+                        self.aligned[idx] = self.unique_words.index(word_key)
+    @staticmethod
+    def _normalize_text(text: str, allowed: Set[str]) -> str:
+        """Normalize a transcription by lowercasing and removing OOV characters.
+
+        Args:
+            text (str): Input transcription to normalize.
+            allowed (set[str]): Set of allowed characters (e.g., keys of ``c2i``).
+
+        Returns:
+            str: Normalized transcription containing only characters from
+            ``allowed`` after lowercasing.
+        """
+        t = text.lower()
+        return "".join(ch for ch in t if ch in allowed)
     def __getitem__(self, index):
         """Return one or two processed image tensors and its transcription.
 
@@ -218,23 +262,82 @@ class HTRDataset(Dataset):
 
         return {c: counts[c] / total for c in letters}
     def find_word_embeddings(self, word_list, n_components: int = 512):
-        """Compute embeddings of words using pairwise Levenshtein distances."""
-        if len(word_list) == 0:
-            if n_components is None:
-                n_components = self.word_emb_dim
-            return torch.empty((0, n_components))
+        """Embed words using Landmark (Nyström) MDS under edit distance.
+
+        This implementation avoids the O(n^3) cost of classical MDS by:
+        1) Selecting m landmark words (m = min(n, 1000)).
+        2) Running classical MDS on the m×m landmark distance matrix.
+        3) Embedding the remaining words out-of-sample via double-centering.
+
+        Args:
+            word_list (list[str]): Words to embed.
+            n_components (int): Target embedding dimensionality. If None,
+                uses self.word_emb_dim.
+
+        Returns:
+            torch.FloatTensor: Embeddings of shape (n_words, p) with
+            p = min(n_components, m - 1).
+        """
         if n_components is None:
-            n_components = self.word_emb_dim
+            n_components = getattr(self, 'word_emb_dim', 512)
         n = len(word_list)
-        dist_matrix = np.zeros((n, n), dtype=np.float32)
-        for i in range(n):
-            for j in range(i + 1, n):
-                d = editdistance.eval(word_list[i], word_list[j])
-                dist_matrix[i, j] = d
-                dist_matrix[j, i] = d
-        mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=0)
-        emb = mds.fit_transform(dist_matrix)
-        return torch.FloatTensor(emb)
+        if n == 0:
+            return torch.empty((0, int(n_components)))
+        if n == 1:
+            return torch.zeros((1, int(n_components)), dtype=torch.float32)
+
+        # 1) choose landmarks: longest words first for stability
+        m = min(n, 1000)
+        order = sorted(range(n), key=lambda i: (-len(word_list[i]), word_list[i]))
+        import numpy as _np
+        L_idx = _np.sort(_np.array(order[:m], dtype=_np.int64))
+        NL_idx = _np.setdiff1d(_np.arange(n, dtype=_np.int64), L_idx, assume_unique=True)
+
+        # 2) compute D_LL and perform classical MDS on landmarks
+        D_LL = _np.zeros((m, m), dtype=_np.float64)
+        for ii in range(m):
+            wi = word_list[int(L_idx[ii])]
+            for jj in range(ii + 1, m):
+                wj = word_list[int(L_idx[jj])]
+                d = editdistance.eval(wi, wj)
+                D_LL[ii, jj] = D_LL[jj, ii] = float(d)
+
+        D2_LL = D_LL ** 2
+        J = _np.eye(m) - _np.ones((m, m), dtype=_np.float64) / m
+        B = -0.5 * (J @ D2_LL @ J)
+        from numpy.linalg import eigh as _eigh
+        vals, vecs = _eigh(B)  # ascending
+        p = int(min(n_components, max(1, m - 1)))
+        idx_desc = _np.argsort(vals)[::-1]
+        vals = vals[idx_desc]
+        vecs = vecs[:, idx_desc]
+        vals_clamped = _np.clip(vals[:p], a_min=0.0, a_max=None)
+        L_sqrt = _np.sqrt(vals_clamped)
+        X_L = vecs[:, :p] * L_sqrt[_np.newaxis, :]
+
+        # Precompute means for out-of-sample embedding
+        r = D2_LL.mean(axis=1)               # (m,)
+        g = float(D2_LL.mean())              # scalar
+        ones_m = _np.ones(m, dtype=_np.float64)
+
+        X = _np.zeros((n, p), dtype=_np.float64)
+        X[L_idx] = X_L
+        with _np.errstate(divide='ignore', invalid='ignore'):
+            invL = _np.zeros_like(L_sqrt)
+            nz = L_sqrt > 0
+            invL[nz] = 1.0 / L_sqrt[nz]
+        Q_inv = vecs[:, :p] * invL[_np.newaxis, :]
+
+        # 3) out-of-sample for non-landmarks
+        for i in NL_idx.tolist():
+            w = word_list[int(i)]
+            d_iL = _np.array([editdistance.eval(w, word_list[int(j)]) for j in L_idx], dtype=_np.float64)
+            d2 = d_iL ** 2
+            mean_i = float(d2.mean())
+            b = -0.5 * (d2 - mean_i * ones_m - r + g * ones_m)
+            X[int(i)] = b @ Q_inv
+
+        return torch.from_numpy(X.astype(_np.float32))
 
     def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
         """Save the preprocessed image at *index* to *out_dir* and return its path."""

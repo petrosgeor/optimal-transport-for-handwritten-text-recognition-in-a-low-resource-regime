@@ -1,12 +1,13 @@
 """Utility functions for aligning dataset instances to unique words."""
 
-from typing import Optional, Tuple, List, Sequence
+from typing import Optional, Tuple, List, Sequence, Union
 from pathlib import Path
 
 import os
 import random
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 import numpy as np
 import ot
 import matplotlib.pyplot as plt
@@ -26,6 +27,120 @@ from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
 
+
+@torch.no_grad()
+def knn_density_probabilities(
+    embeddings: torch.Tensor,
+    k: int = 16,
+    tau: float = 1.0,
+    mix: float = 1.0,
+    clip: Optional[Tuple[float, float]] = (0.1, 10.0),
+    metric: str = "euclidean",          # "euclidean" or "cosine"
+    block_size: Optional[int] = None,      # set (e.g., 4096) to reduce peak memory
+    return_rho: bool = False,           # if True, also return the raw density scores
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
+    """
+    Estimate a probability for each embedding based on local density in feature space.
+
+    Intuition:
+      - Compute a local scale ρ_i = mean distance to the k nearest neighbors (excluding self).
+      - Map ρ_i to weights: w_i ∝ exp((ρ_i - median(ρ))/τ)  (centered for numerical stability).
+      - Optionally clip extreme weights relative to the median.
+      - Mix with uniform by 'mix' (0→all uniform, 1→all density-aware).
+      - Return probabilities that sum to 1.
+
+    Args:
+      embeddings: (N, D) tensor of visual features (preferably the projected descriptors).
+      k:          number of neighbors used for local scale (effective k is min(k, N-1)).
+      tau:        temperature controlling how strongly sparse regions are up-weighted.
+      mix:        convex mix with uniform (0..1). Use <1.0 to start gently.
+      clip:       (low, high) relative multipliers around the median weight; None disables clipping.
+      metric:     distance metric: "euclidean" or "cosine".
+      block_size: if set, computes kNN distances in blocks to save memory.
+      return_rho: also return the raw ρ_i values for inspection.
+
+    Returns:
+      probs: (N,) tensor, non-negative and summing to 1.
+      (optionally) rho: (N,) tensor of local scales before mapping.
+
+    Notes:
+      - O(N^2) time if block_size is None; with block_size, memory is O(block_size * N).
+      - For cosine distance, vectors are L2-normalized internally.
+    """
+    assert embeddings.dim() == 2, "embeddings must be (N, D)"
+    N = embeddings.shape[0]
+    if N == 0:
+        raise ValueError("No embeddings given.")
+    if N == 1:
+        out = torch.ones(1, device=embeddings.device)
+        return (out, torch.zeros(1, device=embeddings.device)) if return_rho else out
+
+    k_eff = max(1, min(int(k), N - 1))
+    if tau <= 0:
+        raise ValueError("tau must be > 0")
+    mix = float(mix)
+    if not (0.0 <= mix <= 1.0):
+        raise ValueError("mix must be in [0, 1]")
+
+    X = embeddings
+    if metric == "cosine":
+        # Cosine distance = 1 - cosine similarity; for normalized vectors,
+        # squared Euclidean ∝ cosine distance. We use cosine distance directly.
+        Xn = F.normalize(X, p=2, dim=1)
+        # We'll compute pairwise 1 - sim in blocks (or all-at-once).
+        def pairwise(block):
+            # (B, D) @ (D, N) -> (B, N) similarities
+            sim = block @ Xn.T
+            return 1.0 - sim.clamp(-1, 1)
+        base = Xn
+    elif metric == "euclidean":
+        base = X
+        def pairwise(block):
+            # torch.cdist supports GPU/CPU; returns (B, N)
+            return torch.cdist(block, base)
+    else:
+        raise ValueError("metric must be 'euclidean' or 'cosine'")
+
+    # Compute mean distance to k nearest neighbors (excluding self) -> rho
+    if block_size is None or block_size >= N:
+        D = pairwise(base)  # (N, N)
+        # smallest distances; include self (0), then drop it
+        vals, _ = torch.topk(D, k=k_eff + 1, largest=False, dim=1)
+        rho = vals[:, 1:].mean(dim=1)  # (N,)
+    else:
+        Bs = int(block_size)
+        rho_chunks = []
+        for s in range(0, N, Bs):
+            e = min(s + Bs, N)
+            D_block = pairwise(base[s:e])  # (B, N)
+            vals, _ = torch.topk(D_block, k=k_eff + 1, largest=False, dim=1)
+            rho_chunks.append(vals[:, 1:].mean(dim=1))
+        rho = torch.cat(rho_chunks, dim=0)
+
+    # Map rho -> weights (centered for stability), then optional relative clipping
+    rho_center = rho.median()
+    w = torch.exp((rho - rho_center) / tau)  # upweight sparse areas (larger rho)
+    if clip is not None:
+        lo, hi = clip
+        if lo <= 0 or hi <= 0 or lo > hi:
+            raise ValueError("clip must be (low, high) with 0 < low <= high")
+        w_med = w.median()
+        w = w.clamp(min=w_med * lo, max=w_med * hi)
+
+    # Normalize to probabilities
+    w = w / (w.sum() + 1e-12)
+    if mix < 1.0:
+        uniform = torch.full_like(w, 1.0 / N)
+        probs = (1.0 - mix) * uniform + mix * w
+        probs = probs / probs.sum()  # keep exact normalization
+    else:
+        probs = w
+
+    # numerical safety
+    probs = torch.clamp(probs, min=0.0)
+    probs = probs / (probs.sum() + 1e-12)
+
+    return (probs, rho) if return_rho else probs
 
 
 def harvest_backbone_features(

@@ -468,11 +468,17 @@ def train_projector(  # pylint: disable=too-many-arguments
     
     # ---------------------------------------------------------------- 2. Create a new DataLoader for projector training
     # This loader will shuffle the collected features for effective training.
+    # Use multiple workers and pinned memory to better overlap host↔device
+    # transfers with GPU compute. Keep workers persistent to avoid respawn cost.
+    _pin = (device.type == "cuda")
+    _workers = int(num_workers) if num_workers is not None else 0
     proj_loader = DataLoader(
         TensorDataset(feats_all, aligned_all),
         batch_size=batch_size,
-        shuffle=True, # Shuffle is True here for training
-        pin_memory=(device.type == "cuda"),
+        shuffle=True,  # Shuffle is True here for training
+        pin_memory=_pin,
+        num_workers=_workers,
+        persistent_workers=(_workers > 0),
     )
 
     # ---------------------------------------------------------------- 3. Optimiser + loss
@@ -483,11 +489,13 @@ def train_projector(  # pylint: disable=too-many-arguments
 
         # Training loop for the current projector
         for epoch in range(1, num_epochs + 1):
+            print('the epoch is: ', epoch)
             running_loss = 0.0
             num_batches = 0
             for feats_cpu, align_cpu in proj_loader:
-                feats = feats_cpu.to(device);
-                align = align_cpu.to(device);
+                # Non-blocking copies overlap H2D transfers with compute
+                feats = feats_cpu.to(device, non_blocking=_pin)
+                align = align_cpu.to(device, non_blocking=_pin)
                 
                 # Forward pass through the projector
                 pred = proj(feats)
@@ -670,7 +678,7 @@ def alternating_refinement(
         changed = torch.nonzero(
             (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
         )[0]
-        log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
+        # log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
         correct_round = sum(
             dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
             for i in changed.tolist()
