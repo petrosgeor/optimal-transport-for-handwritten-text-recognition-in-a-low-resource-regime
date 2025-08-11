@@ -692,3 +692,140 @@ def align_more_instances(
         )
 
     return plan, proj_feats, moved
+
+
+def compute_ot_responsibilities(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    projectors: Sequence[nn.Module],
+    *,
+    batch_size: int = 512,
+    device: str = cfg.device,
+    reg: float = 0.1,
+    unbalanced: bool = False,
+    reg_m: float = 1.0,
+    sinkhorn_kwargs: Optional[dict] = None,
+    ensemble: str = "mean",
+    topk: Optional[int] = None,
+) -> torch.Tensor:
+    """Compute soft responsibilities over words from the OT transport plan.
+
+    Purpose:
+        Runs the existing harvesting → projector → OT pipeline, collects the
+        entropic OT plan(s) and row‑normalises them into a row‑stochastic
+        responsibility matrix ``r`` of shape ``(N, V)``. If multiple
+        projectors are provided, per‑projector responsibilities are fused
+        by averaging. Optionally keeps only the top‑K entries per row and
+        renormalises.
+
+    Args:
+        dataset (HTRDataset): Dataset exposing ``unique_word_embeddings`` and
+            optional ``unique_word_probs`` used as the OT target marginal.
+        backbone (HTRNet): Visual encoder used to extract per‑image descriptors.
+        projectors (Sequence[nn.Module]): One or more projectors mapping
+            descriptors to the word‑embedding space.
+        batch_size (int, optional): Mini‑batch size for feature harvesting.
+        device (str, optional): Device used when running ``backbone``.
+        reg (float, optional): Entropic OT regularisation parameter.
+        unbalanced (bool, optional): Whether to use unbalanced OT.
+        reg_m (float, optional): Mass regularisation weight for unbalanced OT.
+        sinkhorn_kwargs (dict, optional): Extra args forwarded to the solver.
+        ensemble (str, optional): How to fuse per‑projector responsibilities;
+            currently only ``"mean"`` is supported.
+        topk (int | None, optional): If set, keep the K largest entries per
+            row and renormalise; the rest are zeroed for sparsity.
+
+    Returns:
+        torch.Tensor: CPU tensor ``(N, V)`` with non‑negative entries and rows
+        summing to 1 (up to numerical tolerance). If ``topk`` is set, at most
+        K entries per row are non‑zero.
+    """
+    if not isinstance(projectors, Sequence) or isinstance(projectors, (nn.Module,)):
+        projectors = [projectors]  # type: ignore[list-item]
+
+    device_t = torch.device(device)
+    # 1) Harvest descriptors once
+    feats_all, _ = harvest_backbone_features(
+        dataset,
+        backbone,
+        batch_size=batch_size,
+        num_workers=0,
+        device=device_t,
+    )
+
+    # Word embeddings and priors
+    if not hasattr(dataset, "unique_word_embeddings"):
+        raise AttributeError("dataset must provide unique_word_embeddings")
+    word_embs = dataset.unique_word_embeddings
+    if word_embs.ndim != 2 or word_embs.size(0) == 0:
+        raise ValueError("unique_word_embeddings must be (V, E) with V>0")
+    V, E = word_embs.size(0), word_embs.size(1)
+
+    # Prepare target marginal b (word priors)
+    if getattr(dataset, "unique_word_probs", None):
+        b = np.asarray(dataset.unique_word_probs, dtype=np.float64)
+        if not unbalanced:
+            b = b / b.sum()
+    else:
+        b = np.full((V,), 1.0 / V, dtype=np.float64)
+
+    resp_list: list[np.ndarray] = []
+    for proj in projectors:
+        proj.eval().to(device_t)
+        proj_feats = proj(feats_all.to(device_t)).detach().cpu()
+        if proj_feats.ndim != 2:
+            raise RuntimeError(f"Projector output must be (N, E), got {proj_feats.shape}")
+        if proj_feats.size(1) != E:
+            raise RuntimeError(
+                f"Embedding dimension mismatch: got {proj_feats.size(1)} vs {E}"
+            )
+
+        N = proj_feats.size(0)
+        a = np.full((N,), 1.0 / N, dtype=np.float64)
+
+        _proj_np, plan = calculate_ot_projections(
+            a,
+            proj_feats.numpy(),
+            b,
+            word_embs.cpu().numpy(),
+            reg,
+            unbalanced=unbalanced,
+            reg_m=reg_m,
+            sinkhorn_kwargs=sinkhorn_kwargs,
+        )
+        # Row‑normalise plan safely
+        row_sum = plan.sum(axis=1, keepdims=True)
+        r = np.divide(plan, row_sum, out=np.zeros_like(plan), where=row_sum != 0)
+        resp_list.append(r.astype(np.float32, copy=False))
+
+    if not resp_list:
+        raise RuntimeError("No projectors provided")
+
+    if ensemble != "mean":
+        raise ValueError("Only ensemble='mean' is supported at the moment")
+    R = np.mean(resp_list, axis=0)
+
+    # Optional top‑K sparsification per row
+    if topk is not None:
+        if topk <= 0:
+            raise ValueError("topk must be a positive integer")
+        K = min(int(topk), V)
+        for i in range(R.shape[0]):
+            row = R[i]
+            if K < V:
+                idx = np.argpartition(row, -K)[-K:]
+                mask = np.zeros_like(row, dtype=bool)
+                mask[idx] = True
+                row = np.where(mask, row, 0.0)
+            s = row.sum()
+            if s > 0:
+                row = row / s
+            R[i] = row
+
+    # Final checks and return
+    if not np.all(np.isfinite(R)):
+        raise RuntimeError("Non‑finite values in responsibilities")
+    if R.shape != (feats_all.size(0), V):
+        raise RuntimeError("Responsibility shape mismatch")
+
+    return torch.from_numpy(R.astype(np.float32))

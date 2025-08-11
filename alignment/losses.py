@@ -4,6 +4,8 @@ import ot  # POT - Python Optimal Transport
 from geomloss.samples_loss import SamplesLoss
 from rapidfuzz import process, distance
 import numpy as np
+import math
+from typing import Optional, List, Dict
 
 def _ctc_loss_fn(
     logits: torch.Tensor,
@@ -143,7 +145,7 @@ class ProjectionLoss(torch.nn.Module):
 # ------------------------------------------------------------------
 # Soft Contrastive / InfoNCE with continuous positives (Euclidean)
 # ------------------------------------------------------------------
-from .ctc_utils import _unflatten_targets
+from .ctc_utils import _unflatten_targets, ctc_target_probability
 
 
 class SoftContrastiveLoss(torch.nn.Module):
@@ -199,3 +201,56 @@ class SoftContrastiveLoss(torch.nn.Module):
         denominator = sim_img.sum(dim=1) + self.eps           # (B,)
         loss = -torch.log((numerator + self.eps) / denominator).mean()
         return loss
+
+
+def _em_word_loss_for_batch(
+    logits_btc: torch.Tensor,
+    batch_indices: List[int],
+    R_full: Optional[torch.Tensor],
+    unique_words: List[str],
+    c2i_map: Dict[str, int],
+    k_top: int = 5,
+    eps: float = 1e-9,
+) -> torch.Tensor:
+    """
+    Expected NLL over top‑K candidate words for an unaligned mini‑batch.
+
+    Args:
+        logits_btc (torch.Tensor): Network logits with shape ``(T, B, C)``.
+        batch_indices (list[int]): Dataset indices corresponding to the B items.
+        R_full (torch.Tensor | None): Responsibility matrix of shape ``(N, V)``
+            on CPU; pass ``None`` to disable the loss.
+        unique_words (list[str]): Vocabulary tokens indexed by columns of ``R_full``.
+        c2i_map (dict[str,int]): Character‑to‑index map for CTC encoding.
+        k_top (int): How many highest‑weight candidates to keep per row.
+        eps (float): Minimum probability used inside the logarithm for stability.
+
+    Returns:
+        torch.Tensor: Scalar tensor with the averaged EM loss for this batch.
+    """
+    if R_full is None:
+        return torch.tensor(0.0, device=logits_btc.device)
+    T, B, C = logits_btc.shape
+    losses = []
+    for b, idx in enumerate(batch_indices):
+        row = R_full[idx].cpu().numpy()
+        if row.ndim != 1 or row.size == 0:
+            continue
+        # select top‑K entries by weight
+        ksel = min(int(max(1, k_top)), row.size)
+        cand_idx = np.argpartition(row, -ksel)[-ksel:]
+        weights = row[cand_idx]
+        s = weights.sum()
+        if s <= 0:
+            continue
+        weights = weights / s
+        logits_one = logits_btc[:, b, :]
+        nll = 0.0
+        for j, w_idx in enumerate(cand_idx.tolist()):
+            w = unique_words[w_idx]
+            p = float(ctc_target_probability(logits_one, f" {w} ", c2i_map))
+            nll += -weights[j] * math.log(max(p, eps))
+        losses.append(nll)
+    if not losses:
+        return torch.tensor(0.0, device=logits_btc.device)
+    return torch.tensor(sum(losses) / len(losses), device=logits_btc.device)

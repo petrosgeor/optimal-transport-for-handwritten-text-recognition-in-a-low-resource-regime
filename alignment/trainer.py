@@ -14,6 +14,8 @@ cfg = OmegaConf.load(cfg_file)
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 
 from typing import Dict, Tuple, List
+import math
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,11 +28,12 @@ if str(root) not in sys.path:
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss, SoftContrastiveLoss
-from alignment.ctc_utils import encode_for_ctc
-from alignment.losses import _ctc_loss_fn
+from alignment.ctc_utils import encode_for_ctc, ctc_target_probability
+from alignment.losses import _ctc_loss_fn, _em_word_loss_for_batch
 from alignment.alignment_utilities import (
     align_more_instances,
     harvest_backbone_features,
+    compute_ot_responsibilities,
 )
 from alignment.eval import compute_cer
 from alignment.plot import (
@@ -140,6 +143,9 @@ def log_pseudo_labels(
         fh.write("\n".join(rows))
 
 
+_TRUNCATED_METRIC_FILES: set[str] = set()
+
+
 def log_round_metrics(
     round_idx: int,
     correct_pseudo: int,
@@ -156,9 +162,30 @@ def log_round_metrics(
 
     Returns:
         None
+
+    Note:
+        On the first call per process, if ``out_file`` already exists it is
+        deleted so that a fresh log is created for the current run. Subsequent
+        calls in the same process append as usual.
     """
+    # Ensure parent directory exists
     Path(out_file).parent.mkdir(parents=True, exist_ok=True)
-    mode = "a" if Path(out_file).is_file() else "w"
+
+    # One-time truncation per process: if the target file already exists when
+    # the function is first called in this run, delete it so that a fresh log
+    # is created for the new run. Subsequent calls in the same process will
+    # append as usual.
+    p = Path(out_file)
+    if out_file not in _TRUNCATED_METRIC_FILES:
+        if p.exists():
+            try:
+                p.unlink()
+            except OSError:
+                # If deletion fails for any reason, fall back to append mode.
+                pass
+        _TRUNCATED_METRIC_FILES.add(out_file)
+
+    mode = "a" if p.is_file() else "w"
     with open(out_file, mode, encoding="utf-8") as fh:
         fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\n")
 
@@ -214,6 +241,13 @@ def refine_visual_backbone(
     contrastive_weight: float = CONTRASTIVE_WEIGHT,
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+    # --- NEW: optional responsibilities‑based EM loss over unaligned items ---
+    projectors: List[nn.Module] | None = None,
+    use_responsibilities: bool = True,
+    em_weight: float = 0.2,
+    em_topk: int = 5,
+    em_batch_ratio: float = 0.5,
+    resp_topk: int = 10,
 ) -> None:
     """Fine-tune ``backbone`` on words aligned to the dataset vocabulary.
 
@@ -250,6 +284,17 @@ def refine_visual_backbone(
 
     Returns:
         None
+
+    Additional (optional) behaviour:
+        When ``use_responsibilities=True``, the function computes a matrix of
+        per‑image responsibilities over the vocabulary once per call. If
+        ``projectors`` are provided, it uses ``compute_ot_responsibilities`` with
+        mean fusion across projectors and optional top‑K sparsification. If not,
+        it warm‑starts using one‑hot rows for seeds and a unigram (or uniform)
+        distribution for unaligned rows. Each training step then samples a small
+        batch of unaligned images and adds a weighted EM loss over top‑K words:
+        L_EM(i) = -∑_w r_{i,w} log P_θ(w|x_i), evaluated via
+        ``ctc_target_probability``.
     """
     device = next(backbone.parameters()).device
     assert device.type == "cuda", "Backbone is not on a CUDA device"
@@ -257,6 +302,54 @@ def refine_visual_backbone(
     # Build CTC mapping once using the fixed vocabulary.
     c2i, _ = load_vocab()
     assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned), "Dataset alignment flags vector is malformed."
+
+    # --- E-step: build responsibilities once per call (optional) ---------
+    R: torch.Tensor | None = None
+    if use_responsibilities:
+        try:
+            if projectors and len(projectors) > 0 and hasattr(dataset, "unique_word_embeddings"):
+                R = compute_ot_responsibilities(
+                    dataset,
+                    backbone,
+                    projectors,
+                    batch_size=cfg.align_batch_size,
+                    device=cfg.align_device,
+                    reg=cfg.align_reg,
+                    unbalanced=cfg.align_unbalanced,
+                    reg_m=cfg.align_reg_m,
+                    ensemble="mean",
+                    topk=resp_topk,
+                )
+            else:
+                # Warm‑start: one‑hot rows for seeds; unigram/uniform for unaligned
+                V = len(getattr(dataset, "unique_words", []))
+                if V > 0:
+                    R_np = np.zeros((len(dataset), V), dtype=np.float32)
+                    probs = getattr(dataset, "unique_word_probs", None)
+                    if probs is None or len(probs) != V:
+                        base = np.full((V,), 1.0 / V, dtype=np.float32)
+                    else:
+                        p = np.asarray(probs, dtype=np.float64)
+                        p = p / max(p.sum(), 1e-12)
+                        base = p.astype(np.float32)
+                    for i in range(len(dataset)):
+                        k = int(dataset.aligned[i].item()) if hasattr(dataset.aligned, "item") else int(dataset.aligned[i])
+                        if k != -1 and 0 <= k < V:
+                            R_np[i, k] = 1.0
+                        else:
+                            row = base.copy()
+                            if resp_topk is not None and resp_topk < V:
+                                idx = np.argpartition(row, -resp_topk)[-resp_topk:]
+                                mask = np.zeros(V, dtype=bool)
+                                mask[idx] = True
+                                row = np.where(mask, row, 0.0)
+                                s = row.sum()
+                                if s > 0:
+                                    row /= s
+                            R_np[i] = row
+                    R = torch.from_numpy(R_np)
+        except Exception:
+            R = None
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
     subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
@@ -298,6 +391,7 @@ def refine_visual_backbone(
     contr_fn = None
     if enable_contrastive:
         contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
+
     # Training loop for backbone refinement
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
@@ -365,6 +459,28 @@ def refine_visual_backbone(
                 contrastive_weight * loss_contr
             )
             _assert_finite(loss, "loss")
+
+            # Add EM loss on a small batch of unaligned samples
+            if use_responsibilities and em_weight > 0 and R is not None:
+                unaligned_idx = torch.nonzero(dataset.aligned == -1, as_tuple=True)[0]
+                if unaligned_idx.numel() > 0:
+                    em_bs = max(1, int(batch_size * max(0.0, min(em_batch_ratio, 1.0))))
+                    choice = np.random.choice(
+                        unaligned_idx.cpu().numpy(),
+                        size=min(em_bs, unaligned_idx.numel()),
+                        replace=False,
+                    )
+                    em_imgs = []
+                    for i in choice.tolist():
+                        img, *_ = dataset[i]
+                        em_imgs.append(img)
+                    em_imgs = torch.stack(em_imgs, dim=0).to(device)
+                    em_out = backbone(em_imgs, return_feats=False)
+                    em_logits = em_out[0] if isinstance(em_out, (tuple, list)) else em_out
+                    em_loss = _em_word_loss_for_batch(
+                        em_logits, choice.tolist(), R, dataset.unique_words, c2i, k_top=em_topk
+                    )
+                    loss = loss + float(em_weight) * em_loss
 
             # Optimization step
             optimizer.zero_grad(set_to_none=True)
@@ -611,10 +727,12 @@ def alternating_refinement(
             print(f"[Round {r + 1}/{rounds}] Refining backbone...")
             if backbone_epochs > 0:
                 # Refine the visual backbone
+                # Pass projectors so responsibilities can be computed for EM loss
                 refine_visual_backbone(
                     dataset,
                     backbone,
                     num_epochs=backbone_epochs,
+                    projectors=projectors,
                     **refine_kwargs,
                 )
 

@@ -205,32 +205,37 @@ class HTRDataset(Dataset):
         return len(self.data)
 
     def _select_seed_indices(self) -> List[int]:
-        """Return dataset indices for seeding the alignment.
+        """Return random dataset indices for seeding the alignment.
+
+        Purpose:
+            Select up to ``n_aligned`` sample indices at random to initialise
+            the alignment seeds. Selection prefers diversity by avoiding
+            duplicate transcriptions where possible.
 
         Args:
-            None.
+            None
 
         Returns:
-            list[int]: Selected indices ordered by decreasing word length.
+            list[int]: Randomly chosen indices, each mapping to a distinct
+            transcription where possible. Length is at most ``n_aligned``.
         """
 
         if self.n_aligned <= 0:
             return []
 
-        sorted_idx = sorted(
-            range(len(self.transcriptions)),
-            key=lambda i: len(self.transcriptions[i]),
-            reverse=True,
-        )
+        # Shuffle all indices and pick until we have n_aligned distinct words
+        all_idx = list(range(len(self.transcriptions)))
+        random.shuffle(all_idx)
 
         chosen, seen_words = [], set()
-        for i in sorted_idx:
+        for i in all_idx:
             w = self.transcriptions[i]
-            if w not in seen_words:
-                chosen.append(i)
-                seen_words.add(w)
-                if len(chosen) == self.n_aligned:
-                    break
+            if w in seen_words:
+                continue
+            chosen.append(i)
+            seen_words.add(w)
+            if len(chosen) == self.n_aligned:
+                break
 
         return chosen
 

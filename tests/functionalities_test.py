@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
 from alignment.trainer import _shuffle_batch, log_round_metrics
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
+from alignment.alignment_utilities import compute_ot_responsibilities
 
 
 def test_trainer_config_has_no_prior_weight():
@@ -45,6 +46,24 @@ def test_log_round_metrics(tmp_path):
     log_round_metrics(2, 3, 0.5, str(path))
     content = path.read_text().splitlines()
     assert content == ["1\t2\t0.1234", "2\t3\t0.5000"]
+
+
+def test_log_round_metrics_truncates_existing(tmp_path):
+    """First call deletes a pre-existing metrics file, then appends thereafter."""
+    path = tmp_path / "round_metrics.txt"
+    # Pre-create file with stale content
+    path.write_text("old\n")
+
+    # First call should truncate (delete then write)
+    log_round_metrics(1, 9, 0.1111, str(path))
+    assert path.read_text().splitlines() == ["1\t9\t0.1111"]
+
+    # Second call should append
+    log_round_metrics(2, 10, 0.2222, str(path))
+    assert path.read_text().splitlines() == [
+        "1\t9\t0.1111",
+        "2\t10\t0.2222",
+    ]
 
 
 def test_ctc_target_probability():
@@ -230,11 +249,16 @@ def test_unique_word_embeddings_attribute():
 
     dataset = HTRDataset.__new__(HTRDataset)
     dataset.word_emb_dim = 2
-    emb = HTRDataset.find_word_embeddings(dataset, ["aa", "ab"], n_components=2)
+    words = ["aa", "ab"]
+    emb = HTRDataset.find_word_embeddings(dataset, words, n_components=2)
     dataset.unique_word_embeddings = emb
 
     assert hasattr(dataset, "unique_word_embeddings")
-    assert dataset.unique_word_embeddings.shape == (2, 2)
+    # With Landmark MDS, dimensionality is p = min(n_components, m-1)
+    # where m is the number of landmarks (here m = len(words)).
+    m = min(len(words), 1000)
+    expected_p = min(2, max(1, m - 1))
+    assert dataset.unique_word_embeddings.shape == (len(words), expected_p)
 
 
 def test_pretraining_dataset_length_filter(tmp_path):
@@ -438,10 +462,71 @@ def test_align_more_instances_gated_validation(monkeypatch):
     assert len(calls) == 1
 
 
+def test_compute_ot_responsibilities_shapes_and_mass():
+    """Responsibilities have shape (N,V), are non-negative and row-stochastic."""
+    import numpy as _np
+
+    class TinyDataset(torch.utils.data.Dataset):
+        def __init__(self):
+            self.imgs = [
+                torch.zeros(1, 2, 2),
+                torch.ones(1, 2, 2),
+                torch.full((1, 2, 2), 2.0),
+            ]
+            self.transcriptions = ["a", "b", "c"]
+            self.aligned = torch.full((3,), -1, dtype=torch.int32)
+            self.unique_words = ["w0", "w1", "w2", "w3"]
+            # 4 words in a 2-D embedding space
+            self.unique_word_embeddings = torch.tensor(
+                [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], dtype=torch.float32
+            )
+            self.unique_word_probs = [0.4, 0.3, 0.2, 0.1]
+
+        def __len__(self):
+            return len(self.imgs)
+
+        def __getitem__(self, idx):
+            return self.imgs[idx], self.transcriptions[idx], self.aligned[idx]
+
+    class TinyBackbone(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.phoc_head = None
+
+        def forward(self, x, *, return_feats=True):
+            B = x.size(0)
+            # Build 2-D descriptors proportional to mean intensity
+            means = x.view(B, -1).mean(dim=1, keepdim=True)
+            feats = torch.cat([means, 1.0 + means], dim=1)
+            logits = torch.zeros(1, B, 4)
+            return logits, feats
+
+    class IdProjector(torch.nn.Module):
+        def forward(self, z):
+            return z
+
+    ds = TinyDataset()
+    bb = TinyBackbone()
+    proj = IdProjector()
+
+    R = compute_ot_responsibilities(ds, bb, [proj], batch_size=2, device="cpu", reg=0.1)
+    assert isinstance(R, torch.Tensor)
+    assert R.shape == (len(ds), len(ds.unique_words))
+    assert torch.all(R >= 0)
+    row_sums = R.sum(dim=1)
+    assert torch.allclose(row_sums, torch.ones_like(row_sums), atol=1e-4)
+
+    Rk = compute_ot_responsibilities(ds, bb, [proj], batch_size=2, device="cpu", reg=0.1, topk=2)
+    nnz = (Rk > 0).sum(dim=1)
+    assert torch.all(nnz <= 2)
+    row_sums_k = Rk.sum(dim=1)
+    assert torch.allclose(row_sums_k, torch.ones_like(row_sums_k), atol=1e-4)
 
 
-def test_select_seed_indices_longest_distinct():
-    """Longest distinct words are selected deterministically."""
+
+
+def test_select_seed_indices_random_distinct():
+    """Random seeds select distinct words up to n_aligned."""
 
     ds = HTRDataset.__new__(HTRDataset)
     ds.transcriptions = [
@@ -457,11 +542,21 @@ def test_select_seed_indices_longest_distinct():
     ]
     ds.n_aligned = 3
 
-    indices = HTRDataset._select_seed_indices(ds)
-    words = [ds.transcriptions[i] for i in indices]
+    # Make randomness deterministic for the test
+    import random as _r
+    _state = _r.getstate()
+    _r.seed(0)
+    try:
+        indices = HTRDataset._select_seed_indices(ds)
+    finally:
+        _r.setstate(_state)
 
-    assert indices == [0, 4, 8]
-    assert words == ["longestword", "barbar", "longer"]
+    words = [ds.transcriptions[i] for i in indices]
+    assert len(indices) == 3
+    assert len(set(words)) == 3
+    # All words must come from the dataset
+    for w in words:
+        assert w in ds.transcriptions
 
 
 def test_select_seed_indices_limits():
@@ -547,4 +642,3 @@ def test_use_wordfreq_probs(tmp_path):
     assert abs(sum(probs) - 1.0) < 1e-6
     assert all(p > 0 for p in probs)
     assert probs != [0.5, 0.25, 0.25]
-

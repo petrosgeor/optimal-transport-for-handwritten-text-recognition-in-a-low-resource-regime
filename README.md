@@ -288,7 +288,9 @@ class HTRDataset(Dataset):
     and their probabilities, e.g. `dataset.word_frequencies()`.
 
 **Initial seed alignment (`n_aligned`)**
-When `n_aligned > 0`, the dataset now selects **the `n_aligned` *distinct* words with the longest transcriptions** as the initial aligned set (ties are broken arbitrarily). This replaces the previous random sampling strategy and guarantees that each seed corresponds to a unique word, maximising lexical coverage from the outset.
+When `n_aligned > 0`, the dataset selects up to `n_aligned` samples **at random**,
+preferring diversity by avoiding duplicate transcriptions where possible. This
+reduces length bias and keeps repeated runs statistically diverse.
 
 **Normalization (IAM compatibility)**
 - Enable `normalize=True` to lowercase transcriptions and drop any character not found in the active `c2i` vocabulary. Optionally combine with `drop_empty_after_normalization=True` to skip entries that become empty after filtering. This reconciles IAM’s broader symbol set (uppercase/punctuation) with a restricted working vocab (e.g., a–z, 0–9).
@@ -455,6 +457,39 @@ def align_more_instances(
 *   `torch.Tensor`: The projected descriptors after OT.
 *   `torch.Tensor`: The distance moved by each descriptor.
 
+#### compute_ot_responsibilities  (new)
+
+Located in: `alignment/alignment_utilities.py`
+
+Computes per-image soft responsibilities over the vocabulary by row-normalizing the entropic OT plan produced by the existing OT alignment stack. Uses `dataset.unique_word_probs` as the OT target marginal when available (renormalized in the balanced case). Returns a row-stochastic `(N, V)` tensor that can be used as EM responsibilities.
+
+```python
+def compute_ot_responsibilities(
+    dataset: HTRDataset,
+    backbone: HTRNet,
+    projectors: Sequence[nn.Module],
+    *,
+    batch_size: int = 512,
+    device: str = cfg.device,
+    reg: float = 0.1,
+    unbalanced: bool = False,
+    reg_m: float = 1.0,
+    sinkhorn_kwargs: Optional[dict] = None,
+    ensemble: str = "mean",     # fuse per-projector responsibilities
+    topk: int | None = None,    # keep top-K per row, then renormalize
+) -> torch.Tensor
+```
+
+- `dataset` (HTRDataset): provides `unique_word_embeddings` and optional `unique_word_probs`.
+- `backbone` (HTRNet): visual encoder for descriptors.
+- `projectors` (Sequence[nn.Module]): projector ensemble to map descriptors into the word-embedding space.
+- `batch_size`, `device`: forwarded to feature harvesting.
+- `reg`, `unbalanced`, `reg_m`, `sinkhorn_kwargs`: forwarded to the OT solver, identical semantics to `OTAligner`.
+- `ensemble`: how to fuse multiple responsibility maps; `"mean"` averages per-projector responsibilities.
+- `topk`: if set, zeros all but K largest entries per row, then renormalizes.
+
+Returns a `torch.Tensor` of shape `(N, V)` with responsibilities `r_{i,w}` summing to 1 per image.
+
 #### harvest_backbone_features
 
 Located in: `alignment/alignment_utilities.py`
@@ -540,6 +575,27 @@ class ProjectionLoss(torch.nn.Module):
 
 **Methods:**
 *   `forward(descriptors, word_embeddings, aligned, tgt_probs) -> torch.Tensor`: returns the combined loss without side effects.
+
+#### _em_word_loss_for_batch
+
+Located in: `alignment/losses.py`
+
+Computes the expected negative log-likelihood over a small set of top‑K candidate words for a batch of unaligned images, using responsibilities and `ctc_target_probability`.
+
+```python
+def _em_word_loss_for_batch(
+    logits_btc: torch.Tensor,        # (T, B, C)
+    batch_indices: List[int],        # dataset indices for this mini-batch
+    R_full: torch.Tensor | None,     # (N, V) responsibilities or None
+    unique_words: List[str],         # tokens corresponding to columns of R_full
+    c2i_map: Dict[str, int],         # character-to-index map
+    k_top: int = 5,
+    eps: float = 1e-9,
+) -> torch.Tensor
+```
+
+- Uses the top‑K responsibilities in `R_full[row]` for each batch item to compute `-∑ r_{i,w} log P_theta(w|x_i)` via `ctc_target_probability` and averages across the batch.
+- Returns a scalar tensor; pass `R_full=None` to disable the EM contribution.
 
 
 #### SoftContrastiveLoss
@@ -888,14 +944,14 @@ def log_round_metrics(
      after the refinement round.
 * The function appends one TSV line
   `<round>	<correct_pseudo>	<cer_test>` to `out_file`.
-* If `out_file` does not yet exist it is created automatically; the file
-  is **never** deleted by `trainer.py` so that long‑running experiments
-  accumulate their history in a single place.
+* If `out_file` does not yet exist it is created automatically. If it already
+  exists on the first call in a given process, it is deleted so that a fresh
+  log is started for the new run; subsequent calls append.
 * The file name and directory are set through
   `trainer_config.yaml → round_metrics_file`.
 
 
-#### refine_visual_backbone
+#### refine_visual_backbone  (updated)
 
 Located in: `alignment/trainer.py`
 
@@ -920,12 +976,19 @@ def refine_visual_backbone(
     contrastive_weight: float = CONTRASTIVE_WEIGHT,
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
+    # NEW (optional EM loss on unaligned images):
+    projectors: List[nn.Module] | None = None,
+    use_responsibilities: bool = True,
+    em_weight: float = 0.2,
+    em_topk: int = 5,
+    em_batch_ratio: float = 0.5,
+    resp_topk: int = 10,
 ) -> None:
 ```
 
-```python
-refine_visual_backbone(ds, backbone, pretrain_ds=synthetic_ds)
-```
+New behavior (optional):
+- When `use_responsibilities=True`, the function computes a responsibility matrix `R` of shape `(N, V)` once per call. If `projectors` are provided, it calls `compute_ot_responsibilities(...)` (mean fusion across projectors, optional `topk` sparsification). Otherwise, it warm‑starts `R` as one‑hot for seeds and unigram/uniform over `unique_words` for unaligned samples.
+- Each training step still computes the existing losses on aligned (+ synthetic) samples. In addition, it draws a small batch of unaligned images and adds an EM word loss: `L_EM = -(1/B) * sum_i sum_{w in topK} r_{i,w} log P_theta(w|x_i)` using `ctc_target_probability`. The final loss adds `em_weight * L_EM`.
 
 #### _shuffle_batch
 
