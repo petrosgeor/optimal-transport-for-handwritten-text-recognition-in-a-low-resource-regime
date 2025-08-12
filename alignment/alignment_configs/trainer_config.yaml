@@ -16,10 +16,15 @@ phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss defaults
 # ----------------------------------------------------------------------
-contrastive_enable: true  # turn on to activate the loss
+contrastive_enable: false  # turn on to activate the loss
 contrastive_weight: 0.3    # β – scales the new loss inside total_loss
 contrastive_tau: 0.07      # τ – temperature for descriptor similarities
 contrastive_text_T: 3.0    # T_txt – softness in edit‑distance space
+
+# ----------------------------------------------------------------------
+# Optional EM‑PHOC weighting (for unaligned mini-batches)
+# ----------------------------------------------------------------------
+em_phoc_weight: 0.25       # scales EM-PHOC BCE loss in the total loss
 
 # Default HTRNet architecture configuration
 architecture:
@@ -56,31 +61,28 @@ gpu_id: 1                   # which CUDA device index to use
 alt_rounds: 1               # number of backbone/projector cycles per pass
 
 # ----------------------------------------------------------------------
-# Align-more-instances defaults
+# Responsibilities (EM) defaults
 # ----------------------------------------------------------------------
 align_batch_size: 64       # mini-batch size when harvesting descriptors
-align_device: cuda           # device used during alignment post-processing
+align_device: cuda           # device used to run the E-step
 align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
 align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
-align_k: 200                  # pseudo-label this many least-moved descriptors
-metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
-round_metrics_file: "results/IAM/test_IAM_5000_initial.txt"  # path to TSV log for refinement rounds
+
 
 # ----------------------------------------------------------------------
 # Dataset parameters
 # ----------------------------------------------------------------------
 dataset:
-  basefolder: 'htr_base/data/IAM/processed_words' # Base folder for the dataset
+  basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
   subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 5000            # Number of initially aligned instances
+  n_aligned: 30            # Number of initially aligned instances
   word_emb_dim: 100         # Dimension of word embeddings
   use_wordfreq_probs: false    # when true → use wordfreq prior, else GT prior
   two_views: false          # Enable or disable two-view training
 ensemble_size: 3            # Size of the projector ensemble
-agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
 supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------
@@ -100,10 +102,4 @@ synthetic_dataset:
   preload_images: true      # Preload images into memory for faster access
   random_seed: 0            # Random seed for reproducibility
 
-# ----------------------------------------------------------------------
-# Optional pseudo-label validation
-# ----------------------------------------------------------------------
-pseudo_label_validation:
-  enable: false        # set false to skip the new check
-  edit_distance: 4    # maximum Levenshtein distance allowed
-  start_iteration: 4  # first round that runs the check
+# (Pseudo-labelling removed)

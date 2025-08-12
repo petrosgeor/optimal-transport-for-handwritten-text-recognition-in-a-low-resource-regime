@@ -350,118 +350,15 @@ class PretrainingHTRDataset(Dataset):
 
 ### Alignment Utilities
 
-#### OTAligner
+#### OT pseudo-labelling (removed)
 
-Located in: `alignment/alignment_utilities.py`
-
-Helper class implementing the Optimal Transport (OT) pseudo-labelling routine.
-
-```python
-class OTAligner:
-    def __init__(
-        self,
-        dataset: HTRDataset,
-        backbone: HTRNet,
-        projectors: Sequence[nn.Module],
-        *,
-        batch_size: int = 512,
-        device: str = cfg.device,
-        reg: float = 0.1,
-        unbalanced: bool = False,
-        reg_m: float = 1.0,
-        sinkhorn_kwargs: Optional[dict] = None,
-        k: int = 0,
-        metric: str = "entropy",
-        agree_threshold: int = 1,
-    ) -> None:
-```
-
-*   `dataset` (HTRDataset): Dataset providing images and alignment information.
-*   `backbone` (HTRNet): Visual encoder used to extract per-image descriptors.
-*   `projectors` (Sequence[nn.Module]): List of projector modules.
-*   `batch_size` (int): Mini-batch size when forwarding the dataset.
-*   `device` (str): Device on which the backbone runs.
-*   `reg` (float): Entropic regularisation strength.
-*   `unbalanced` (bool): Use unbalanced OT formulation.
-*   `reg_m` (float): Additional mass regularisation when unbalanced OT is used.
-*   `sinkhorn_kwargs` (dict): Additional arguments for the OT solver.
-*   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): Uncertainty measure (`'gap'`, `'entropy'`, or `'variance'`).
-*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
-**Attributes:**
-*   `dataset` (HTRDataset): Dataset being aligned.
-*   `backbone` (HTRNet): Visual backbone network.
-*   `projectors` (list[nn.Module]): Projector ensemble.
-*   `batch_size` (int): Mini-batch size used during feature harvesting.
-*   `device` (torch.device): Device used during descriptor extraction.
-*   `reg` (float): Entropic regularisation parameter.
-*   `unbalanced` (bool): Whether unbalanced OT is used.
-*   `reg_m` (float): Mass regularisation for unbalanced OT.
-*   `sinkhorn_kwargs` (dict): Extra arguments forwarded to the Sinkhorn solver.
-*   `k` (int): Number of descriptors to pseudo-label per iteration.
-*   `metric` (str): Measure to rank candidate descriptors.
-*   `agree_threshold` (int): Required number of agreeing projectors.
-*   `word_embs` (torch.Tensor): Word embeddings stored on `device`.
-
-**Methods:**
-*   `_calculate_ot(proj_feats)` -> Tuple[torch.Tensor, np.ndarray]: Compute OT projection and transport plan.
-*   `_get_projector_outputs()` -> dict: Run projectors on the dataset and gather OT statistics.
-*   `_select_candidates(counts, dist_matrix, plan, aligned_all, var_scores)` -> torch.Tensor: Choose dataset indices for pseudo-labelling.
-*   `_update_dataset(chosen, nearest_word)` -> None: Update `dataset.aligned` with new labels.
-*   `_log_results(chosen, nearest_word, moved_dist, dist_matrix, plan, var_scores)` -> None: Print alignment statistics.
-*   `validate_pseudo_labels(edit_threshold, batch_size, decode_cfg, num_workers)` -> int: Drop unreliable pseudo-labels based on backbone predictions.
-*   `align()` -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Perform one OT iteration and return the transport plan, projected descriptors and moved distances.
-
-
-
-
-#### align_more_instances
-
-Located in: `alignment/alignment_utilities.py`
-
-Automatically assigns dataset images to unique words via optimal transport. This is a wrapper over `OTAligner` for backward compatibility. When `pseudo_label_validation.enable` is set in the configuration, it calls `validate_pseudo_labels` after alignment once `align_more_instances` has been invoked at least `start_iteration` times.
-
-```python
-def align_more_instances(
-    dataset: HTRDataset,
-    backbone: HTRNet,
-    projectors: Sequence[nn.Module],
-    *,
-    batch_size: int = 512,
-    device: str = cfg.device,
-    reg: float = 0.1,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
-    sinkhorn_kwargs: Optional[dict] = None,
-    k: int = 0,
-    metric: str = "entropy",
-    agree_threshold: int = 1,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-```
-
-*   `dataset` (HTRDataset): Dataset providing images and `unique_word_embeddings`.
-*   `backbone` (HTRNet): `HTRNet` used to extract visual descriptors.
-*   `projectors` (Sequence[nn.Module]): List of projectors mapping descriptors to the embedding space.
-*   `batch_size` (int): Mini-batch size when harvesting descriptors.
-*   `device` (str): Device used for feature extraction, descriptor processing and the projector.
-*   `reg` (float): Entropic regularisation for Sinkhorn.
-*   `unbalanced` (bool): Use unbalanced OT formulation.
-*   `reg_m` (float): Additional unbalanced regularisation parameter.
-*   `sinkhorn_kwargs` (dict): Extra arguments for the Sinkhorn solver.
-*   `k` (int): Number of least-moved descriptors to pseudo-label.
-*   `metric` (str): `'gap'`, `'entropy'` or `'variance'` selecting the uncertainty measure.
-*   `agree_threshold` (int): Minimum number of agreeing projectors for a pseudo-label.
-
-**Returns:**
-*   `torch.Tensor`: The OT transport plan.
-*   `torch.Tensor`: The projected descriptors after OT.
-*   `torch.Tensor`: The distance moved by each descriptor.
+The previous OT pseudo-labelling path (`OTAligner`, `align_more_instances`) has been removed in favor of EM-only training using responsibilities.
 
 #### compute_ot_responsibilities  (new)
 
 Located in: `alignment/alignment_utilities.py`
 
-Computes per-image soft responsibilities over the vocabulary by row-normalizing the entropic OT plan produced by the existing OT alignment stack. Uses `dataset.unique_word_probs` as the OT target marginal when available (renormalized in the balanced case). Returns a row-stochastic `(N, V)` tensor that can be used as EM responsibilities.
+Computes per-image soft responsibilities over the vocabulary by row-normalizing the entropic OT plan produced by the OT alignment stack. Uses `dataset.unique_word_probs` as the OT target marginal when available (renormalized in the balanced case). Returns a row-stochastic `(N, V)` tensor that can be used as EM responsibilities.
 
 ```python
 def compute_ot_responsibilities(
@@ -484,17 +381,19 @@ def compute_ot_responsibilities(
 - `backbone` (HTRNet): visual encoder for descriptors.
 - `projectors` (Sequence[nn.Module]): projector ensemble to map descriptors into the word-embedding space.
 - `batch_size`, `device`: forwarded to feature harvesting.
-- `reg`, `unbalanced`, `reg_m`, `sinkhorn_kwargs`: forwarded to the OT solver, identical semantics to `OTAligner`.
+- `reg`, `unbalanced`, `reg_m`, `sinkhorn_kwargs`: forwarded to the OT solver.
 - `ensemble`: how to fuse multiple responsibility maps; `"mean"` averages per-projector responsibilities.
 - `topk`: if set, zeros all but K largest entries per row, then renormalizes.
 
 Returns a `torch.Tensor` of shape `(N, V)` with responsibilities `r_{i,w}` summing to 1 per image.
 
+These responsibilities are consumed inside `refine_visual_backbone` to compute the EM word loss on unaligned images and, when PHOC is enabled, the EM‑PHOC loss using expected PHOC targets.
+
 #### harvest_backbone_features
 
 Located in: `alignment/alignment_utilities.py`
 
-Harvests image descriptors from the backbone for each dataset item and stores their current alignment labels.
+Harvests image descriptors from the backbone for each dataset item and stores their current alignment labels. While harvesting, the function temporarily switches the backbone to evaluation mode (for deterministic descriptors and to avoid gradient bookkeeping) and restores the module to its original train/eval mode afterwards. It also disables dataset augmentations during harvesting and restores them at the end.
 
 ```python
 def harvest_backbone_features(
@@ -516,30 +415,6 @@ def harvest_backbone_features(
 **Returns:**
 *   `torch.Tensor`: Tensor of descriptors with shape `(N, D)` where `N` is the dataset size.
 *   `torch.Tensor`: Alignment tensor of shape `(N,)` copied from the dataset.
-
-#### select_uncertain_instances
-
-Located in: `alignment/alignment_utilities.py`
-
-Returns indices of the `m` most uncertain dataset instances.
-
-```python
-def select_uncertain_instances(
-    m: int,
-    *,
-    transport_plan: Optional[np.ndarray] = None,
-    dist_matrix: Optional[np.ndarray] = None,
-    metric: str = "gap",
-) -> np.ndarray:
-```
-
-*   `m` (int): Number of indices to return.
-*   `transport_plan` (np.ndarray | None): OT plan of shape `(N, V)`. Required for `metric='entropy'`.
-*   `dist_matrix` (np.ndarray | None): Pre-computed pairwise distances `(N, V)`. Required for `metric='gap'`.
-*   `metric` (str): Either `'gap'` or `'entropy'` selecting the uncertainty measure. Also supports `'variance'`.
-
-**Returns:**
-*   `np.ndarray`: Array of `m` indices sorted by decreasing uncertainty.
 
 ### Loss Functions
 
@@ -906,22 +781,6 @@ def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
 
 * `pretraining.py` – trains a CTC-based network on the synthetic 90k dataset.
 
-#### log_pseudo_labels
-
-Located in: `alignment/trainer.py`
-
-```python
-def log_pseudo_labels(
-        new_indices: torch.Tensor,
-        dataset: HTRDataset,
-        round_idx: int,
-        out_dir: str = "results",
-) -> None:
-```
-
-* **Purpose:** Save pseudo‑labelled samples for the current refinement round.
-  The TSV file lists dataset index, predicted transcription and ground truth.
-
 #### log_round_metrics
 
 Located in: `alignment/trainer.py`
@@ -983,12 +842,27 @@ def refine_visual_backbone(
     em_topk: int = 5,
     em_batch_ratio: float = 0.5,
     resp_topk: int = 10,
+    em_phoc_weight: float = 0.25,
 ) -> None:
 ```
 
 New behavior (optional):
 - When `use_responsibilities=True`, the function computes a responsibility matrix `R` of shape `(N, V)` once per call. If `projectors` are provided, it calls `compute_ot_responsibilities(...)` (mean fusion across projectors, optional `topk` sparsification). Otherwise, it warm‑starts `R` as one‑hot for seeds and unigram/uniform over `unique_words` for unaligned samples.
 - Each training step still computes the existing losses on aligned (+ synthetic) samples. In addition, it draws a small batch of unaligned images and adds an EM word loss: `L_EM = -(1/B) * sum_i sum_{w in topK} r_{i,w} log P_theta(w|x_i)` using `ctc_target_probability`. The final loss adds `em_weight * L_EM`.
+- When `enable_phoc=True` and responsibilities are used, it also computes an EM‑PHOC loss on the same unaligned mini‑batch by building expected PHOC targets `ϕ̄_i = R_i @ PHOC_vocab` and applying BCE against the PHOC logits. Weighted by `em_phoc_weight`.
+
+#### expected_phoc_from_responsibilities  (new)
+
+Located in: `alignment/losses.py`
+
+Computes expected PHOC targets for a mini‑batch by multiplying a responsibility slice with the precomputed PHOC matrix of the vocabulary.
+
+```python
+def expected_phoc_from_responsibilities(
+    R_batch: torch.Tensor,      # (B, V)
+    phoc_vocab: torch.Tensor,   # (V, P)
+) -> torch.Tensor               # (B, P)
+```
 
 #### _shuffle_batch
 
@@ -1008,7 +882,7 @@ imgs, texts = _shuffle_batch(imgs, texts)
 
 Located in: `alignment/trainer.py`
 
-Runs alternating cycles of backbone refinement, projector training and pseudo‑labelling. After each round it prints the CER on both the training and test sets.
+Runs alternating cycles of backbone refinement and projector training in an EM‑only loop. It computes responsibilities via `compute_ot_responsibilities` inside `refine_visual_backbone` when projectors are provided, and does not perform pseudo‑labelling.
 
 ```python
 def alternating_refinement(
@@ -1021,7 +895,6 @@ def alternating_refinement(
     projector_epochs: int = cfg.projector_epochs,
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
-    align_kwargs: dict | None = None,
 ) -> None:
 ```
 
@@ -1066,18 +939,15 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `align_reg` (float): Entropic regularisation for Sinkhorn algorithm.
 *   `align_unbalanced` (bool): Use unbalanced Optimal Transport (OT) formulation.
 *   `align_reg_m` (float): Mass regularisation when unbalanced OT is used.
-*   `align_k` (int): Pseudo-label this many least-moved descriptors.
-*   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
 *   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
 *   `n_aligned` (int): Number of initially aligned instances.
 *   `ensemble_size` (int): Size of the projector ensemble.
-*   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
 *   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
-*   `pseudo_label_validation` (dict): Optional sanity check configuration with keys `enable`, `edit_distance` and `start_iteration`.
+*   `em_phoc_weight` (float): Weight of the EM‑PHOC loss on unaligned mini‑batches.
 
 #### pretraining_config.yaml
 

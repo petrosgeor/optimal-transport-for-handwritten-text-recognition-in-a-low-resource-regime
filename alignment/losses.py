@@ -254,3 +254,31 @@ def _em_word_loss_for_batch(
     if not losses:
         return torch.tensor(0.0, device=logits_btc.device)
     return torch.tensor(sum(losses) / len(losses), device=logits_btc.device)
+
+
+def expected_phoc_from_responsibilities(
+    R_batch: torch.Tensor,
+    phoc_vocab: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Compute expected PHOC targets given responsibilities and a PHOC matrix.
+
+    Args:
+        R_batch (torch.Tensor): Responsibilities for a mini‑batch of size ``B``
+            over a vocabulary of size ``V``; shape ``(B, V)``. Rows are assumed
+            to be non‑negative and sum to 1 (row‑stochastic), but the function
+            does not enforce nor require exact normalisation.
+        phoc_vocab (torch.Tensor): PHOC descriptor matrix for the vocabulary,
+            shape ``(V, P)`` where ``P`` is the PHOC dimensionality, typically
+            built with ``build_phoc_description(unique_words, c2i, levels)``.
+
+    Returns:
+        torch.Tensor: Expected PHOC targets of shape ``(B, P)`` computed as
+        ``R_batch @ phoc_vocab``. The result is on the same device and dtype as
+        the inputs after standard matmul broadcasting rules.
+    """
+    if R_batch.ndim != 2 or phoc_vocab.ndim != 2:
+        raise ValueError("R_batch and phoc_vocab must be 2-D tensors")
+    if R_batch.size(1) != phoc_vocab.size(0):
+        raise ValueError("Incompatible shapes: R is (B,V) and PHOC is (V,P)")
+    return R_batch @ phoc_vocab

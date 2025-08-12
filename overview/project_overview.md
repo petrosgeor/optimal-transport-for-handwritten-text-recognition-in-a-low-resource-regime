@@ -1,8 +1,8 @@
-# Handwritten Text Recognition through Iterative Visual-Semantic Alignment
+# Handwritten Text Recognition through Iterative Visual‑Semantic Alignment
 
 ## Project Goal
 
-This project tackles the fundamental challenge in handwritten text recognition (HTR): **training robust character-level recognition models when we don't know in advance which specific words authors have written**. The approach uses a sophisticated iterative refinement strategy that bridges visual features with semantic word representations.
+This project tackles a core challenge in handwritten text recognition (HTR): training robust character‑level recognizers when we do not know in advance which words are present. Our approach bridges visual features with semantic word representations and refines models through an alternating, EM‑only workflow.
 
 ---
 
@@ -10,18 +10,18 @@ This project tackles the fundamental challenge in handwritten text recognition (
 
 ### The Problem
 
-Traditional HTR approaches require extensive character-level annotations, but we often have images of handwritten text without knowing the exact vocabulary used by historical authors or the document’s domain. This makes fully supervised approaches impractical, especially for historical or low-resource datasets.
+Traditional HTR requires extensive character‑level annotations. In many settings (e.g., historical documents), we have images of handwritten text but limited or no aligned ground truth. Fully supervised approaches become impractical in these low‑resource scenarios.
 
 ### The Solution
 
-The project’s core solution is a bootstrapping framework that:
+We use a bootstrapping framework that:
 
-1. **Seeds the process with a small set of confidently aligned word instances** (i.e., words that match the dataset vocabulary),
-2. **Leverages language priors** from modern English (or other target languages) to inform alignment,
-3. **Uses optimal transport theory** to match distributions of visual features and word semantics,
-4. **Iteratively expands the set of aligned images** (pseudo-labeling new instances based on model confidence),
-5. **Alternates training between visual and semantic modules** for optimal mutual refinement,
-6. **Trains a backbone network for robust character recognition** that ultimately generalizes beyond the initial seed vocabulary.
+1. Seeds training with a small set of confidently aligned word instances.
+2. Leverages dataset word‑frequency priors (and optionally external priors) to inform alignment.
+3. Uses optimal transport (OT) to relate distributions of visual features and word embeddings.
+4. Runs EM‑only refinement using soft responsibilities over vocabulary words (no hard pseudo‑labels).
+5. Alternates training between visual and semantic modules for mutual refinement.
+6. Trains a backbone that generalizes beyond the initial seed vocabulary.
 
 ---
 
@@ -29,55 +29,45 @@ The project’s core solution is a bootstrapping framework that:
 
 ### 1. Visual Feature Space & HTRNet Backbone
 
-- Uses a custom **HTRNet backbone** (CNN + optional RNN or Transformer CTC heads) to extract feature descriptors from line or word images.
-- Visual features are projected into a learned embedding space. Optionally, a global feature vector is produced for each image (configurable via architecture YAML).
-- Assumes a **uniform distribution** over the visual feature manifold to make optimal transport (OT) calculations tractable.
-- The network architecture, data flow, and all training parameters are highly configurable for research flexibility【7†README.md】.
+- A configurable HTRNet backbone (CNN + optional CTC heads) extracts descriptors from word or line images.
+- Features can be projected into an embedding space; a global descriptor per image is available depending on the architecture.
+- Assumes a simple source marginal over descriptors for OT computations.
 
 ### 2. Dataset Vocabulary & Language Priors
 
-- Builds a vocabulary from the words observed in the dataset itself, capturing their empirical frequency.
-- **Word frequency statistics** from the dataset provide prior probabilities for each word.
-- **Word embeddings** for vocabulary are computed using Multi-Dimensional Scaling (MDS) on pairwise Levenshtein (edit) distances, preserving semantic similarity in embedding space.
-- The vocabulary reflects only words composed of characters present in the training set.
-- This design lets the model leverage language structure even with limited annotations【7†README.md】.
+- Build a vocabulary from the dataset, with empirical word frequencies as priors.
+- Compute word embeddings (e.g., via MDS over edit‑distance space), capturing lexical structure among vocabulary entries.
+- Restrict the vocabulary to valid characters seen in the dataset.
 
-### 3. Iterative Refinement Loop
+### 3. Iterative Refinement Loop (EM‑only)
 
-The overall training proceeds in alternating cycles of three phases, tightly coupled by the OT-based alignment machinery:
+Training proceeds in alternating cycles tightly coupled by OT‑derived responsibilities, without any hard alignment expansion:
 
-#### Phase A: Backbone Refinement
+#### Phase A: Backbone Refinement (M‑step)
 
-- Fine-tune the visual backbone **only on currently aligned word instances** (i.e., images whose transcriptions match the dataset vocabulary).
-- Trains with standard CTC loss (main and auxiliary heads if applicable).
-- Increases the backbone’s ability to recognize “known” words with high certainty【7†README.md】.
+- Fine‑tune the backbone on aligned items with standard CTC losses.
+- On unaligned items, use EM losses built from soft responsibilities: expected word loss and optional EM‑PHOC loss.
+- This improves recognition of known words and provides expectation‑based supervision for unknowns.
 
-#### Phase B: Projector Training
+#### Phase B: Projector Training (E‑step support)
 
-- **Freezes the visual backbone.**
-- Collects visual descriptors for all images, then trains a separate MLP “projector” that maps backbone features into the word embedding space.
-- **Loss:** Unsupervised OT loss between all (projected) features and word embeddings, plus a supervised MSE loss for already aligned pairs.
-- **Objective:** Make the projected visual features “semantic,” i.e., close to the word embeddings they should correspond to.
+- Freeze the backbone and train an MLP projector to map backbone features to the word‑embedding space.
+- Compute responsibilities with `compute_ot_responsibilities`: row‑normalized OT plans (optionally top‑K‑sparsified), mean‑fused across projector ensembles when applicable.
 
-#### Phase C: Alignment Expansion (Pseudo-labeling)
+#### No Hard Alignment Expansion
 
-- Computes an **optimal transport plan** to align current visual features with word embeddings.
-
-- **Selects the most confident new matches** (least-moved instances under the OT plan), and pseudo-labels them as additional aligned pairs.
-
-- **Updates the alignment list** for the next iteration, growing the pool of “trusted” training data step by step.
-
-- This loop repeats for several rounds, typically with increasingly aggressive pseudo-labeling as model confidence grows【9†project\_overview\.md】【7†README.md】.
+- The previous pseudo‑labelling step (e.g., OTAligner, align_more_instances) has been removed.
+- The loop uses soft responsibilities only; no dataset indices are hard‑assigned during training.
 
 ---
 
 ## Project Structure and Components
 
-- **htr_base/**: Core data loading utilities, model definitions (CNN, RNN, Transformer heads), backbone training and evaluation scripts. Includes basic data preparation for IAM and George Washington datasets.
-- **alignment/**: Alignment routines (optimal transport, pseudo-labeling, projector training), losses, and utilities for matching visual features to semantic space and expanding alignment set.
-- **tests/**: Scripts for evaluating the effect of length, split, and pseudo-labeling policies. Includes character error rate (CER) analysis by subset.
-- **YAML config files**: All model architecture, training, and alignment parameters are specified in config files for full reproducibility and experiment tracking.
-- **requirements.txt**: All necessary Python dependencies are listed for out-of-the-box installation.
+- `htr_base/`: Data loading, models (CNN, CTC heads), backbone training utilities.
+- `alignment/`: Responsibilities via OT, projector training, refinement losses, and utilities for EM‑only training (no pseudo‑labelling).
+- `tests/`: Minimal tests and scripts; includes CER checks and functional unit tests.
+- YAML configs: Architecture, training, and alignment parameters for reproducibility.
+- `requirements.txt`: Python dependencies.
 
 ---
 
@@ -106,9 +96,8 @@ The overall training proceeds in alternating cycles of three phases, tightly cou
           v
 +---------------------------------------------------+
 |                 Pretraining Phase                 |
-|               (alignment/pretraining.py)          |
-| - `pretraining.main`                              |
-| - Trains HTRNet backbone on image lists           |
+|                 (optional / config)               |
+| - Trains backbone on synthetic images             |
 | - Optional PHOC and Contrastive losses            |
 +-------------------------+-------------------------+
           |
@@ -116,33 +105,34 @@ The overall training proceeds in alternating cycles of three phases, tightly cou
           v
 +---------------------------------------------------+
 |              Alternating Refinement               |
-|            (alignment/alignment_trainer.py)       |
+|               (alignment/trainer.py)              |
 | - `alternating_refinement` (Iterative Loop)       |
 | - Starts with pretrained HTRNet backbone          |
 | - Process:                                        |
-|   1. `refine_visual_backbone`: Fine-tunes HTRNet  |<--+
-|      on aligned samples.                          |   |
-|   2. `train_projector`: Trains projector(s) to    |   |
-|      map features to embedding space.             |   |
-|   3. `align_more_instances` (via OTAligner):      |   |
-|      Aligns more dataset instances using Optimal  |---+
-|      Transport.                                   |
+|   1. `train_projector`: train projector(s) for    |
+|      feature → word‑embedding mapping (E‑step).   |
+|   2. `refine_visual_backbone`: fine‑tune HTRNet   |
+|      with CTC on aligned items and EM losses on   |
+|      unaligned items using responsibilities.      |
+|      Responsibilities come from                   |
+|      `compute_ot_responsibilities`.               |
 +-------------------------+-------------------------+
           |
-          | Aligned Data & Metrics
+          | Metrics & Qualitative Plots
           v
 +---------------------------------------------------+
 |                 Evaluation & Utilities            |
-| - `ctc_utils.py`: encode_for_ctc, greedy_ctc_decode|
-| - `alignment_utilities.py`: print_dataset_stats,  |
-|   harvest_backbone_features, select_uncertain_instances|
-| - `plot.py`: plot_dataset_augmentations,          |
-|   plot_projector_tsne, plot_tsne_embeddings       |
-| - Metrics: CER, WER, word_silhouette_score        |
+| - `ctc_utils.py`: encode_for_ctc, greedy decode   |
+| - `alignment_utilities.py`: harvest features,     |
+|   compute_ot_responsibilities                      |
+| - `plot.py`: TSNE embeddings, projector visuals   |
+| - Metrics: CER, WER, silhouette score             |
 +---------------------------------------------------+
+```
 
 ---
 
 ## End Goal
 
-The ultimate outcome is to achieve a **low character error rate (CER) on the `HTRDataset` test split**. To reach this target we first pretrain the HTRNet backbone on a large synthetic dataset, providing a strong initialization. We then iteratively pseudo-label images from the `train_val` portion of `HTRDataset`&mdash;only a fraction of which has ground-truth labels&mdash;expanding the training set at each round. This cycle of pretraining, pseudo-labeling, and refinement yields a backbone capable of transcribing historical or out-of-vocabulary words and enables new research in digital humanities, archival transcription, and beyond.
+Achieve a low character error rate (CER) on the test split. We pretrain the backbone on synthetic data (optional), then run alternating EM‑only refinement rounds: train projector(s), compute OT‑based responsibilities, and fine‑tune the backbone with CTC on aligned items and EM losses on unaligned ones. The final model generalizes to historical or out‑of‑vocabulary words, enabling downstream research in digital humanities and archival transcription.
+

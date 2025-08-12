@@ -8,7 +8,7 @@ import itertools
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from alignment.ctc_utils import ctc_target_probability
-from alignment.trainer import _shuffle_batch, log_round_metrics
+from alignment.trainer import _shuffle_batch
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from alignment.alignment_utilities import compute_ot_responsibilities
 
@@ -39,31 +39,7 @@ def test_shuffle_batch():
     assert not torch.equal(imgs, shuffled_imgs)
 
 
-def test_log_round_metrics(tmp_path):
-    """Metrics are appended as TSV lines."""
-    path = tmp_path / "round_metrics.txt"
-    log_round_metrics(1, 2, 0.1234, str(path))
-    log_round_metrics(2, 3, 0.5, str(path))
-    content = path.read_text().splitlines()
-    assert content == ["1\t2\t0.1234", "2\t3\t0.5000"]
-
-
-def test_log_round_metrics_truncates_existing(tmp_path):
-    """First call deletes a pre-existing metrics file, then appends thereafter."""
-    path = tmp_path / "round_metrics.txt"
-    # Pre-create file with stale content
-    path.write_text("old\n")
-
-    # First call should truncate (delete then write)
-    log_round_metrics(1, 9, 0.1111, str(path))
-    assert path.read_text().splitlines() == ["1\t9\t0.1111"]
-
-    # Second call should append
-    log_round_metrics(2, 10, 0.2222, str(path))
-    assert path.read_text().splitlines() == [
-        "1\t9\t0.1111",
-        "2\t10\t0.2222",
-    ]
+## log_round_metrics removed in EM-only workflow
 
 
 def test_ctc_target_probability():
@@ -326,7 +302,7 @@ def test_model_components_forward():
 
 
 def test_alternating_refinement_calls_cer(monkeypatch, tmp_path):
-    """compute_cer and log_round_metrics are invoked appropriately."""
+    """compute_cer is invoked appropriately in EM-only alternating loop."""
 
     from types import SimpleNamespace
     from alignment import trainer
@@ -367,29 +343,18 @@ def test_alternating_refinement_calls_cer(monkeypatch, tmp_path):
             return x
 
     calls = []
-    metrics = []
 
     def fake_compute_cer(ds, model, **kwargs):
         calls.append(ds)
         return 0.0
 
-    def fake_align(ds, *a, **k):
-        ds.aligned.fill_(0)
-
-    def fake_log_round_metrics(r, c, cer, out_file):
-        metrics.append((r, c, cer, out_file))
-
     monkeypatch.setattr(trainer, "compute_cer", fake_compute_cer)
     monkeypatch.setattr(trainer, "refine_visual_backbone", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "train_projector", lambda *a, **k: None)
-    monkeypatch.setattr(trainer, "align_more_instances", fake_align)
     monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "HTRDataset", FakeDataset)
-    monkeypatch.setattr(trainer, "log_pseudo_labels", lambda *a, **k: None)
-    monkeypatch.setattr(trainer, "log_round_metrics", fake_log_round_metrics)
     monkeypatch.setattr(trainer.cfg, "device", "cpu")
     monkeypatch.setattr(trainer.cfg, "align_device", "cpu")
-    monkeypatch.setattr(trainer.cfg, "round_metrics_file", str(tmp_path / "m.txt"))
 
     ds = FakeDataset()
     backbone = DummyBackbone()
@@ -399,67 +364,10 @@ def test_alternating_refinement_calls_cer(monkeypatch, tmp_path):
 
     subsets = {getattr(getattr(d, "dataset", d), "subset", None) for d in calls}
     assert {"train_val", "test"} == subsets
-    assert metrics == [(1, 1, 0.0, str(tmp_path / "m.txt"))]
+    # No pseudo-labelling metrics logging in EM-only loop
 
 
-def test_validate_pseudo_labels(monkeypatch):
-    """Samples with large edit distance are un-aligned."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    aligner = au.OTAligner(ds, backbone, [proj], batch_size=2, device="cpu")
-
-    def fake_decode(logits, i2c, **kwargs):
-        return ["gt1", "oops"]
-
-    monkeypatch.setattr(au, "greedy_ctc_decode", fake_decode)
-
-    removed = aligner.validate_pseudo_labels(edit_threshold=3, batch_size=2)
-
-    assert removed == 1
-    assert ds.aligned.tolist() == [0, -1]
-
-
-def test_align_more_instances_gated_validation(monkeypatch):
-    """``validate_pseudo_labels`` runs only after ``start_iteration``."""
-
-    from alignment import alignment_utilities as au
-
-    ds = DummyHTRDataset()
-    ds.word_emb_dim = 2
-    ds.unique_word_embeddings = torch.zeros((2, 2))
-    backbone = DummyBackbone()
-    proj = torch.nn.Identity()
-
-    # patch align and validation to track invocations
-    monkeypatch.setattr(au.OTAligner, "align", lambda self: (torch.empty(0), torch.empty(0), torch.empty(0)))
-
-    calls = []
-
-    def fake_validate(self, edit_threshold, batch_size, decode_cfg=None):
-        calls.append(edit_threshold)
-
-    monkeypatch.setattr(au.OTAligner, "validate_pseudo_labels", fake_validate)
-
-    # set config and reset counter
-    au._ALIGN_CALL_COUNT = 0
-    if not hasattr(au.cfg, "pseudo_label_validation"):
-        au.cfg.pseudo_label_validation = OmegaConf.create({})
-    au.cfg.pseudo_label_validation.enable = True
-    au.cfg.pseudo_label_validation.edit_distance = 3
-    au.cfg.pseudo_label_validation.start_iteration = 2
-
-    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
-    assert len(calls) == 0
-
-    au.align_more_instances(ds, backbone, [proj], batch_size=2, device="cpu")
-    assert len(calls) == 1
+## Pseudo-labelling specific tests removed
 
 
 def test_compute_ot_responsibilities_shapes_and_mass():
@@ -523,6 +431,44 @@ def test_compute_ot_responsibilities_shapes_and_mass():
     assert torch.allclose(row_sums_k, torch.ones_like(row_sums_k), atol=1e-4)
 
 
+
+def test_harvest_restores_backbone_mode():
+    """harvest_backbone_features preserves and restores module train/eval mode."""
+    from alignment.alignment_utilities import harvest_backbone_features
+
+    class TinyDataset(torch.utils.data.Dataset):
+        def __init__(self):
+            self.imgs = [torch.zeros(1, 2, 2), torch.ones(1, 2, 2)]
+            self.transcriptions = ["a", "b"]
+            self.aligned = torch.tensor([-1, -1])
+
+        def __len__(self):
+            return len(self.imgs)
+
+        def __getitem__(self, idx):
+            return self.imgs[idx], self.transcriptions[idx], self.aligned[idx]
+
+    class TinyBackbone(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.phoc_head = None
+
+        def forward(self, x, *, return_feats=True):
+            B = x.size(0)
+            feats = torch.randn(B, 2)
+            logits = torch.zeros(1, B, 4)
+            return logits, feats
+
+    ds = TinyDataset()
+    bb = TinyBackbone().train(True)
+    # Run harvest and ensure original training mode is restored
+    harvest_backbone_features(ds, bb, batch_size=2, device=torch.device("cpu"))
+    assert bb.training is True
+
+    # Now test starting from eval mode
+    bb2 = TinyBackbone().eval()
+    harvest_backbone_features(ds, bb2, batch_size=2, device=torch.device("cpu"))
+    assert bb2.training is False
 
 
 def test_select_seed_indices_random_distinct():

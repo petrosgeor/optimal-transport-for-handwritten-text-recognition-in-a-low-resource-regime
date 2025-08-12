@@ -29,9 +29,8 @@ from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss, SoftContrastiveLoss
 from alignment.ctc_utils import encode_for_ctc, ctc_target_probability
-from alignment.losses import _ctc_loss_fn, _em_word_loss_for_batch
+from alignment.losses import _ctc_loss_fn, _em_word_loss_for_batch, expected_phoc_from_responsibilities
 from alignment.alignment_utilities import (
-    align_more_instances,
     harvest_backbone_features,
     compute_ot_responsibilities,
 )
@@ -101,93 +100,7 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     return images[perm], [words[i] for i in perm.tolist()]
 
 
-def log_pseudo_labels(
-    new_indices: torch.Tensor,
-    dataset: HTRDataset,
-    round_idx: int,
-    out_dir: str = "results",
-) -> None:
-    """
-    Save pseudo‑labeled examples for the current refinement round.
-
-    The output file has **three tab‑separated columns**:
-        1) Dataset index of the sample (integer)
-        2) Predicted transcription (pseudo‑label)
-        3) Ground‑truth transcription (original label)
-
-    Parameters
-    ----------
-    new_indices : torch.Tensor
-        1‑D tensor with the positions in `dataset` that were newly pseudo‑labeled.
-    dataset : HTRDataset
-        Must expose `unique_words`, `transcriptions` and `aligned` as in this repo.
-    round_idx : int
-        Index of the refinement cycle (used to name the log file).
-    out_dir : str, default "results"
-        Directory where the file `pseudo_labels_round_<round_idx>.txt` is saved.
-    """
-    out_path = Path(out_dir)
-    out_path.mkdir(parents=True, exist_ok=True)
-
-    rows: list[str] = []
-    for idx in new_indices.tolist():
-        word_id = int(dataset.aligned[idx])
-        if word_id == -1:        # skip if still unaligned (safety check)
-            continue
-        pred_word = dataset.unique_words[word_id]
-        true_word = dataset.transcriptions[idx]
-        rows.append(f"{idx}\t{pred_word}\t{true_word}")
-
-    file_path = out_path / f"pseudo_labels_round_{round_idx}.txt"
-    with open(file_path, "w", encoding="utf-8") as fh:
-        fh.write("\n".join(rows))
-
-
 _TRUNCATED_METRIC_FILES: set[str] = set()
-
-
-def log_round_metrics(
-    round_idx: int,
-    correct_pseudo: int,
-    cer_test: float,
-    out_file: str,
-) -> None:
-    """Append refinement metrics to a TSV file.
-
-    Args:
-        round_idx (int): Current refinement round index.
-        correct_pseudo (int): Number of correctly pseudo-labelled samples.
-        cer_test (float): Character error rate on the test split.
-        out_file (str): Destination file for the appended metrics.
-
-    Returns:
-        None
-
-    Note:
-        On the first call per process, if ``out_file`` already exists it is
-        deleted so that a fresh log is created for the current run. Subsequent
-        calls in the same process append as usual.
-    """
-    # Ensure parent directory exists
-    Path(out_file).parent.mkdir(parents=True, exist_ok=True)
-
-    # One-time truncation per process: if the target file already exists when
-    # the function is first called in this run, delete it so that a fresh log
-    # is created for the new run. Subsequent calls in the same process will
-    # append as usual.
-    p = Path(out_file)
-    if out_file not in _TRUNCATED_METRIC_FILES:
-        if p.exists():
-            try:
-                p.unlink()
-            except OSError:
-                # If deletion fails for any reason, fall back to append mode.
-                pass
-        _TRUNCATED_METRIC_FILES.add(out_file)
-
-    mode = "a" if p.is_file() else "w"
-    with open(out_file, mode, encoding="utf-8") as fh:
-        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\n")
 
 
 
@@ -248,6 +161,7 @@ def refine_visual_backbone(
     em_topk: int = 5,
     em_batch_ratio: float = 0.5,
     resp_topk: int = 10,
+    em_phoc_weight: float = float(cfg.get("em_phoc_weight", 0.25)),
 ) -> None:
     """Fine-tune ``backbone`` on words aligned to the dataset vocabulary.
 
@@ -350,6 +264,16 @@ def refine_visual_backbone(
                     R = torch.from_numpy(R_np)
         except Exception:
             R = None
+
+    # Precompute PHOC for vocabulary once (for EM‑PHOC) if enabled
+    phoc_vocab = None
+    if enable_phoc and use_responsibilities and getattr(dataset, "unique_words", None):
+        try:
+            vocab_words = [f" {w} " for w in dataset.unique_words]
+            phoc_vocab = build_phoc_description(vocab_words, c2i, levels=phoc_levels)
+            phoc_vocab = phoc_vocab.float().to(device)
+        except Exception:
+            phoc_vocab = None
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
     subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
@@ -475,12 +399,24 @@ def refine_visual_backbone(
                         img, *_ = dataset[i]
                         em_imgs.append(img)
                     em_imgs = torch.stack(em_imgs, dim=0).to(device)
-                    em_out = backbone(em_imgs, return_feats=False)
-                    em_logits = em_out[0] if isinstance(em_out, (tuple, list)) else em_out
+                    need_em_phoc = enable_phoc and (backbone.phoc_head is not None) and (phoc_vocab is not None)
+                    em_out = backbone(em_imgs, return_feats=need_em_phoc)
+                    if isinstance(em_out, (tuple, list)):
+                        em_logits = em_out[0]
+                        em_phoc_logits = em_out[3] if need_em_phoc and len(em_out) >= 4 else None
+                    else:
+                        em_logits = em_out
+                        em_phoc_logits = None
                     em_loss = _em_word_loss_for_batch(
                         em_logits, choice.tolist(), R, dataset.unique_words, c2i, k_top=em_topk
                     )
                     loss = loss + float(em_weight) * em_loss
+                    # EM‑PHOC loss: expected PHOC target from responsibilities
+                    if need_em_phoc and em_phoc_logits is not None:
+                        R_sel = R[choice].to(device).float()
+                        exp_phoc = expected_phoc_from_responsibilities(R_sel, phoc_vocab)
+                        em_phoc_loss = F.binary_cross_entropy_with_logits(em_phoc_logits, exp_phoc)
+                        loss = loss + float(em_phoc_weight) * em_phoc_loss
 
             # Optimization step
             optimizer.zero_grad(set_to_none=True)
@@ -656,31 +592,13 @@ def alternating_refinement(
     projector_epochs: int = cfg.projector_epochs,
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
-    align_kwargs: dict | None = None,
 ) -> None:
+    """Alternating EM-only refinement: backbone then projectors, fixed rounds.
+
+    Responsibilities for EM are computed inside ``refine_visual_backbone`` via
+    ``compute_ot_responsibilities`` when ``projectors`` are provided. No
+    pseudo‑labelling is performed here.
     """
-    Performs an alternating training cycle between the backbone and projectors.
-
-    This function implements a semi-supervised learning strategy where the `backbone`
-    and `projectors` are trained in alternation. In each round, the backbone is first
-    refined, then the projectors are trained. After a set number of rounds, more
-    instances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.
-    This cycle continues as long as there are unaligned instances in the dataset.
-    After each alignment step the Character Error Rate (CER) is printed for both
-    the training and test sets.
-
-    Args:
-        dataset: The HTRDataset to be used for training.
-        backbone: The HTRNet model.
-        projectors: A list of projector models.
-        rounds: The number of backbone/projector training cycles per alignment pass.
-        backbone_epochs: The number of epochs for each backbone refinement round.
-        projector_epochs: The number of epochs for each projector training round.
-        refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.
-        projector_kwargs: Additional keyword arguments for `train_projector`.
-        align_kwargs: Additional keyword arguments for `align_more_instances`.
-    """
-
     out_dir = "results"
     out_path = Path(out_dir)
     if out_path.is_dir():
@@ -688,28 +606,13 @@ def alternating_refinement(
             f.unlink()
 
     maybe_load_backbone(backbone, cfg)
-
     device = torch.device(cfg.device)
     backbone.to(device)
     projectors = [p.to(device) for p in projectors]
-    
-    assert isinstance(projectors, (list, tuple)) and len(projectors) > 0, \
-        "Projectors must be a non-empty list or tuple."
+    assert isinstance(projectors, (list, tuple)) and len(projectors) > 0
 
-    if refine_kwargs is None:
-        refine_kwargs = {}
-    if projector_kwargs is None:
-        projector_kwargs = {}
-    if align_kwargs is None:
-        align_kwargs = {}
-    # Set default alignment arguments from config
-    align_kwargs.setdefault("batch_size", cfg.align_batch_size)
-    align_kwargs.setdefault("device", cfg.align_device)
-    align_kwargs.setdefault("reg", cfg.align_reg)
-    align_kwargs.setdefault("unbalanced", cfg.align_unbalanced)
-    align_kwargs.setdefault("reg_m", cfg.align_reg_m)
-    align_kwargs.setdefault("k", cfg.align_k)
-    align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
+    refine_kwargs = {} if refine_kwargs is None else dict(refine_kwargs)
+    projector_kwargs = {} if projector_kwargs is None else dict(projector_kwargs)
 
     test_dataset = HTRDataset(
         basefolder=dataset.basefolder,
@@ -717,127 +620,75 @@ def alternating_refinement(
         fixed_size=dataset.fixed_size,
         character_classes=dataset.character_classes,
         config=dataset.config,
-        two_views=False
+        two_views=False,
     )
 
-    cycle_idx = 1
-    # Main loop: continue as long as there are unaligned instances
-    while (dataset.aligned == -1).any():
-        for r in range(rounds):
-            print(f"[Round {r + 1}/{rounds}] Refining backbone...")
-            if backbone_epochs > 0:
-                # Refine the visual backbone
-                # Pass projectors so responsibilities can be computed for EM loss
-                refine_visual_backbone(
-                    dataset,
-                    backbone,
-                    num_epochs=backbone_epochs,
-                    projectors=projectors,
-                    **refine_kwargs,
-                )
+    for r in range(1, rounds + 1):
+        print(f"[Round {r}/{rounds}] Refining backbone (EM only)…")
+        if backbone_epochs > 0:
+            refine_visual_backbone(
+                dataset,
+                backbone,
+                num_epochs=backbone_epochs,
+                projectors=projectors,
+                **refine_kwargs,
+            )
 
-            # Freeze backbone and unfreeze projectors for training
-            for param in backbone.parameters():
-                param.requires_grad_(False)
-            for proj in projectors:
-                for param in proj.parameters():
-                    param.requires_grad_(True)
-            
-            # Verify that exactly one module family has requires_grad=True
-            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
-            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
-                   (backbone_trainable > 0 and projectors_trainable == 0), \
-                   "Exactly one module family (backbone or projectors) should be trainable."
+        for p in backbone.parameters():
+            p.requires_grad_(False)
+        for proj in projectors:
+            for p in proj.parameters():
+                p.requires_grad_(True)
+        print(f"[Round {r}/{rounds}] Training projector…")
+        if projector_epochs > 0:
+            _probs_backup = None
+            if isinstance(getattr(dataset, "unique_word_probs", None), list):
+                _probs_backup = dataset.unique_word_probs
+                dataset.unique_word_probs = torch.tensor(_probs_backup, dtype=torch.float)
+            train_projector(
+                dataset,
+                backbone,
+                projectors,
+                num_epochs=projector_epochs,
+                **projector_kwargs,
+            )
+            if _probs_backup is not None:
+                dataset.unique_word_probs = _probs_backup
 
-            print(f"[Round {r + 1}/{rounds}] Training projector...")
-            if projector_epochs > 0:
-                # Temporarily handle unique_word_probs format for projector training
-                _probs_backup = None
-                if isinstance(getattr(dataset, "unique_word_probs", None), list):
-                    _probs_backup = dataset.unique_word_probs
-                    dataset.unique_word_probs = torch.tensor(
-                        _probs_backup, dtype=torch.float
-                    )
+        for p in backbone.parameters():
+            p.requires_grad_(True)
+        for proj in projectors:
+            for p in proj.parameters():
+                p.requires_grad_(False)
 
-                # Train the projector(s)
-                train_projector(
-                    dataset,
-                    backbone,
-                    projectors,
-                    num_epochs=projector_epochs,
-                    **projector_kwargs,
-                )
+        try:
+            cer = compute_cer(
+                test_dataset,
+                backbone,
+                batch_size=cfg.eval_batch_size,
+                device=cfg.device,
+                k=4,
+            )
+            print(f"[Round {r}/{rounds}] Test CER: {cer:.4f}")
+            # Also compute CER on the training/val dataset for parity
+            compute_cer(
+                dataset,
+                backbone,
+                batch_size=cfg.eval_batch_size,
+                device=cfg.device,
+                k=4,
+            )
+        except Exception:
+            pass
 
-                # Restore original unique_word_probs format if it was changed
-                if _probs_backup is not None:
-                    dataset.unique_word_probs = _probs_backup
-
-            # Unfreeze backbone and freeze projectors for next round or alignment
-            for param in backbone.parameters():
-                param.requires_grad_(True)
-            for proj in projectors:
-                for param in proj.parameters():
-                    param.requires_grad_(False)
-
-            # Verify that exactly one module family has requires_grad=True
-            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
-            assert (backbone_trainable > 0 and projectors_trainable == 0), \
-                   "Exactly one module family (backbone or projectors) should be trainable."
-
-        print("[Cycle] Aligning more instances...")
-        assert (dataset.aligned != -1).sum() > 0, \
-            "Cannot align more instances with zero seeds."
-        # Save current alignment state before pseudo-labelling
-        prev_aligned = dataset.aligned.clone()
-        # Perform Optimal Transport alignment to pseudo-label more instances
-        align_more_instances(dataset, backbone, projectors, **align_kwargs)
-        changed = torch.nonzero(
-            (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
-        )[0]
-        # log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
-        correct_round = sum(
-            dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
-            for i in changed.tolist()
-        )
-        cer_test = compute_cer(
-            test_dataset,
-            backbone,
-            batch_size=cfg.eval_batch_size,
-            device=cfg.device,
-            k=4
-        )
-        log_round_metrics(
-            cycle_idx,
-            correct_round,
-            cer_test,
-            cfg.round_metrics_file,
-        )
-
-        # --- restrict CER to already-aligned samples -------------------
-        aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
-        aligned_subset = torch.utils.data.Subset(dataset, aligned_idx.tolist())
-        print('CER on the aligned subset: ')
-        compute_cer(
-            aligned_subset,
-            backbone,
-            batch_size=cfg.eval_batch_size,
-            device=cfg.device,
-            k=4
-        )
-        cycle_idx += 1
-
-    # ────────────────────────────────────────────────────────────────────────────────────────
-    #   FINISH: every sample has an alignment – keep refining
-    # ────────────────────────────────────────────────────────────────────────────────────────
-    if not (dataset.aligned == -1).any():
-        print("[Info] All samples aligned – continuing backbone training …")
+    # Optional final refinement when all samples are already aligned or rounds=0
+    if rounds == 0 or not (dataset.aligned == -1).any():
         refine_visual_backbone(
             dataset,
             backbone,
             num_epochs=backbone_epochs,
-            **refine_kwargs
+            projectors=projectors,
+            **refine_kwargs,
         )
 
 if __name__ == "__main__":
