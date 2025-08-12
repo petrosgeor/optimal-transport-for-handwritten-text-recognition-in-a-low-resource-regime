@@ -278,7 +278,7 @@ class HTRDataset(Dataset):
 
 **Methods:**
 *   `__len__()` -> int: Dataset size.
-*   `__getitem__(index)` -> tuple: Returns processed image(s), text and alignment id.
+*   `__getitem__(index)` -> tuple: Returns processed image(s), text and alignment id. Training code may wrap the dataset in an indexed subset to expose original indices for EM responsibilities.
 *   `letter_priors(transcriptions=None, n_words=50000)`: returns prior probabilities for characters.
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
@@ -389,6 +389,8 @@ Returns a `torch.Tensor` of shape `(N, V)` with responsibilities `r_{i,w}` summi
 
 These responsibilities are consumed inside `refine_visual_backbone` to compute the EM word loss on unaligned images and, when PHOC is enabled, the EM‑PHOC loss using expected PHOC targets.
 
+ 
+
 #### harvest_backbone_features
 
 Located in: `alignment/alignment_utilities.py`
@@ -455,7 +457,7 @@ class ProjectionLoss(torch.nn.Module):
 
 Located in: `alignment/losses.py`
 
-Computes the expected negative log-likelihood over a small set of top‑K candidate words for a batch of unaligned images, using responsibilities and `ctc_target_probability`.
+Computes the expected negative log-likelihood over top‑K candidate words for the real slice of a mini‑batch, using a global responsibility matrix and exact CTC target probabilities.
 
 ```python
 def _em_word_loss_for_batch(
@@ -469,8 +471,9 @@ def _em_word_loss_for_batch(
 ) -> torch.Tensor
 ```
 
-- Uses the top‑K responsibilities in `R_full[row]` for each batch item to compute `-∑ r_{i,w} log P_theta(w|x_i)` via `ctc_target_probability` and averages across the batch.
-- Returns a scalar tensor; pass `R_full=None` to disable the EM contribution.
+- For each real item `i`, selects the top‑K entries of `R_full[i]` and computes `-∑ r_{i,w} log P_θ(w|x_i)` using `ctc_target_probability` and averages across the batch.
+- Returns a 0‑D tensor; pass `R_full=None` to disable the EM contribution.
+- Note: In the current implementation, `ctc_target_probability` returns a Python float, so gradients do not propagate through this loss. Making it differentiable would require returning a tensor derived from `logits_btc` inside `ctc_target_probability`.
 
 
 #### SoftContrastiveLoss
@@ -850,6 +853,17 @@ New behavior (optional):
 - When `use_responsibilities=True`, the function computes a responsibility matrix `R` of shape `(N, V)` once per call. If `projectors` are provided, it calls `compute_ot_responsibilities(...)` (mean fusion across projectors, optional `topk` sparsification). Otherwise, it warm‑starts `R` as one‑hot for seeds and unigram/uniform over `unique_words` for unaligned samples.
 - Each training step still computes the existing losses on aligned (+ synthetic) samples. In addition, it draws a small batch of unaligned images and adds an EM word loss: `L_EM = -(1/B) * sum_i sum_{w in topK} r_{i,w} log P_theta(w|x_i)` using `ctc_target_probability`. The final loss adds `em_weight * L_EM`.
 - When `enable_phoc=True` and responsibilities are used, it also computes an EM‑PHOC loss on the same unaligned mini‑batch by building expected PHOC targets `ϕ̄_i = R_i @ PHOC_vocab` and applying BCE against the PHOC logits. Weighted by `em_phoc_weight`.
+- Runtime/gradients: Responsibility computation runs under `torch.inference_mode()` and the resulting `R` is stored on CPU with `requires_grad=False`. In the EM‑PHOC path, `R_sel @ PHOC_vocab` is computed under `torch.no_grad()`, so no gradients are taken with respect to responsibilities; only backbone logits receive gradients.
+ 
+
+Unified EM M‑step (current)
+
+- Responsibilities once for the whole real dataset `R ∈ ℝ^{N×V}` (via `compute_ot_responsibilities` when projectors are provided). Rows for aligned items are forced to 1‑hot so their EM loss reduces to supervised NLL.
+- Exactly two dataloaders: real (`HTRDataset`, wrapped with `IndexedSubset` to preserve original indices) and synthetic (`PretrainingHTRDataset`). No separate EM/unaligned loader in `refine_visual_backbone`.
+- Per step, draw `B_real` and `B_syn` by `syn_batch_ratio`, concatenate and shuffle once, run a single forward pass.
+- Losses: EM word loss on all real items, supervised CTC on synthetic items, optional EM‑PHOC on real and supervised PHOC on synthetic, optional contrastive on items with known labels.
+- Responsibility computation runs under `torch.inference_mode()`; expected PHOC uses `torch.no_grad()`.
+- Config note: `resp_topk` controls sparsity of `R`; any previous `em_loader_*` keys are ignored by `refine_visual_backbone`.
 
 #### expected_phoc_from_responsibilities  (new)
 
@@ -862,20 +876,6 @@ def expected_phoc_from_responsibilities(
     R_batch: torch.Tensor,      # (B, V)
     phoc_vocab: torch.Tensor,   # (V, P)
 ) -> torch.Tensor               # (B, P)
-```
-
-#### _shuffle_batch
-
-Located in: `alignment/trainer.py`
-
-Randomly permutes an image tensor and list of transcriptions with the same order.
-
-```python
-def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
-```
-
-```python
-imgs, texts = _shuffle_batch(imgs, texts)
 ```
 
 #### alternating_refinement
@@ -940,6 +940,9 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `align_unbalanced` (bool): Use unbalanced Optimal Transport (OT) formulation.
 *   `align_reg_m` (float): Mass regularisation when unbalanced OT is used.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
+*   `em_loader_batch_size` (int): Batch size for the unaligned EM DataLoader.
+*   `em_loader_workers` (int): Number of workers used by the EM DataLoader.
+*   `em_steps_per_epoch` (int | null): If set, cap the number of EM mini-batches drawn per epoch; otherwise one EM batch is used per supervised step.
 *   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
 *   `n_aligned` (int): Number of initially aligned instances.
 *   `ensemble_size` (int): Size of the projector ensemble.

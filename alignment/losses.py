@@ -204,56 +204,77 @@ class SoftContrastiveLoss(torch.nn.Module):
 
 
 def _em_word_loss_for_batch(
-    logits_btc: torch.Tensor,
-    batch_indices: List[int],
-    R_full: Optional[torch.Tensor],
-    unique_words: List[str],
-    c2i_map: Dict[str, int],
+    logits_btc: torch.Tensor,        # (T, B, C)
+    batch_indices: List[int],        # dataset indices for this mini-batch
+    R_full: Optional[torch.Tensor],  # (N, V) responsibilities or None
+    unique_words: List[str],         # tokens corresponding to columns of R_full
+    c2i_map: Dict[str, int],         # character-to-index map
     k_top: int = 5,
     eps: float = 1e-9,
 ) -> torch.Tensor:
     """
-    Expected NLL over top‑K candidate words for an unaligned mini‑batch.
+    Compute the expected negative log-likelihood over top-K candidate words.
+
+    Purpose:
+        For the real slice of a mini-batch, compute the EM word loss
+        L_EM(i) = -∑_w r_{i,w} log P_theta(w|x_i) using a top-K selection per
+        item from the responsibility matrix.
 
     Args:
-        logits_btc (torch.Tensor): Network logits with shape ``(T, B, C)``.
-        batch_indices (list[int]): Dataset indices corresponding to the B items.
-        R_full (torch.Tensor | None): Responsibility matrix of shape ``(N, V)``
-            on CPU; pass ``None`` to disable the loss.
-        unique_words (list[str]): Vocabulary tokens indexed by columns of ``R_full``.
-        c2i_map (dict[str,int]): Character‑to‑index map for CTC encoding.
-        k_top (int): How many highest‑weight candidates to keep per row.
-        eps (float): Minimum probability used inside the logarithm for stability.
+        logits_btc (torch.Tensor): Network logits with shape (T, B, C).
+        batch_indices (List[int]): Original dataset indices for the B items
+            (used to slice rows from R_full).
+        R_full (torch.Tensor | None): Responsibilities of shape (N, V). If None,
+            returns a 0-D zero tensor.
+        unique_words (List[str]): Vocabulary tokens (columns of R_full).
+        c2i_map (Dict[str, int]): Character-to-index map used by CTC.
+        k_top (int): How many highest-weight candidates per row to keep.
+        eps (float): Numerical floor inside the log.
 
     Returns:
-        torch.Tensor: Scalar tensor with the averaged EM loss for this batch.
+        torch.Tensor: 0-D tensor with the averaged EM loss for the batch. Note:
+        with the current implementation of `ctc_target_probability` returning a
+        Python float, gradients do not flow back to logits. To make this loss
+        differentiable, `ctc_target_probability` would need to return a tensor
+        derived from `logits_btc` instead of a float.
     """
     if R_full is None:
-        return torch.tensor(0.0, device=logits_btc.device)
+        return torch.zeros((), device=logits_btc.device, dtype=logits_btc.dtype)
+
     T, B, C = logits_btc.shape
-    losses = []
+    device = logits_btc.device
+    dtype = logits_btc.dtype
+
+    item_losses: list[torch.Tensor] = []
+
     for b, idx in enumerate(batch_indices):
-        row = R_full[idx].cpu().numpy()
-        if row.ndim != 1 or row.size == 0:
+        # 1) Slice responsibility row (no grad) and pick top-K
+        row = R_full[idx]
+        if row.ndim != 1 or row.numel() == 0:
             continue
-        # select top‑K entries by weight
-        ksel = min(int(max(1, k_top)), row.size)
-        cand_idx = np.argpartition(row, -ksel)[-ksel:]
-        weights = row[cand_idx]
-        s = weights.sum()
-        if s <= 0:
+        ksel = int(min(max(1, k_top), row.numel()))
+        vals, cand_idx = torch.topk(row, ksel)
+        s = vals.sum()
+        if s.item() <= 0:
             continue
-        weights = weights / s
-        logits_one = logits_btc[:, b, :]
-        nll = 0.0
-        for j, w_idx in enumerate(cand_idx.tolist()):
+        weights = (vals / (s + 1e-12)).to(device=device, dtype=dtype)  # (K,)
+
+        # 2) Per-candidate exact CTC probability
+        logits_one = logits_btc[:, b, :]  # (T, C)
+        nll_i = torch.zeros((), device=device, dtype=dtype)
+        for j in range(cand_idx.numel()):
+            w_idx = int(cand_idx[j].item())
             w = unique_words[w_idx]
-            p = float(ctc_target_probability(logits_one, f" {w} ", c2i_map))
-            nll += -weights[j] * math.log(max(p, eps))
-        losses.append(nll)
-    if not losses:
-        return torch.tensor(0.0, device=logits_btc.device)
-    return torch.tensor(sum(losses) / len(losses), device=logits_btc.device)
+            # ctc_target_probability currently returns a Python float
+            p_float = ctc_target_probability(logits_one, f" {w} ", c2i_map)
+            p = torch.as_tensor(p_float, device=device, dtype=dtype)
+            nll_i = nll_i + (-weights[j] * torch.log(p.clamp_min(eps)))
+
+        item_losses.append(nll_i)
+
+    if not item_losses:
+        return torch.zeros((), device=device, dtype=dtype)
+    return torch.stack(item_losses).mean()
 
 
 def expected_phoc_from_responsibilities(

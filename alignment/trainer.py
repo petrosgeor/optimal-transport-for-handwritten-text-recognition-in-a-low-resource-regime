@@ -33,6 +33,7 @@ from alignment.losses import _ctc_loss_fn, _em_word_loss_for_batch, expected_pho
 from alignment.alignment_utilities import (
     harvest_backbone_features,
     compute_ot_responsibilities,
+    IndexedSubset,
 )
 from alignment.eval import compute_cer
 from alignment.plot import (
@@ -85,19 +86,42 @@ def _assert_grad_finite(model: nn.Module, name: str) -> None:
         for p in model.parameters()
     ), f"Gradient explosion in {name}"
 
-def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
-    """Randomly shuffle a mini-batch of images and transcriptions together.
+
+def _harden_aligned_rows(R: torch.Tensor, aligned: torch.Tensor) -> torch.Tensor:
+    """Make responsibility rows 1‑hot for aligned real samples.
+
+    Purpose:
+        Enforce that for each index ``i`` with a known alignment ``aligned[i]=k``,
+        the corresponding responsibility row becomes one‑hot: ``R[i,k]=1`` and
+        zeros elsewhere. This ensures the unified EM loss reduces to the
+        supervised NLL for aligned instances.
 
     Args:
-        images (torch.Tensor): Tensor of images in the batch.
-        words (List[str]): Transcriptions corresponding to ``images``.
+        R (torch.Tensor): Responsibility matrix of shape ``(N, W)`` on CPU.
+        aligned (torch.Tensor): Alignment indices of shape ``(N,)`` with ``-1``
+            for unaligned and ``k`` in ``[0, W)`` for aligned.
 
     Returns:
-        Tuple[torch.Tensor, List[str]]: Shuffled images and transcriptions.
+        torch.Tensor: The same tensor instance ``R`` with aligned rows hardened
+        in place. Returned for convenience/chaining.
     """
-    assert len(images) == len(words)
-    perm = torch.randperm(len(words), device=images.device)
-    return images[perm], [words[i] for i in perm.tolist()]
+    if R is None:
+        return R
+    if R.ndim != 2:
+        raise ValueError("R must be 2-D (N, W)")
+    if aligned.ndim != 1 or aligned.size(0) != R.size(0):
+        raise ValueError("aligned must be shape (N,) and match R rows")
+    # clone to ensure it's a normal tensor even if created under inference_mode
+    R = R.clone()
+    with torch.no_grad():
+        N, W = R.shape
+        aligned = aligned.to(torch.long)
+        for i in range(N):
+            k = int(aligned[i].item())
+            if k >= 0 and k < W:
+                R[i].zero_()
+                R[i, k] = 1.0
+    return R
 
 
 _TRUNCATED_METRIC_FILES: set[str] = set()
@@ -210,6 +234,7 @@ def refine_visual_backbone(
         L_EM(i) = -∑_w r_{i,w} log P_θ(w|x_i), evaluated via
         ``ctc_target_probability``.
     """
+    # Resolve runtime device from backbone parameters (tests monkeypatch .to())
     device = next(backbone.parameters()).device
     assert device.type == "cuda", "Backbone is not on a CUDA device"
     backbone.train().to(device)
@@ -220,52 +245,56 @@ def refine_visual_backbone(
     # --- E-step: build responsibilities once per call (optional) ---------
     R: torch.Tensor | None = None
     if use_responsibilities:
-        try:
-            if projectors and len(projectors) > 0 and hasattr(dataset, "unique_word_embeddings"):
-                R = compute_ot_responsibilities(
-                    dataset,
-                    backbone,
-                    projectors,
-                    batch_size=cfg.align_batch_size,
-                    device=cfg.align_device,
-                    reg=cfg.align_reg,
-                    unbalanced=cfg.align_unbalanced,
-                    reg_m=cfg.align_reg_m,
-                    ensemble="mean",
-                    topk=resp_topk,
-                )
-            else:
-                # Warm‑start: one‑hot rows for seeds; unigram/uniform for unaligned
-                V = len(getattr(dataset, "unique_words", []))
-                if V > 0:
-                    R_np = np.zeros((len(dataset), V), dtype=np.float32)
-                    probs = getattr(dataset, "unique_word_probs", None)
-                    if probs is None or len(probs) != V:
-                        base = np.full((V,), 1.0 / V, dtype=np.float32)
-                    else:
-                        p = np.asarray(probs, dtype=np.float64)
-                        p = p / max(p.sum(), 1e-12)
-                        base = p.astype(np.float32)
-                    for i in range(len(dataset)):
-                        k = int(dataset.aligned[i].item()) if hasattr(dataset.aligned, "item") else int(dataset.aligned[i])
-                        if k != -1 and 0 <= k < V:
-                            R_np[i, k] = 1.0
+        with torch.inference_mode():
+            try:
+                if projectors and len(projectors) > 0 and hasattr(dataset, "unique_word_embeddings"):
+                    R = compute_ot_responsibilities(
+                        dataset,
+                        backbone,
+                        projectors,
+                        batch_size=cfg.align_batch_size,
+                        device=cfg.align_device,
+                        reg=cfg.align_reg,
+                        unbalanced=cfg.align_unbalanced,
+                        reg_m=cfg.align_reg_m,
+                        ensemble="mean",
+                        topk=resp_topk,
+                    )
+                else:
+                    # Warm‑start: one‑hot rows for seeds; unigram/uniform for others
+                    V = len(getattr(dataset, "unique_words", []))
+                    if V > 0:
+                        R_np = np.zeros((len(dataset), V), dtype=np.float32)
+                        probs = getattr(dataset, "unique_word_probs", None)
+                        if probs is None or len(probs) != V:
+                            base = np.full((V,), 1.0 / V, dtype=np.float32)
                         else:
-                            row = base.copy()
-                            if resp_topk is not None and resp_topk < V:
-                                idx = np.argpartition(row, -resp_topk)[-resp_topk:]
-                                mask = np.zeros(V, dtype=bool)
-                                mask[idx] = True
-                                row = np.where(mask, row, 0.0)
-                                s = row.sum()
-                                if s > 0:
-                                    row /= s
-                            R_np[i] = row
-                    R = torch.from_numpy(R_np)
-        except Exception:
-            R = None
+                            p = np.asarray(probs, dtype=np.float64)
+                            p = p / max(p.sum(), 1e-12)
+                            base = p.astype(np.float32)
+                        for i in range(len(dataset)):
+                            k = int(dataset.aligned[i].item()) if hasattr(dataset.aligned, "item") else int(dataset.aligned[i])
+                            if k != -1 and 0 <= k < V:
+                                R_np[i, k] = 1.0
+                            else:
+                                row = base.copy()
+                                if resp_topk is not None and resp_topk < V:
+                                    idx = np.argpartition(row, -resp_topk)[-resp_topk:]
+                                    mask = np.zeros(V, dtype=bool)
+                                    mask[idx] = True
+                                    row = np.where(mask, row, 0.0)
+                                    s = row.sum()
+                                    if s > 0:
+                                        row /= s
+                                R_np[i] = row
+                        R = torch.from_numpy(R_np)
+            except Exception:
+                R = None
+        if R is not None:
+            # Harden rows for aligned items so EM reduces to supervised on those
+            R = _harden_aligned_rows(R.detach().contiguous(), dataset.aligned.cpu())
 
-    # Precompute PHOC for vocabulary once (for EM‑PHOC) if enabled
+    # Precompute PHOC for the vocabulary once (used by EM‑PHOC for real items)
     phoc_vocab = None
     if enable_phoc and use_responsibilities and getattr(dataset, "unique_words", None):
         try:
@@ -275,28 +304,29 @@ def refine_visual_backbone(
         except Exception:
             phoc_vocab = None
 
-    aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
-    subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
-
-    if len(aligned_indices) == 0 and (pretrain_ds is None or syn_batch_ratio <= 0):
-        return
-
+    # Build real and synthetic DataLoaders (only two as per unified plan)
+    real_bs = batch_size - int(batch_size * syn_batch_ratio) if pretrain_ds is not None else batch_size
     syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
-    gt_bs = batch_size - syn_bs
-
-    gt_loader = None
-    if gt_bs > 0 and len(aligned_indices) > 0:
-        gt_loader = DataLoader(
-            subset,
-            batch_size=gt_bs,
+    if real_bs < 0:
+        real_bs = 0
+    if syn_bs < 0:
+        syn_bs = 0
+    # Real loader over the full dataset, preserving original indices
+    real_loader = None
+    if real_bs > 0 and len(dataset) > 0:
+        full_idx = list(range(len(dataset)))
+        real_subset = IndexedSubset(dataset, full_idx)
+        real_loader = DataLoader(
+            real_subset,
+            batch_size=real_bs,
             shuffle=True,
             num_workers=0,
             pin_memory=(device.type == "cuda"),
         )
 
-    pretrain_loader = None
+    syn_loader = None
     if pretrain_ds is not None and syn_bs > 0:
-        pretrain_loader = DataLoader(
+        syn_loader = DataLoader(
             pretrain_ds,
             batch_size=syn_bs,
             shuffle=True,
@@ -304,41 +334,85 @@ def refine_visual_backbone(
             pin_memory=(device.type == "cuda"),
         )
 
-    if pretrain_loader is not None:
-        epoch_loader = pretrain_loader
-        gt_iter = cycle(gt_loader) if gt_loader is not None else None
+    # Select epoch length and iterators (cycle shorter one)
+    if syn_loader is not None and real_loader is not None:
+        epoch_steps = max(len(syn_loader), len(real_loader))
+        real_iter = cycle(real_loader)
+        syn_iter = cycle(syn_loader)
+    elif syn_loader is not None:
+        epoch_steps = len(syn_loader)
+        real_iter = None
+        syn_iter = cycle(syn_loader)
+    elif real_loader is not None:
+        epoch_steps = len(real_loader)
+        real_iter = cycle(real_loader)
+        syn_iter = None
     else:
-        epoch_loader = gt_loader
-        gt_iter = None
+        return
 
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
     contr_fn = None
     if enable_contrastive:
         contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
 
-    # Training loop for backbone refinement
+    # Training loop for backbone refinement (single forward with mixed batch)
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
-        for batch in epoch_loader:
-            if pretrain_loader is not None:
-                imgs, trans = batch
-                words = list(trans)
-                if gt_iter is not None:
-                    imgs_gt, _, aligned = next(gt_iter)
-                    imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
-                    words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()] + words
-                    imgs, words = _shuffle_batch(imgs, words)
-                else:
-                    imgs = imgs.to(device)
+        for _ in range(epoch_steps):
+            # 1) Fetch real and synthetic mini-batches
+            imgs_r = None
+            txts_r = []
+            aligned_r = None
+            idx_r = None
+            if real_iter is not None:
+                batch_r = next(real_iter)
+                imgs_r, txts_r, aligned_r, idx_r = batch_r
+                imgs_r = imgs_r.to(device)
+                idx_r_list = list(map(int, idx_r))
             else:
-                imgs, _, aligned = batch
-                words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()]
-                imgs = imgs.to(device)
+                idx_r_list = []
+
+            imgs_s = None
+            txts_s = []
+            if syn_iter is not None:
+                batch_s = next(syn_iter)
+                imgs_s, txts_s = batch_s
+                imgs_s = imgs_s.to(device)
+
+            # 2) Concatenate and shuffle once; keep track of which positions are real
+            if imgs_r is not None and imgs_s is not None:
+                imgs = torch.cat([imgs_r, imgs_s], dim=0)
+                is_real = torch.zeros(imgs.size(0), dtype=torch.bool)
+                is_real = is_real.to(device)
+                is_real[: imgs_r.size(0)] = True
+                perm = torch.randperm(imgs.size(0))
+                perm = perm.to(device)
+                imgs = imgs[perm]
+                is_real = is_real[perm]
+                # Reorder dataset indices to match permuted order of real items
+                real_positions_tensor = is_real.nonzero(as_tuple=True)[0]
+                real_positions = real_positions_tensor.tolist()
+                orig_real_indices = perm[real_positions_tensor].tolist()  # values in [0..Br-1]
+                idx_r_perm = [idx_r_list[j] for j in orig_real_indices]
+            elif imgs_r is not None:
+                imgs = imgs_r
+                is_real = torch.ones(imgs.size(0), dtype=torch.bool)
+                is_real = is_real.to(device)
+                real_positions = list(range(imgs.size(0)))
+                idx_r_perm = idx_r_list
+            elif imgs_s is not None:
+                imgs = imgs_s
+                is_real = torch.zeros(imgs.size(0), dtype=torch.bool)
+                is_real = is_real.to(device)
+                real_positions = []
+                idx_r_perm = []
+            else:
+                continue
 
             _assert_finite(imgs, "images")
 
-            # Forward pass through the backbone
+            # 3) Forward pass through the backbone once
             need_feats = (
                 (enable_phoc and backbone.phoc_head is not None)
                 or enable_contrastive
@@ -357,68 +431,59 @@ def refine_visual_backbone(
             T, K, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
-            # Encode transcriptions for CTC loss
-            targets, tgt_lens = encode_for_ctc(words, c2i, device=device)
-
-            inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-            # Compute CTC losses for main and auxiliary heads
-            loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
-            loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
-            loss_phoc = torch.tensor(0.0, device=device)
-            if enable_phoc and phoc_logits is not None:
-                phoc_targets = build_phoc_description(words, c2i, levels=phoc_levels)
-                phoc_targets = phoc_targets.float().to(device)
-                loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+            # 4) Supervised CTC/PHOC on synthetic slice only (real is driven by R)
+            loss_main = torch.tensor(0.0, device=device)
+            loss_aux = torch.tensor(0.0, device=device)
+            loss_phoc_syn = torch.tensor(0.0, device=device)
+            if imgs_s is not None and len(txts_s) > 0:
+                # synthetic positions are those where is_real == False
+                syn_positions = (is_real == False).nonzero(as_tuple=True)[0]
+                if syn_positions.numel() > 0:
+                    # Encode synthetic strings for CTC
+                    words_syn = list(txts_s)
+                    targets_syn, tgt_lens_syn = encode_for_ctc(words_syn, c2i, device=device)
+                    inp_lens_syn = torch.full((syn_positions.numel(),), T, dtype=torch.int32, device=device)
+                    loss_main = _ctc_loss_fn(main_logits[:, syn_positions, :], targets_syn, inp_lens_syn, tgt_lens_syn)
+                    loss_aux = _ctc_loss_fn(aux_logits[:, syn_positions, :], targets_syn, inp_lens_syn, tgt_lens_syn)
+                    if enable_phoc and phoc_logits is not None:
+                        phoc_targets_syn = build_phoc_description(words_syn, c2i, levels=phoc_levels)
+                        phoc_targets_syn = phoc_targets_syn.float().to(device)
+                        loss_phoc_syn = F.binary_cross_entropy_with_logits(phoc_logits[syn_positions], phoc_targets_syn)
 
             loss_contr = torch.tensor(0.0, device=device)
             if enable_contrastive and feats is not None:
-                loss_contr = contr_fn(feats, targets, tgt_lens)
+                # Contrastive on synthetic items only (labels known); extendable to real-aligned
+                syn_positions = (is_real == False).nonzero(as_tuple=True)[0]
+                if syn_positions.numel() > 1 and imgs_s is not None and len(txts_s) > 0:
+                    words_syn = list(txts_s)
+                    targets_syn, tgt_lens_syn = encode_for_ctc(words_syn, c2i, device=device)
+                    loss_contr = contr_fn(feats[syn_positions], targets_syn, tgt_lens_syn)
                 _assert_finite(loss_contr, "contrastive loss")
 
-            # Combine losses with configured weights
-            loss = (
-                main_weight * loss_main +
-                aux_weight * loss_aux +
-                phoc_weight * loss_phoc +
-                contrastive_weight * loss_contr
-            )
+            # Combine supervised synthetic losses with configured weights
+            loss = main_weight * loss_main + aux_weight * loss_aux + phoc_weight * loss_phoc_syn + contrastive_weight * loss_contr
             _assert_finite(loss, "loss")
 
-            # Add EM loss on a small batch of unaligned samples
-            if use_responsibilities and em_weight > 0 and R is not None:
-                unaligned_idx = torch.nonzero(dataset.aligned == -1, as_tuple=True)[0]
-                if unaligned_idx.numel() > 0:
-                    em_bs = max(1, int(batch_size * max(0.0, min(em_batch_ratio, 1.0))))
-                    choice = np.random.choice(
-                        unaligned_idx.cpu().numpy(),
-                        size=min(em_bs, unaligned_idx.numel()),
-                        replace=False,
-                    )
-                    em_imgs = []
-                    for i in choice.tolist():
-                        img, *_ = dataset[i]
-                        em_imgs.append(img)
-                    em_imgs = torch.stack(em_imgs, dim=0).to(device)
-                    need_em_phoc = enable_phoc and (backbone.phoc_head is not None) and (phoc_vocab is not None)
-                    em_out = backbone(em_imgs, return_feats=need_em_phoc)
-                    if isinstance(em_out, (tuple, list)):
-                        em_logits = em_out[0]
-                        em_phoc_logits = em_out[3] if need_em_phoc and len(em_out) >= 4 else None
-                    else:
-                        em_logits = em_out
-                        em_phoc_logits = None
-                    em_loss = _em_word_loss_for_batch(
-                        em_logits, choice.tolist(), R, dataset.unique_words, c2i, k_top=em_topk
-                    )
-                    loss = loss + float(em_weight) * em_loss
-                    # EM‑PHOC loss: expected PHOC target from responsibilities
-                    if need_em_phoc and em_phoc_logits is not None:
-                        R_sel = R[choice].to(device).float()
+            # 5) Add unified EM loss on the real slice (aligned rows already 1‑hot)
+            if use_responsibilities and em_weight > 0 and R is not None and real_positions:
+                em_loss = _em_word_loss_for_batch(
+                    main_logits[:, torch.tensor(real_positions, device=device), :],
+                    batch_indices=list(idx_r_perm),
+                    R_full=R,
+                    unique_words=dataset.unique_words,
+                    c2i_map=c2i,
+                    k_top=em_topk,
+                )
+                loss = loss + float(em_weight) * em_loss
+                # EM‑PHOC for real slice if available (expected PHOC = R_sel @ PHOC_vocab)
+                if enable_phoc and phoc_logits is not None and phoc_vocab is not None:
+                    with torch.no_grad():
+                        R_sel = R[torch.tensor(idx_r_perm)].to(device).float()
                         exp_phoc = expected_phoc_from_responsibilities(R_sel, phoc_vocab)
-                        em_phoc_loss = F.binary_cross_entropy_with_logits(em_phoc_logits, exp_phoc)
-                        loss = loss + float(em_phoc_weight) * em_phoc_loss
+                    em_phoc_loss = F.binary_cross_entropy_with_logits(phoc_logits[torch.tensor(real_positions, device=device)], exp_phoc)
+                    loss = loss + float(em_phoc_weight) * em_phoc_loss
 
-            # Optimization step
+            # 6) Optimisation step
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             _assert_grad_finite(backbone, "backbone")

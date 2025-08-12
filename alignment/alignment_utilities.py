@@ -1,6 +1,7 @@
 """Utility functions for aligning dataset instances to unique words."""
 
 from typing import Optional, Tuple, List, Sequence
+from contextlib import ExitStack
 from pathlib import Path
 
 import os
@@ -13,7 +14,7 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.spatial import distance
 from omegaconf import OmegaConf
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 # (CTC decode utilities not needed after removing pseudo-labelling)
 
 cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
@@ -214,7 +215,7 @@ def compute_ot_responsibilities(
         projectors = [projectors]  # type: ignore[list-item]
 
     device_t = torch.device(device)
-    # 1) Harvest descriptors once
+    # 1) Harvest descriptors once (harvester already eval+no_grad)
     feats_all, _ = harvest_backbone_features(
         dataset,
         backbone,
@@ -239,34 +240,46 @@ def compute_ot_responsibilities(
     else:
         b = np.full((V,), 1.0 / V, dtype=np.float64)
 
-    resp_list: list[np.ndarray] = []
-    for proj in projectors:
-        proj.eval().to(device_t)
-        proj_feats = proj(feats_all.to(device_t)).detach().cpu()
-        if proj_feats.ndim != 2:
-            raise RuntimeError(f"Projector output must be (N, E), got {proj_feats.shape}")
-        if proj_feats.size(1) != E:
-            raise RuntimeError(
-                f"Embedding dimension mismatch: got {proj_feats.size(1)} vs {E}"
-            )
+    # 3) Force projectors to eval, remember original modes
+    _proj_was_training = [p.training for p in projectors]
+    for p in projectors:
+        p.eval().to(device_t)
 
-        N = proj_feats.size(0)
-        a = np.full((N,), 1.0 / N, dtype=np.float64)
+    try:
+        # 4) Ensure no gradients or autograd graphs are created
+        with torch.inference_mode():
+            resp_list: list[np.ndarray] = []
+            for proj in projectors:
+                proj_feats = proj(feats_all.to(device_t)).cpu()
+                if proj_feats.ndim != 2:
+                    raise RuntimeError(f"Projector output must be (N, E), got {proj_feats.shape}")
+                if proj_feats.size(1) != E:
+                    raise RuntimeError(
+                        f"Embedding dimension mismatch: got {proj_feats.size(1)} vs {E}"
+                    )
 
-        _proj_np, plan = calculate_ot_projections(
-            a,
-            proj_feats.numpy(),
-            b,
-            word_embs.cpu().numpy(),
-            reg,
-            unbalanced=unbalanced,
-            reg_m=reg_m,
-            sinkhorn_kwargs=sinkhorn_kwargs,
-        )
-        # Row‑normalise plan safely
-        row_sum = plan.sum(axis=1, keepdims=True)
-        r = np.divide(plan, row_sum, out=np.zeros_like(plan), where=row_sum != 0)
-        resp_list.append(r.astype(np.float32, copy=False))
+                N = proj_feats.size(0)
+                a = np.full((N,), 1.0 / N, dtype=np.float64)
+
+                _proj_np, plan = calculate_ot_projections(
+                    a,
+                    proj_feats.numpy(),
+                    b,
+                    word_embs.cpu().numpy(),
+                    reg,
+                    unbalanced=unbalanced,
+                    reg_m=reg_m,
+                    sinkhorn_kwargs=sinkhorn_kwargs,
+                )
+                # Row‑normalise plan safely
+                row_sum = plan.sum(axis=1, keepdims=True)
+                r = np.divide(plan, row_sum, out=np.zeros_like(plan), where=row_sum != 0)
+                resp_list.append(r.astype(np.float32, copy=False))
+
+    finally:
+        # 5) Restore original projector modes
+        for p, was_tr in zip(projectors, _proj_was_training):
+            p.train(was_tr)
 
     if not resp_list:
         raise RuntimeError("No projectors provided")
@@ -299,3 +312,16 @@ def compute_ot_responsibilities(
         raise RuntimeError("Responsibility shape mismatch")
 
     return torch.from_numpy(R.astype(np.float32))
+class IndexedSubset(Subset):
+    """Subset wrapper that appends the original dataset index to each item.
+
+    Returns tuples like ``(..., orig_index)`` to enable slicing global tensors
+    (e.g., responsibilities) stored in dataset order.
+    """
+
+    def __getitem__(self, idx):
+        data = super().__getitem__(idx)
+        orig_index = self.indices[idx]
+        if not isinstance(data, tuple):
+            data = (data,)
+        return (*data, orig_index)

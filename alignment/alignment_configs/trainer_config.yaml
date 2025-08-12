@@ -70,6 +70,13 @@ align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 eval_batch_size: 64         # mini-batch size during CER evaluation
 
+# ----------------------------------------------------------------------
+# EM DataLoader controls
+# ----------------------------------------------------------------------
+em_loader_batch_size: 64    # batch size for unaligned EM DataLoader (fallback: refine_batch_size * em_batch_ratio)
+em_loader_workers: 0        # dataloader workers for EM
+em_steps_per_epoch: null    # if set, cap how many EM batches are drawn per epoch
+
 
 # ----------------------------------------------------------------------
 # Dataset parameters
