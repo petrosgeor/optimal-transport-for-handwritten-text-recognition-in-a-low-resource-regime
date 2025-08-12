@@ -79,11 +79,12 @@ def test_ctc_target_probability_longer():
 
 
 class DummyHTRDataset(torch.utils.data.Dataset):
-    """Minimal real dataset with alignment flags."""
+    """Minimal real dataset with one aligned and one unaligned sample."""
 
     def __init__(self):
         self.unique_words = ["gt1", "gt2"]
-        self.aligned = torch.tensor([0, 1], dtype=torch.int64)
+        self.unique_word_probs = [0.5, 0.5]
+        self.aligned = torch.tensor([0, -1], dtype=torch.int64)
         self.imgs = [torch.zeros(1, 2, 2), torch.ones(1, 2, 2)]
         self.trans = ["gt1", "gt2"]
 
@@ -92,20 +93,6 @@ class DummyHTRDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         return self.imgs[idx], self.trans[idx], self.aligned[idx]
-
-
-class DummyPretrainDataset(torch.utils.data.Dataset):
-    """Synthetic dataset used for backbone refinement."""
-
-    def __init__(self):
-        self.imgs = [torch.full((1, 2, 2), 2.0), torch.full((1, 2, 2), 3.0)]
-        self.trans = ["syn1", "syn2"]
-
-    def __len__(self):
-        return len(self.imgs)
-
-    def __getitem__(self, idx):
-        return self.imgs[idx], self.trans[idx]
 
 
 class DummyBackbone(torch.nn.Module):
@@ -135,11 +122,10 @@ class DummyBackbone(torch.nn.Module):
         return self
 
 
-def test_refine_visual_backbone_syn_only(monkeypatch):
-    """Synthetic-only batches when ``syn_batch_ratio=1``."""
+def test_refine_visual_backbone_real_only(monkeypatch):
+    """Refinement uses only real data when synthetic path is removed."""
 
     dataset = DummyHTRDataset()
-    pre_ds = DummyPretrainDataset()
     backbone = DummyBackbone()
 
     from alignment import trainer
@@ -176,14 +162,12 @@ def test_refine_visual_backbone_syn_only(monkeypatch):
         backbone,
         num_epochs=1,
         batch_size=2,
-        pretrain_ds=pre_ds,
-        syn_batch_ratio=1.0,
         enable_phoc=False,
         enable_contrastive=False,
     )
 
     for batch in backbone.calls:
-        assert batch.min() >= 2
+        assert batch.max() <= 1
 
 
 def test_word_frequencies():

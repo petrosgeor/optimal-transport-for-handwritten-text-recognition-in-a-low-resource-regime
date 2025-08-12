@@ -20,12 +20,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from itertools import cycle
 from torch.utils.data import DataLoader, TensorDataset
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
-from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
+from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet, Projector
 from alignment.losses import ProjectionLoss, SoftContrastiveLoss
 from alignment.ctc_utils import encode_for_ctc, ctc_target_probability
@@ -52,11 +51,11 @@ warnings.filterwarnings(
     category=FutureWarning,
     module="sklearn.manifold._t_sne"
 )
-from requests.exceptions import RequestsDependencyWarning
-warnings.filterwarnings(
-    "ignore",
-    category=RequestsDependencyWarning
-)
+try:
+    from requests.exceptions import RequestsDependencyWarning
+    warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
+except Exception:  # pragma: no cover
+    pass
 
 
 def _assert_finite(t: torch.Tensor, where: str) -> None:
@@ -169,8 +168,6 @@ def refine_visual_backbone(
     lr: float = cfg.refine_lr,
     main_weight: float = cfg.refine_main_weight,
     aux_weight: float = cfg.refine_aux_weight,
-    pretrain_ds: PretrainingHTRDataset | None = None,
-    syn_batch_ratio: float = cfg.syn_batch_ratio,
     phoc_weight: float = cfg.phoc_loss_weight,
     enable_phoc: bool = cfg.enable_phoc,
     phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
@@ -183,35 +180,24 @@ def refine_visual_backbone(
     use_responsibilities: bool = True,
     em_weight: float = 0.2,
     em_topk: int = 5,
-    em_batch_ratio: float = 0.5,
     resp_topk: int = 10,
     em_phoc_weight: float = float(cfg.get("em_phoc_weight", 0.25)),
 ) -> None:
-    """Fine-tune ``backbone`` on words aligned to the dataset vocabulary.
+    """Fine‑tune ``backbone`` on a real dataset using aligned and unaligned words.
 
-    The routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.
-    Synthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and
-    soft contrastive losses are supported.
-
-    When ``pretrain_ds`` is given, each epoch iterates over this synthetic
-    loader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the
-    epoch length matches ``len(pretrain_loader)``.
-    Batches are shuffled after combining synthetic and real samples to randomise ordering.
-    Setting ``syn_batch_ratio=1`` yields purely synthetic batches, while a value
-    of ``0`` disables the synthetic loader entirely.
+    Purpose:
+        Refine the visual backbone using only real data. Aligned items receive
+        supervised CTC (and optional PHOC/contrastive) losses, while unaligned
+        items contribute non‑differentiable EM word loss and optional EM‑PHOC.
 
     Args:
         dataset (HTRDataset): Training dataset with alignment information.
         backbone (HTRNet): Model to be refined.
-        num_epochs (int): Number of optimisation epochs. When ``pretrain_ds``
-            is provided, one epoch spans the synthetic dataset.
+        num_epochs (int): Number of optimisation epochs.
         batch_size (int): Mini-batch size.
         lr (float): Learning rate for the optimiser.
         main_weight (float): Scale for the main CTC loss.
         aux_weight (float): Scale for the auxiliary CTC loss.
-        pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.
-        syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.
-            ``1`` means only synthetic data is used, ``0`` only real data.
         phoc_weight (float): Scale for the PHOC loss.
         enable_phoc (bool): Whether to include the PHOC loss.
         phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.
@@ -219,20 +205,26 @@ def refine_visual_backbone(
         contrastive_weight (float): Weight of the contrastive term.
         contrastive_tau (float): Temperature for descriptor similarities.
         contrastive_text_T (float): Temperature in edit-distance space.
+        projectors (List[nn.Module] | None): Optional projector ensemble used to
+            compute OT responsibilities.
+        use_responsibilities (bool): Compute responsibilities for EM losses.
+        em_weight (float): Weight of the EM word loss on unaligned items.
+        em_topk (int): Number of top words considered in EM loss.
+        resp_topk (int): Sparsity of responsibility matrix rows.
+        em_phoc_weight (float): Weight of the EM‑PHOC loss when PHOC is enabled.
 
     Returns:
         None
 
-    Additional (optional) behaviour:
+    Additional behaviour:
         When ``use_responsibilities=True``, the function computes a matrix of
         per‑image responsibilities over the vocabulary once per call. If
         ``projectors`` are provided, it uses ``compute_ot_responsibilities`` with
         mean fusion across projectors and optional top‑K sparsification. If not,
         it warm‑starts using one‑hot rows for seeds and a unigram (or uniform)
-        distribution for unaligned rows. Each training step then samples a small
-        batch of unaligned images and adds a weighted EM loss over top‑K words:
-        L_EM(i) = -∑_w r_{i,w} log P_θ(w|x_i), evaluated via
-        ``ctc_target_probability``.
+        distribution for unaligned rows. The EM word loss evaluates
+        ``ctc_target_probability`` for unaligned items, and EM‑PHOC trains a
+        PHOC head against expected PHOC targets.
     """
     # Resolve runtime device from backbone parameters (tests monkeypatch .to())
     device = next(backbone.parameters()).device
@@ -304,112 +296,27 @@ def refine_visual_backbone(
         except Exception:
             phoc_vocab = None
 
-    # Build real and synthetic DataLoaders (only two as per unified plan)
-    real_bs = batch_size - int(batch_size * syn_batch_ratio) if pretrain_ds is not None else batch_size
-    syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
-    if real_bs < 0:
-        real_bs = 0
-    if syn_bs < 0:
-        syn_bs = 0
-    # Real loader over the full dataset, preserving original indices
-    real_loader = None
-    if real_bs > 0 and len(dataset) > 0:
-        full_idx = list(range(len(dataset)))
-        real_subset = IndexedSubset(dataset, full_idx)
-        real_loader = DataLoader(
-            real_subset,
-            batch_size=real_bs,
-            shuffle=True,
-            num_workers=0,
-            pin_memory=(device.type == "cuda"),
-        )
-
-    syn_loader = None
-    if pretrain_ds is not None and syn_bs > 0:
-        syn_loader = DataLoader(
-            pretrain_ds,
-            batch_size=syn_bs,
-            shuffle=True,
-            num_workers=0,
-            pin_memory=(device.type == "cuda"),
-        )
-
-    # Select epoch length and iterators (cycle shorter one)
-    if syn_loader is not None and real_loader is not None:
-        epoch_steps = max(len(syn_loader), len(real_loader))
-        real_iter = cycle(real_loader)
-        syn_iter = cycle(syn_loader)
-    elif syn_loader is not None:
-        epoch_steps = len(syn_loader)
-        real_iter = None
-        syn_iter = cycle(syn_loader)
-    elif real_loader is not None:
-        epoch_steps = len(real_loader)
-        real_iter = cycle(real_loader)
-        syn_iter = None
-    else:
-        return
+    # Build real DataLoader over the full dataset, preserving original indices
+    real_loader = DataLoader(
+        IndexedSubset(dataset, list(range(len(dataset)))),
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=(device.type == "cuda"),
+    )
 
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
     contr_fn = None
     if enable_contrastive:
         contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
 
-    # Training loop for backbone refinement (single forward with mixed batch)
+    # Training loop for backbone refinement
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
-        for _ in range(epoch_steps):
-            # 1) Fetch real and synthetic mini-batches
-            imgs_r = None
-            txts_r = []
-            aligned_r = None
-            idx_r = None
-            if real_iter is not None:
-                batch_r = next(real_iter)
-                imgs_r, txts_r, aligned_r, idx_r = batch_r
-                imgs_r = imgs_r.to(device)
-                idx_r_list = list(map(int, idx_r))
-            else:
-                idx_r_list = []
-
-            imgs_s = None
-            txts_s = []
-            if syn_iter is not None:
-                batch_s = next(syn_iter)
-                imgs_s, txts_s = batch_s
-                imgs_s = imgs_s.to(device)
-
-            # 2) Concatenate and shuffle once; keep track of which positions are real
-            if imgs_r is not None and imgs_s is not None:
-                imgs = torch.cat([imgs_r, imgs_s], dim=0)
-                is_real = torch.zeros(imgs.size(0), dtype=torch.bool)
-                is_real = is_real.to(device)
-                is_real[: imgs_r.size(0)] = True
-                perm = torch.randperm(imgs.size(0))
-                perm = perm.to(device)
-                imgs = imgs[perm]
-                is_real = is_real[perm]
-                # Reorder dataset indices to match permuted order of real items
-                real_positions_tensor = is_real.nonzero(as_tuple=True)[0]
-                real_positions = real_positions_tensor.tolist()
-                orig_real_indices = perm[real_positions_tensor].tolist()  # values in [0..Br-1]
-                idx_r_perm = [idx_r_list[j] for j in orig_real_indices]
-            elif imgs_r is not None:
-                imgs = imgs_r
-                is_real = torch.ones(imgs.size(0), dtype=torch.bool)
-                is_real = is_real.to(device)
-                real_positions = list(range(imgs.size(0)))
-                idx_r_perm = idx_r_list
-            elif imgs_s is not None:
-                imgs = imgs_s
-                is_real = torch.zeros(imgs.size(0), dtype=torch.bool)
-                is_real = is_real.to(device)
-                real_positions = []
-                idx_r_perm = []
-            else:
-                continue
-
+        for imgs, txts, aligned_r, idx_r in real_loader:
+            imgs = imgs.to(device)
+            idx_r_list = [int(i) for i in idx_r]
             _assert_finite(imgs, "images")
 
             # 3) Forward pass through the backbone once
@@ -428,60 +335,62 @@ def refine_visual_backbone(
                 feats = None
                 phoc_logits = None
 
-            T, K, _ = main_logits.shape
+            T, _, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
-            # 4) Supervised CTC/PHOC on synthetic slice only (real is driven by R)
+            # 4) Supervised losses on aligned real items
+            aligned_pos = (aligned_r != -1).nonzero(as_tuple=True)[0]
             loss_main = torch.tensor(0.0, device=device)
             loss_aux = torch.tensor(0.0, device=device)
-            loss_phoc_syn = torch.tensor(0.0, device=device)
-            if imgs_s is not None and len(txts_s) > 0:
-                # synthetic positions are those where is_real == False
-                syn_positions = (is_real == False).nonzero(as_tuple=True)[0]
-                if syn_positions.numel() > 0:
-                    # Encode synthetic strings for CTC
-                    words_syn = list(txts_s)
-                    targets_syn, tgt_lens_syn = encode_for_ctc(words_syn, c2i, device=device)
-                    inp_lens_syn = torch.full((syn_positions.numel(),), T, dtype=torch.int32, device=device)
-                    loss_main = _ctc_loss_fn(main_logits[:, syn_positions, :], targets_syn, inp_lens_syn, tgt_lens_syn)
-                    loss_aux = _ctc_loss_fn(aux_logits[:, syn_positions, :], targets_syn, inp_lens_syn, tgt_lens_syn)
-                    if enable_phoc and phoc_logits is not None:
-                        phoc_targets_syn = build_phoc_description(words_syn, c2i, levels=phoc_levels)
-                        phoc_targets_syn = phoc_targets_syn.float().to(device)
-                        loss_phoc_syn = F.binary_cross_entropy_with_logits(phoc_logits[syn_positions], phoc_targets_syn)
+            loss_phoc = torch.tensor(0.0, device=device)
+            if aligned_pos.numel() > 0:
+                words_aligned = [txts[i] for i in aligned_pos.tolist()]
+                targets, tgt_lens = encode_for_ctc(words_aligned, c2i, device=device)
+                inp_lens = torch.full((aligned_pos.numel(),), T, dtype=torch.int32, device=device)
+                loss_main = _ctc_loss_fn(main_logits[:, aligned_pos, :], targets, inp_lens, tgt_lens)
+                loss_aux = _ctc_loss_fn(aux_logits[:, aligned_pos, :], targets, inp_lens, tgt_lens)
+                if enable_phoc and phoc_logits is not None:
+                    phoc_t = build_phoc_description(words_aligned, c2i, levels=phoc_levels)
+                    phoc_t = phoc_t.float().to(device)
+                    loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits[aligned_pos], phoc_t)
 
             loss_contr = torch.tensor(0.0, device=device)
-            if enable_contrastive and feats is not None:
-                # Contrastive on synthetic items only (labels known); extendable to real-aligned
-                syn_positions = (is_real == False).nonzero(as_tuple=True)[0]
-                if syn_positions.numel() > 1 and imgs_s is not None and len(txts_s) > 0:
-                    words_syn = list(txts_s)
-                    targets_syn, tgt_lens_syn = encode_for_ctc(words_syn, c2i, device=device)
-                    loss_contr = contr_fn(feats[syn_positions], targets_syn, tgt_lens_syn)
+            if enable_contrastive and feats is not None and aligned_pos.numel() > 1:
+                words_aligned = [txts[i] for i in aligned_pos.tolist()]
+                targets_aligned, tgt_lens_aligned = encode_for_ctc(words_aligned, c2i, device=device)
+                loss_contr = contr_fn(feats[aligned_pos], targets_aligned, tgt_lens_aligned)
                 _assert_finite(loss_contr, "contrastive loss")
 
-            # Combine supervised synthetic losses with configured weights
-            loss = main_weight * loss_main + aux_weight * loss_aux + phoc_weight * loss_phoc_syn + contrastive_weight * loss_contr
-            _assert_finite(loss, "loss")
+            # 5) EM losses on unaligned items
+            em_loss = torch.tensor(0.0, device=device)
+            em_phoc_loss = torch.tensor(0.0, device=device)
+            if use_responsibilities and em_weight > 0 and R is not None:
+                unaligned_pos = (aligned_r == -1).nonzero(as_tuple=True)[0]
+                if unaligned_pos.numel() > 0:
+                    idx_u = [idx_r_list[j] for j in unaligned_pos.tolist()]
+                    em_loss = _em_word_loss_for_batch(
+                        main_logits[:, unaligned_pos, :],
+                        batch_indices=idx_u,
+                        R_full=R,
+                        unique_words=dataset.unique_words,
+                        c2i_map=c2i,
+                        k_top=em_topk,
+                    )
+                    if enable_phoc and phoc_logits is not None and phoc_vocab is not None:
+                        with torch.no_grad():
+                            R_sel = R[torch.tensor(idx_u)].to(device).float()
+                            exp_phoc = expected_phoc_from_responsibilities(R_sel, phoc_vocab)
+                        em_phoc_loss = F.binary_cross_entropy_with_logits(phoc_logits[unaligned_pos], exp_phoc)
 
-            # 5) Add unified EM loss on the real slice (aligned rows already 1‑hot)
-            if use_responsibilities and em_weight > 0 and R is not None and real_positions:
-                em_loss = _em_word_loss_for_batch(
-                    main_logits[:, torch.tensor(real_positions, device=device), :],
-                    batch_indices=list(idx_r_perm),
-                    R_full=R,
-                    unique_words=dataset.unique_words,
-                    c2i_map=c2i,
-                    k_top=em_topk,
-                )
-                loss = loss + float(em_weight) * em_loss
-                # EM‑PHOC for real slice if available (expected PHOC = R_sel @ PHOC_vocab)
-                if enable_phoc and phoc_logits is not None and phoc_vocab is not None:
-                    with torch.no_grad():
-                        R_sel = R[torch.tensor(idx_r_perm)].to(device).float()
-                        exp_phoc = expected_phoc_from_responsibilities(R_sel, phoc_vocab)
-                    em_phoc_loss = F.binary_cross_entropy_with_logits(phoc_logits[torch.tensor(real_positions, device=device)], exp_phoc)
-                    loss = loss + float(em_phoc_weight) * em_phoc_loss
+            loss = (
+                main_weight * loss_main
+                + aux_weight * loss_aux
+                + phoc_weight * loss_phoc
+                + contrastive_weight * loss_contr
+                + em_weight * em_loss
+                + em_phoc_weight * em_phoc_loss
+            )
+            _assert_finite(loss, "loss")
 
             # 6) Optimisation step
             optimizer.zero_grad(set_to_none=True)
@@ -782,28 +691,13 @@ if __name__ == "__main__":
 
     arch = SimpleNamespace(**cfg["architecture"])
     backbone = HTRNet(arch, nclasses=len(dataset.character_classes) + 1)
-    # maybe_load_backbone(backbone, cfg)
     projectors = [
         Projector(arch.feat_dim, dataset.word_emb_dim, dropout=0.2)
         for _ in range(cfg.ensemble_size)
     ]
 
-    # Synthetic dataset for pretraining samples
-    syn_cfg = cfg.get("synthetic_dataset", None)
-    pre_syn_ds = None
-    if syn_cfg is not None:
-        pre_syn_ds = PretrainingHTRDataset(
-            list_file=syn_cfg.list_file,
-            base_path=syn_cfg.base_path,
-            n_random=syn_cfg.n_random,
-            fixed_size=tuple(syn_cfg.fixed_size),
-            preload_images=syn_cfg.get("preload_images", False),
-            random_seed=syn_cfg.get("random_seed", 0),
-        )
-
     alternating_refinement(
         dataset,
         backbone,
         projectors,
-        refine_kwargs={"pretrain_ds": pre_syn_ds},
     )

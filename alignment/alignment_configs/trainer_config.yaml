@@ -6,7 +6,6 @@ refine_lr: 1e-3             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
 refine_epochs: 50           # epochs used for backbone refinement
-syn_batch_ratio: 0        # fraction of each batch drawn from PretrainingHTRDataset. 1 for only synthetic and 0 for only real
 
 # optional PHOC training
 enable_phoc: true        # turn PHOC loss on/off
@@ -97,16 +96,5 @@ supervised_weight: 100       # Weight for supervised loss component
 # ----------------------------------------------------------------------
 load_pretrained_backbone: true # Load weights for the backbone at startup
 pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt" # Path to the pretrained backbone model
-
-# ----------------------------------------------------------------------
-# Synthetic dataset parameters
-# ----------------------------------------------------------------------
-synthetic_dataset:
-  list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt" # Path to the list file for synthetic dataset
-  base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px" # Base path for synthetic dataset images
-  n_random: 7000            # Number of random samples to use from the synthetic dataset
-  fixed_size: [64, 256]     # Fixed size for synthetic images [height, width]
-  preload_images: true      # Preload images into memory for faster access
-  random_seed: 0            # Random seed for reproducibility
 
 # (Pseudo-labelling removed)

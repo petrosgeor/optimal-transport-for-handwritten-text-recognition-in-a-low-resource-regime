@@ -817,7 +817,10 @@ def log_round_metrics(
 
 Located in: `alignment/trainer.py`
 
-Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled. Setting `syn_batch_ratio=1` yields purely synthetic batches, while `syn_batch_ratio=0` uses only real data.
+Real‑only backbone refinement. Each epoch iterates a single `HTRDataset` loader.
+Aligned items receive supervised CTC and optional PHOC/contrastive losses, while
+unaligned items contribute an optional EM word loss (using OT responsibilities)
+and EM‑PHOC when a PHOC head is present.
 
 ```python
 def refine_visual_backbone(
@@ -829,8 +832,6 @@ def refine_visual_backbone(
     lr: float = cfg.refine_lr,
     main_weight: float = cfg.refine_main_weight,
     aux_weight: float = cfg.refine_aux_weight,
-    pretrain_ds: PretrainingHTRDataset | None = None,
-    syn_batch_ratio: float = cfg.syn_batch_ratio,
     phoc_weight: float = cfg.phoc_loss_weight,
     enable_phoc: bool = cfg.enable_phoc,
     phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
@@ -838,32 +839,23 @@ def refine_visual_backbone(
     contrastive_weight: float = CONTRASTIVE_WEIGHT,
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
-    # NEW (optional EM loss on unaligned images):
     projectors: List[nn.Module] | None = None,
     use_responsibilities: bool = True,
     em_weight: float = 0.2,
     em_topk: int = 5,
-    em_batch_ratio: float = 0.5,
     resp_topk: int = 10,
     em_phoc_weight: float = 0.25,
 ) -> None:
 ```
 
-New behavior (optional):
-- When `use_responsibilities=True`, the function computes a responsibility matrix `R` of shape `(N, V)` once per call. If `projectors` are provided, it calls `compute_ot_responsibilities(...)` (mean fusion across projectors, optional `topk` sparsification). Otherwise, it warm‑starts `R` as one‑hot for seeds and unigram/uniform over `unique_words` for unaligned samples.
-- Each training step still computes the existing losses on aligned (+ synthetic) samples. In addition, it draws a small batch of unaligned images and adds an EM word loss: `L_EM = -(1/B) * sum_i sum_{w in topK} r_{i,w} log P_theta(w|x_i)` using `ctc_target_probability`. The final loss adds `em_weight * L_EM`.
-- When `enable_phoc=True` and responsibilities are used, it also computes an EM‑PHOC loss on the same unaligned mini‑batch by building expected PHOC targets `ϕ̄_i = R_i @ PHOC_vocab` and applying BCE against the PHOC logits. Weighted by `em_phoc_weight`.
-- Runtime/gradients: Responsibility computation runs under `torch.inference_mode()` and the resulting `R` is stored on CPU with `requires_grad=False`. In the EM‑PHOC path, `R_sel @ PHOC_vocab` is computed under `torch.no_grad()`, so no gradients are taken with respect to responsibilities; only backbone logits receive gradients.
- 
-
-Unified EM M‑step (current)
-
-- Responsibilities once for the whole real dataset `R ∈ ℝ^{N×V}` (via `compute_ot_responsibilities` when projectors are provided). Rows for aligned items are forced to 1‑hot so their EM loss reduces to supervised NLL.
-- Exactly two dataloaders: real (`HTRDataset`, wrapped with `IndexedSubset` to preserve original indices) and synthetic (`PretrainingHTRDataset`). No separate EM/unaligned loader in `refine_visual_backbone`.
-- Per step, draw `B_real` and `B_syn` by `syn_batch_ratio`, concatenate and shuffle once, run a single forward pass.
-- Losses: EM word loss on all real items, supervised CTC on synthetic items, optional EM‑PHOC on real and supervised PHOC on synthetic, optional contrastive on items with known labels.
-- Responsibility computation runs under `torch.inference_mode()`; expected PHOC uses `torch.no_grad()`.
-- Config note: `resp_topk` controls sparsity of `R`; any previous `em_loader_*` keys are ignored by `refine_visual_backbone`.
+Key points:
+* Responsibilities are computed once per call via `compute_ot_responsibilities`
+  when projectors are provided; rows for aligned samples are hardened to 1‑hot.
+* **Aligned items** – CTC (main/aux) and optional PHOC BCE; contrastive loss
+  applies on aligned items when enabled.
+* **Unaligned items** – optional EM word loss using `ctc_target_probability`
+  over top‑K vocabulary entries, plus EM‑PHOC (`R @ PHOC_vocab`) when PHOC is
+  enabled. These losses provide gradients only through the backbone logits.
 
 #### expected_phoc_from_responsibilities  (new)
 
@@ -916,7 +908,6 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `refine_main_weight` (float): Weight for the main CTC loss branch.
 *   `refine_aux_weight` (float): Weight for the auxiliary CTC loss.
 *   `refine_epochs` (int): Epochs spent refining the backbone.
-*   `syn_batch_ratio` (float): Fraction of each batch drawn from `PretrainingHTRDataset`.
 *   `enable_phoc` (bool): Turn PHOC loss on/off.
 *   `phoc_levels` (list): Descriptor levels for PHOC.
 *   `phoc_loss_weight` (float): Scaling factor for the PHOC loss.
@@ -949,8 +940,9 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `supervised_weight` (int): Weight for supervised loss component.
 *   `load_pretrained_backbone` (bool): Load weights for the backbone at startup.
 *   `pretrained_backbone_path` (str): Path to the pretrained backbone model.
-*   `synthetic_dataset` (dict): Parameters for `PretrainingHTRDataset` (e.g., `list_file`, `base_path`, `n_random`, `fixed_size`, `preload_images`, `random_seed`).
 *   `em_phoc_weight` (float): Weight of the EM‑PHOC loss on unaligned mini‑batches.
+
+Synthetic data is only used in `pretraining.py`; backbone refinement operates on real data only.
 
 #### pretraining_config.yaml
 
