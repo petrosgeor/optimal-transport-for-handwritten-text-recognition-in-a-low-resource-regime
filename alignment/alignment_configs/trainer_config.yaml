@@ -66,7 +66,7 @@ align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
-round_metrics_file: "results/test_512dim.txt"  # path to TSV log for refinement rounds
+round_metrics_file: "results/GW/random/240_examples.txt"  # path to TSV log for refinement rounds
 
 # ----------------------------------------------------------------------
 # Dataset parameters
@@ -75,11 +75,11 @@ dataset:
   basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
   subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 50            # Number of initially aligned instances
-  word_emb_dim: 512         # Dimension of word embeddings
+  n_aligned: 240            # Number of initially aligned instances
+  word_emb_dim: 100         # Dimension of word embeddings
   use_wordfreq_probs: false    # when true → use wordfreq prior, else GT prior
   two_views: false          # Enable or disable two-view training
-ensemble_size: 9            # Size of the projector ensemble
+ensemble_size: 3            # Size of the projector ensemble
 agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
 supervised_weight: 100       # Weight for supervised loss component
 

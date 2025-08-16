@@ -161,34 +161,36 @@ class HTRDataset(Dataset):
         return len(self.data)
 
     def _select_seed_indices(self) -> List[int]:
-        """Return dataset indices for seeding the alignment.
+        """Select random indices to seed the alignment.
 
-        Args:
-            None.
+        The method samples up to ``n_aligned`` distinct words uniformly at
+        random from the dataset transcriptions, then returns the index of the
+        first occurrence of each sampled word (in the sampling order). The
+        randomness follows Python's global ``random`` module and can be made
+        reproducible by seeding it externally in the caller/test.
 
         Returns:
-            list[int]: Selected indices ordered by decreasing word length.
+            list[int]: Indices corresponding to randomly sampled distinct words.
         """
 
         if self.n_aligned <= 0:
             return []
 
-        sorted_idx = sorted(
-            range(len(self.transcriptions)),
-            key=lambda i: len(self.transcriptions[i]),
-            reverse=True,
-        )
+        # Collect distinct words in first-occurrence order and record their
+        # first dataset index. This guarantees a single seed per word.
+        first_index = {}
+        ordered_unique_words = []
+        for i, w in enumerate(self.transcriptions):
+            if w not in first_index:
+                first_index[w] = i
+                ordered_unique_words.append(w)
 
-        chosen, seen_words = [], set()
-        for i in sorted_idx:
-            w = self.transcriptions[i]
-            if w not in seen_words:
-                chosen.append(i)
-                seen_words.add(w)
-                if len(chosen) == self.n_aligned:
-                    break
+        if not ordered_unique_words:
+            return []
 
-        return chosen
+        k = min(self.n_aligned, len(ordered_unique_words))
+        sampled_words = random.sample(ordered_unique_words, k=k)
+        return [first_index[w] for w in sampled_words]
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):

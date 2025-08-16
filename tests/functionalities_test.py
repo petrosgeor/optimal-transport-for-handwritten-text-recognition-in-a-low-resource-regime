@@ -440,8 +440,10 @@ def test_align_more_instances_gated_validation(monkeypatch):
 
 
 
-def test_select_seed_indices_longest_distinct():
-    """Longest distinct words are selected deterministically."""
+def test_select_seed_indices_random_distinct_reproducible():
+    """Randomly sampled distinct words; reproducible with RNG seed."""
+
+    import random
 
     ds = HTRDataset.__new__(HTRDataset)
     ds.transcriptions = [
@@ -457,11 +459,24 @@ def test_select_seed_indices_longest_distinct():
     ]
     ds.n_aligned = 3
 
+    # Build expected sample by mirroring the dataset logic: first-occurrence order
+    ordered_unique = []
+    seen = set()
+    first_index = {}
+    for i, w in enumerate(ds.transcriptions):
+        if w not in seen:
+            seen.add(w)
+            ordered_unique.append(w)
+            first_index[w] = i
+
+    random.seed(0)
+    expected_words = random.sample(ordered_unique, k=ds.n_aligned)
+
+    random.seed(0)
     indices = HTRDataset._select_seed_indices(ds)
     words = [ds.transcriptions[i] for i in indices]
 
-    assert indices == [0, 4, 8]
-    assert words == ["longestword", "barbar", "longer"]
+    assert words == expected_words
 
 
 def test_select_seed_indices_limits():
@@ -547,4 +562,3 @@ def test_use_wordfreq_probs(tmp_path):
     assert abs(sum(probs) - 1.0) < 1e-6
     assert all(p > 0 for p in probs)
     assert probs != [0.5, 0.25, 0.25]
-
