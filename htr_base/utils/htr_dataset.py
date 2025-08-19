@@ -160,37 +160,81 @@ class HTRDataset(Dataset):
         """Return the number of items in the dataset."""
         return len(self.data)
 
-    def _select_seed_indices(self) -> List[int]:
-        """Select random indices to seed the alignment.
+    def get_test_indices(self) -> torch.Tensor:
+        """Return indices of samples that belong to the ``test`` split.
 
-        The method samples up to ``n_aligned`` distinct words uniformly at
-        random from the dataset transcriptions, then returns the index of the
-        first occurrence of each sampled word (in the sampling order). The
-        randomness follows Python's global ``random`` module and can be made
-        reproducible by seeding it externally in the caller/test.
+        The dataset must have been constructed with ``subset='all'`` so that
+        the ``test`` split is present. Indices are returned as a 1‑D tensor
+        of type ``torch.long`` and refer to positions in ``self.data``.
+
+        Args:
+            None
 
         Returns:
-            list[int]: Indices corresponding to randomly sampled distinct words.
+            torch.Tensor: 1‑D tensor with the positions of all ``test`` items
+            within the concatenated dataset order.
+
+        Raises:
+            RuntimeError: If the dataset was not built with ``subset='all'``.
         """
 
+        if getattr(self, 'subset', None) != 'all':
+            raise RuntimeError(
+                f"Cannot retrieve test indices: dataset subset is '{self.subset}', "
+                "which does not include the 'test' split. Build with subset='all'."
+            )
+
+        test_prefix = os.path.join(self.basefolder, 'test') + os.sep
+        indices = [i for i, (p, _) in enumerate(self.data) if str(p).startswith(test_prefix)]
+        return torch.tensor(indices, dtype=torch.long)
+
+    def _select_seed_indices(self) -> List[int]:
+        """Select random **image indices** to seed the alignment.
+
+        Behavior
+        --------
+        - Returns up to ``n_aligned`` **distinct dataset indices** (no duplicates).
+        - For every subset except ``'all'``: sample uniformly at random from the
+        items present in *this* dataset instance (e.g., 'train', 'val', 'test',
+        or 'train_val'), **without replacement**.
+        - For ``subset == 'all'``: sample uniformly at random **only from the
+        'train' split**, **without replacement**. Returned indices are **global**
+        (positions in the concatenated [train, val, test] dataset order).
+
+        Rationale
+        ---------
+        We sample at the *image* level (not at the *word* level). This allows the
+        selection to include multiple images that share the same word, while still
+        guaranteeing that the **same image** is never selected twice.
+
+        Returns
+        -------
+        list[int]
+            A list with up to ``n_aligned`` distinct dataset indices.
+        """
         if self.n_aligned <= 0:
             return []
 
-        # Collect distinct words in first-occurrence order and record their
-        # first dataset index. This guarantees a single seed per word.
-        first_index = {}
-        ordered_unique_words = []
-        for i, w in enumerate(self.transcriptions):
-            if w not in first_index:
-                first_index[w] = i
-                ordered_unique_words.append(w)
+        # Build the candidate pool of indices to sample from.
+        if getattr(self, "subset", None) == "all":
+            # Restrict to items that *belong to the 'train' split* and return their
+            # positions in the global concatenation order.
+            train_prefix = os.path.join(self.basefolder, "train") + os.sep
+            candidates = [
+                i for i, (path, _txt) in enumerate(self.data)
+                if str(path).startswith(train_prefix)
+            ]
+        else:
+            # Sample from whatever this dataset instance currently contains.
+            candidates = list(range(len(self.data)))
 
-        if not ordered_unique_words:
+        if not candidates:
             return []
 
-        k = min(self.n_aligned, len(ordered_unique_words))
-        sampled_words = random.sample(ordered_unique_words, k=k)
-        return [first_index[w] for w in sampled_words]
+        # Sample *indices* uniformly and WITHOUT replacement (no duplicate images).
+        k = min(self.n_aligned, len(candidates))
+        return random.sample(candidates, k=k)
+
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):
@@ -220,23 +264,82 @@ class HTRDataset(Dataset):
 
         return {c: counts[c] / total for c in letters}
     def find_word_embeddings(self, word_list, n_components: int = 512):
-        """Compute embeddings of words using pairwise Levenshtein distances."""
-        if len(word_list) == 0:
-            if n_components is None:
-                n_components = self.word_emb_dim
-            return torch.empty((0, n_components))
+        """Embed words using Landmark (Nyström) MDS under edit distance.
+
+        This implementation avoids the O(n^3) cost of classical MDS by:
+        1) Selecting m landmark words (m = min(n, 1000)).
+        2) Running classical MDS on the m×m landmark distance matrix.
+        3) Embedding the remaining words out-of-sample via double-centering.
+
+        Args:
+            word_list (list[str]): Words to embed.
+            n_components (int): Target embedding dimensionality. If None,
+                uses self.word_emb_dim.
+
+        Returns:
+            torch.FloatTensor: Embeddings of shape (n_words, p) with
+            p = min(n_components, m - 1).
+        """
         if n_components is None:
-            n_components = self.word_emb_dim
+            n_components = getattr(self, 'word_emb_dim', 512)
         n = len(word_list)
-        dist_matrix = np.zeros((n, n), dtype=np.float32)
-        for i in range(n):
-            for j in range(i + 1, n):
-                d = editdistance.eval(word_list[i], word_list[j])
-                dist_matrix[i, j] = d
-                dist_matrix[j, i] = d
-        mds = MDS(n_components=n_components, dissimilarity='precomputed', random_state=0)
-        emb = mds.fit_transform(dist_matrix)
-        return torch.FloatTensor(emb)
+        if n == 0:
+            return torch.empty((0, int(n_components)))
+        if n == 1:
+            return torch.zeros((1, int(n_components)), dtype=torch.float32)
+
+        # 1) choose landmarks: longest words first for stability
+        m = min(n, 1000)
+        order = sorted(range(n), key=lambda i: (-len(word_list[i]), word_list[i]))
+        import numpy as _np
+        L_idx = _np.sort(_np.array(order[:m], dtype=_np.int64))
+        NL_idx = _np.setdiff1d(_np.arange(n, dtype=_np.int64), L_idx, assume_unique=True)
+
+        # 2) compute D_LL and perform classical MDS on landmarks
+        D_LL = _np.zeros((m, m), dtype=_np.float64)
+        for ii in range(m):
+            wi = word_list[int(L_idx[ii])]
+            for jj in range(ii + 1, m):
+                wj = word_list[int(L_idx[jj])]
+                d = editdistance.eval(wi, wj)
+                D_LL[ii, jj] = D_LL[jj, ii] = float(d)
+
+        D2_LL = D_LL ** 2
+        J = _np.eye(m) - _np.ones((m, m), dtype=_np.float64) / m
+        B = -0.5 * (J @ D2_LL @ J)
+        from numpy.linalg import eigh as _eigh
+        vals, vecs = _eigh(B)  # ascending
+        p = int(min(n_components, max(1, m - 1)))
+        idx_desc = _np.argsort(vals)[::-1]
+        vals = vals[idx_desc]
+        vecs = vecs[:, idx_desc]
+        vals_clamped = _np.clip(vals[:p], a_min=0.0, a_max=None)
+        L_sqrt = _np.sqrt(vals_clamped)
+        X_L = vecs[:, :p] * L_sqrt[_np.newaxis, :]
+
+        # Precompute means for out-of-sample embedding
+        r = D2_LL.mean(axis=1)               # (m,)
+        g = float(D2_LL.mean())              # scalar
+        ones_m = _np.ones(m, dtype=_np.float64)
+
+        X = _np.zeros((n, p), dtype=_np.float64)
+        X[L_idx] = X_L
+        with _np.errstate(divide='ignore', invalid='ignore'):
+            invL = _np.zeros_like(L_sqrt)
+            nz = L_sqrt > 0
+            invL[nz] = 1.0 / L_sqrt[nz]
+        Q_inv = vecs[:, :p] * invL[_np.newaxis, :]
+
+        # 3) out-of-sample for non-landmarks
+        for i in NL_idx.tolist():
+            w = word_list[int(i)]
+            d_iL = _np.array([editdistance.eval(w, word_list[int(j)]) for j in L_idx], dtype=_np.float64)
+            d2 = d_iL ** 2
+            mean_i = float(d2.mean())
+            b = -0.5 * (d2 - mean_i * ones_m - r + g * ones_m)
+            X[int(i)] = b @ Q_inv
+
+        return torch.from_numpy(X.astype(_np.float32))
 
     def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
         """Save the preprocessed image at *index* to *out_dir* and return its path."""

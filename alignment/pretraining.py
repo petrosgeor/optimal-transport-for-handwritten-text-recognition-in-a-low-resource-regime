@@ -183,8 +183,10 @@ def main(config: dict | None = None) -> Path:
     n_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print(f"[Pretraining] Network parameters: {n_params:,}")
     # Create data loader and optimizer
-    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=3)
-    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=1)
+    n_workers_train = int(config.get("num_workers", 3))
+    n_workers_test = int(config.get("test_num_workers", 1))
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_workers_train)
+    test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=n_workers_test)
     opt = optim.Adam(net.parameters(), lr=lr)
     sched = lr_scheduler.StepLR(opt, step_size=1500, gamma=0.5)
     contr_loss_fn = SoftContrastiveLoss(CONTR_TAU, CONTR_TTXT).to(device)
@@ -241,8 +243,8 @@ def main(config: dict | None = None) -> Path:
             assert features.dim() == 2 and features.size(1) == arch.feat_dim, "features tensor has wrong dimensions or feature size"
             for name, tens in {"main_logits":main_logits, "aux_logits":aux_logits, "features":features}.items(): _assert_finite(tens, name)
 
-            # Prepare CTC targets
-            targets, lengths = encode_for_ctc(list(txts), c2i)
+            # Prepare CTC targets on the same device as network outputs
+            targets, lengths = encode_for_ctc(list(txts), c2i, device=imgs.device)
             assert targets.max() < nclasses, "target contains index out of nclasses range"
             inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=device)
 
@@ -252,7 +254,8 @@ def main(config: dict | None = None) -> Path:
 
             loss_contr = torch.tensor(0.0, device=device)
             if ENABLE_CONTR:
-                loss_contr = contr_loss_fn(features, targets, lengths)
+                # SoftContrastiveLoss expects CPU lengths for Python slicing logic
+                loss_contr = contr_loss_fn(features, targets, lengths.cpu())
                 assert loss_contr >= 0 and torch.isfinite(loss_contr), "Contrastive loss is negative or non-finite"
 
             if ENABLE_PHOC:

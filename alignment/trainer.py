@@ -32,7 +32,7 @@ from alignment.alignment_utilities import (
     align_more_instances,
     harvest_backbone_features,
 )
-from alignment.eval import compute_cer
+from alignment.eval import compute_cer, compute_wer
 from alignment.plot import (
     plot_tsne_embeddings,
     plot_projector_tsne,
@@ -42,6 +42,7 @@ from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
 from omegaconf import OmegaConf
+import copy
 
 import warnings
 warnings.filterwarnings(
@@ -144,23 +145,34 @@ def log_round_metrics(
     round_idx: int,
     correct_pseudo: int,
     cer_test: float,
+    wer_test: float,
     out_file: str,
 ) -> None:
     """Append refinement metrics to a TSV file.
 
+    On the first round (``round_idx == 1``), if a file already exists at
+    ``out_file`` from a previous run, it is deleted before writing the new
+    row. Subsequent rounds only append.
+
     Args:
         round_idx (int): Current refinement round index.
-        correct_pseudo (int): Number of correctly pseudo-labelled samples.
+        correct_pseudo (int): Number of correctly pseudo‑labelled samples.
         cer_test (float): Character error rate on the test split.
+        wer_test (float): Word error rate on the test split.
         out_file (str): Destination file for the appended metrics.
 
     Returns:
         None
     """
-    Path(out_file).parent.mkdir(parents=True, exist_ok=True)
-    mode = "a" if Path(out_file).is_file() else "w"
-    with open(out_file, mode, encoding="utf-8") as fh:
-        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\n")
+    p = Path(out_file)
+    # Delete a stale metrics file from a previous run on the first round only
+    if round_idx == 1 and p.is_file():
+        p.unlink()
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    mode = "a" if p.is_file() else "w"
+    with open(p, mode, encoding="utf-8") as fh:
+        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\t{wer_test:.4f}\n")
 
 
 
@@ -190,7 +202,7 @@ def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
         # Load to CPU first, then the model will be moved to the correct
         # device later in the training pipeline.
         state = torch.load(path, map_location='cpu')
-        backbone.load_state_dict(state)
+        backbone.load_state_dict(state, strict=False)
         print(f"[Init] loaded pretrained backbone from {path}")
 
 # --------------------------------------------------------------------------- #
@@ -320,7 +332,9 @@ def refine_visual_backbone(
 
             _assert_finite(imgs, "images")
 
-            # Forward pass through the backbone
+            # Forward pass through the backbone. Request features only when
+            # they are used (PHOC or contrastive), which keeps compatibility
+            # with lightweight dummy backbones used in tests.
             need_feats = (
                 (enable_phoc and backbone.phoc_head is not None)
                 or enable_contrastive
@@ -587,12 +601,17 @@ def alternating_refinement(
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
 
+    # Build test dataset with n_aligned=0 to avoid seeding on the test split.
+    
+    test_cfg = copy.deepcopy(getattr(dataset, "config", None))
+    if test_cfg is not None:
+        test_cfg.n_aligned = 0
     test_dataset = HTRDataset(
         basefolder=dataset.basefolder,
         subset='test',
         fixed_size=dataset.fixed_size,
         character_classes=dataset.character_classes,
-        config=dataset.config,
+        config=test_cfg,
         two_views=False
     )
 
@@ -670,7 +689,7 @@ def alternating_refinement(
         changed = torch.nonzero(
             (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
         )[0]
-        log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
+        # log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
         correct_round = sum(
             dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
             for i in changed.tolist()
@@ -682,10 +701,18 @@ def alternating_refinement(
             device=cfg.device,
             k=4
         )
+        # Also report Word Error Rate (WER) on the test split
+        wer_test = compute_wer(
+            test_dataset,
+            backbone,
+            batch_size=cfg.eval_batch_size,
+            device=cfg.device,
+        )
         log_round_metrics(
             cycle_idx,
             correct_round,
             cer_test,
+            float(wer_test),
             cfg.round_metrics_file,
         )
 

@@ -102,3 +102,82 @@ def compute_cer(
             msg += f"  >{k}: {gt.score():.4f} (n={n_gt})"
     print(msg)
     return total.score()
+
+
+
+def compute_wer(
+    dataset: Dataset,
+    model: torch.nn.Module,
+    *,
+    batch_size: int = 64,
+    device: str = "cpu",
+    decode: str = "greedy",
+) -> int:
+    """Return integer word error rate (%) on *dataset* using *model*.
+
+    Parameters
+    ----------
+    dataset : Dataset
+        Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.
+    model : torch.nn.Module
+        Network returning CTC logits (``(T,B,C)``).
+    batch_size : int, optional
+        Mini-batch size used during evaluation.
+    device : str or torch.device, optional
+        Compute device for the forward pass.
+    decode : {'greedy', 'beam'}, optional
+        Decoding strategy for CTC outputs.
+
+    Returns
+    -------
+    int
+        Overall WER as a percentage rounded to the nearest integer.
+    """
+    import editdistance  # local import to avoid touching module-level deps
+
+    device = torch.device(device)
+    model = model.to(device).eval()
+
+    # Temporarily disable dataset augmentations for stable decoding (same as compute_cer)
+    orig_tf = getattr(dataset, "transforms", None)
+    if hasattr(dataset, "transforms"):
+        dataset.transforms = None
+
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    c2i, i2c = load_vocab()
+
+    total_dist = 0.0
+    total_len = 0
+    BEAM_WIDTH = 10  # fixed width since signature doesn't expose it
+
+    with torch.no_grad():
+        for imgs, txts, _ in loader:
+            imgs = imgs.to(device)
+            logits = model(imgs, return_feats=False)
+            if isinstance(logits, (tuple, list)):
+                logits = logits[0]
+
+            # numeric sanity + class-dim check, consistent with compute_cer
+            assert torch.isfinite(logits).all(), "Non-finite values in logits"
+            assert logits.shape[-1] == len(c2i) + 1, "CTC class dimension mismatch"
+
+            if decode == "beam":
+                preds = beam_search_ctc_decode(logits, i2c, beam_width=BEAM_WIDTH)
+            else:
+                preds = greedy_ctc_decode(logits, i2c)
+
+            for p, t in zip(preds, txts):
+                gt_words = [w for w in t.strip().split() if w]
+                pr_words = [w for w in p.strip().split() if w]
+                dist = float(editdistance.eval(pr_words, gt_words))
+                total_dist += dist
+                total_len += len(gt_words)
+
+    # restore dataset state and model mode
+    if hasattr(dataset, "transforms"):
+        dataset.transforms = orig_tf
+    model.train()
+
+    wer_pct = 0 if total_len == 0 else (100.0 * total_dist / total_len)
+    print(f"[Eval] WER: {wer_pct}%")
+    return wer_pct

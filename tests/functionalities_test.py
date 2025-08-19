@@ -41,10 +41,10 @@ def test_shuffle_batch():
 def test_log_round_metrics(tmp_path):
     """Metrics are appended as TSV lines."""
     path = tmp_path / "round_metrics.txt"
-    log_round_metrics(1, 2, 0.1234, str(path))
-    log_round_metrics(2, 3, 0.5, str(path))
+    log_round_metrics(1, 2, 0.1234, 10.0, str(path))
+    log_round_metrics(2, 3, 0.5, 20.0, str(path))
     content = path.read_text().splitlines()
-    assert content == ["1\t2\t0.1234", "2\t3\t0.5000"]
+    assert content == ["1\t2\t0.1234\t10.0000", "2\t3\t0.5000\t20.0000"]
 
 
 def test_ctc_target_probability():
@@ -352,12 +352,13 @@ def test_alternating_refinement_calls_cer(monkeypatch, tmp_path):
     def fake_align(ds, *a, **k):
         ds.aligned.fill_(0)
 
-    def fake_log_round_metrics(r, c, cer, out_file):
-        metrics.append((r, c, cer, out_file))
+    def fake_log_round_metrics(r, c, cer, wer, out_file):
+        metrics.append((r, c, cer, wer, out_file))
 
     monkeypatch.setattr(trainer, "compute_cer", fake_compute_cer)
     monkeypatch.setattr(trainer, "refine_visual_backbone", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "train_projector", lambda *a, **k: None)
+    monkeypatch.setattr(trainer, "compute_wer", lambda *a, **k: 0.0)
     monkeypatch.setattr(trainer, "align_more_instances", fake_align)
     monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *a, **k: None)
     monkeypatch.setattr(trainer, "HTRDataset", FakeDataset)
@@ -375,7 +376,7 @@ def test_alternating_refinement_calls_cer(monkeypatch, tmp_path):
 
     subsets = {getattr(getattr(d, "dataset", d), "subset", None) for d in calls}
     assert {"train_val", "test"} == subsets
-    assert metrics == [(1, 1, 0.0, str(tmp_path / "m.txt"))]
+    assert metrics == [(1, 1, 0.0, 0.0, str(tmp_path / "m.txt"))]
 
 
 def test_validate_pseudo_labels(monkeypatch):
@@ -562,3 +563,76 @@ def test_use_wordfreq_probs(tmp_path):
     assert abs(sum(probs) - 1.0) < 1e-6
     assert all(p > 0 for p in probs)
     assert probs != [0.5, 0.25, 0.25]
+
+
+def test_get_test_indices_returns_positions_and_errors_when_not_all():
+    """`get_test_indices` returns only test positions and errors otherwise."""
+
+    # Build a lightweight HTRDataset instance bypassing __init__
+    ds = HTRDataset.__new__(HTRDataset)
+    ds.basefolder = "/root/iam"
+    ds.subset = "all"
+    ds.data = [
+        ("/root/iam/train/img1.png", "a"),
+        ("/root/iam/val/img2.png", "b"),
+        ("/root/iam/test/img3.png", "c"),
+        ("/root/iam/test/img4.png", "d"),
+    ]
+
+    idx = HTRDataset.get_test_indices(ds)
+    assert torch.equal(idx, torch.tensor([2, 3], dtype=torch.long))
+
+    # Not allowed when subset != 'all'
+    ds.subset = "train"
+    try:
+        _ = HTRDataset.get_test_indices(ds)
+        assert False, "Expected RuntimeError when subset != 'all'"
+    except RuntimeError as e:
+        assert "does not include the 'test' split" in str(e)
+
+
+def test_select_seed_indices_subset_all_restricts_to_train():
+    """Seeds from 'train' only when dataset is built with subset='all'."""
+
+    import random
+    from os.path import join
+
+    # Build a lightweight HTRDataset instance bypassing __init__
+    ds = HTRDataset.__new__(HTRDataset)
+    ds.basefolder = "/root/ds"
+    ds.subset = "all"
+    # Mixed split ordering with repeated words across splits
+    # indices: 0(train:alpha), 1(val:beta), 2(test:gamma), 3(train:beta), 4(val:alpha), 5(train:delta)
+    ds.data = [
+        (join(ds.basefolder, "train", "img0.png"), "alpha"),
+        (join(ds.basefolder, "val", "img1.png"), "beta"),
+        (join(ds.basefolder, "test", "img2.png"), "gamma"),
+        (join(ds.basefolder, "train", "img3.png"), "beta"),
+        (join(ds.basefolder, "val", "img4.png"), "alpha"),
+        (join(ds.basefolder, "train", "img5.png"), "delta"),
+    ]
+    ds.transcriptions = [t for _, t in ds.data]
+    ds.n_aligned = 10  # request more than available to exercise min() logic
+
+    # Compute expected first occurrence index per word but restricted to 'train'
+    train_prefix = f"{ds.basefolder}/train/"
+    first_train = {}
+    ordered_train = []
+    for i, (p, w) in enumerate(ds.data):
+        if str(p).startswith(train_prefix) and w not in first_train:
+            first_train[w] = i
+            ordered_train.append(w)
+
+    assert ordered_train == ["alpha", "beta", "delta"]
+
+    random.seed(123)
+    indices = HTRDataset._select_seed_indices(ds)
+
+    # All selected indices must come from the train split
+    for idx in indices:
+        assert str(ds.data[idx][0]).startswith(train_prefix)
+
+    # And each index must be the first occurrence of its word within the train split
+    for idx in indices:
+        w = ds.transcriptions[idx]
+        assert first_train[w] == idx

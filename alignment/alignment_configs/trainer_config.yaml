@@ -16,7 +16,7 @@ phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 # ----------------------------------------------------------------------
 # Soft‑contrastive loss defaults
 # ----------------------------------------------------------------------
-contrastive_enable: true  # turn on to activate the loss
+contrastive_enable: false  # turn on to activate the loss
 contrastive_weight: 0.3    # β – scales the new loss inside total_loss
 contrastive_tau: 0.07      # τ – temperature for descriptor similarities
 contrastive_text_T: 3.0    # T_txt – softness in edit‑distance space
@@ -32,6 +32,7 @@ architecture:
   stn: false                # Enable or disable Spatial Transformer Network (STN)
   feat_dim: 512             # Dimension of the extracted features
   feat_pool: attn           # Feature pooling method (e.g., 'attn' for attention pooling)
+  feat_source: rnn_mean     # Source for holistic features: 'cnn' or 'rnn_mean'
   phoc_levels: [1, 2, 3, 4] # PHOC levels used in the architecture
 
 # ----------------------------------------------------------------------
@@ -48,7 +49,7 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
-gpu_id: 2                   # which CUDA device index to use
+gpu_id: 0                   # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
@@ -66,16 +67,16 @@ align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
 align_k: 200                  # pseudo-label this many least-moved descriptors
 metric: variance          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
-round_metrics_file: "results/GW/random/240_examples.txt"  # path to TSV log for refinement rounds
+round_metrics_file: "results/GW/random/rnn_mean_5samples.txt"  # path to TSV log for refinement rounds
 
 # ----------------------------------------------------------------------
 # Dataset parameters
 # ----------------------------------------------------------------------
 dataset:
   basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
-  subset: 'train_val'       # Subset of the dataset to use (e.g., 'train_val', 'test')
+  subset: 'all'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 240            # Number of initially aligned instances
+  n_aligned: 5            # Number of initially aligned instances
   word_emb_dim: 100         # Dimension of word embeddings
   use_wordfreq_probs: false    # when true → use wordfreq prior, else GT prior
   two_views: false          # Enable or disable two-view training
@@ -87,7 +88,7 @@ supervised_weight: 100       # Weight for supervised loss component
 # Optional pretrained backbone
 # ----------------------------------------------------------------------
 load_pretrained_backbone: true # Load weights for the backbone at startup
-pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt" # Path to the pretrained backbone model
+pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone_new.pt" # Path to the pretrained backbone model
 
 # ----------------------------------------------------------------------
 # Synthetic dataset parameters

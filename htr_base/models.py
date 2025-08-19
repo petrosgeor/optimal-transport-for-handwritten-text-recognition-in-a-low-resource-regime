@@ -244,12 +244,18 @@ class HTRNet(nn.Module):
     """
     HTRNet backbone with optional global feature projection.
 
-    Additional arg in *arch_cfg*:
-        feat_dim (int | None): size of per-image descriptor.
+    Additional args in ``arch_cfg``:
+        feat_dim (int | None): Size of per-image descriptor.
+        feat_pool (str): Pooling for CNN-based feat head, ``'avg'`` or ``'attn'``.
+        feat_source (str): Source of holistic feature vector. One of:
+            - ``'cnn'``: use CNN feature map + ``feat_pool``.
+            - ``'rnn_mean'``: mean over time of the RNN output (for RNN heads) projected
+              to ``feat_dim``. Falls back to ``'cnn'`` path if head is not RNN-based.
     """
     def __init__(self, arch_cfg, nclasses):
         super().__init__()
         self.feat_pool = getattr(arch_cfg, 'feat_pool', 'avg')
+        self.feat_source = getattr(arch_cfg, 'feat_source', 'cnn')
         if getattr(arch_cfg, 'stn', False):
             raise NotImplementedError('STN not implemented in this repo.')
 
@@ -306,6 +312,14 @@ class HTRNet(nn.Module):
                 raise ValueError(
                     f"Unknown feat_pool '{self.feat_pool}'. Supported: 'avg', 'attn'"
                 )
+            # Optional projection for RNN-based holistic feature when requested.
+            # Create only when the head is RNN-based to avoid relying on missing dims.
+            head = arch_cfg.head_type
+            if self.feat_source == 'rnn_mean' and head in {'rnn', 'both'}:
+                rnn_hidden = int(getattr(arch_cfg, 'rnn_hidden_size'))
+                self.seq_feat_proj = nn.Linear(2 * rnn_hidden, self.feat_dim)
+            else:
+                self.seq_feat_proj = None
         
         self.phoc_levels = getattr(arch_cfg, 'phoc_levels', None)
         if self.feat_dim and self.phoc_levels:
@@ -318,9 +332,45 @@ class HTRNet(nn.Module):
             self.phoc_head = None
 
     def forward(self, x, *, return_feats: bool = True):
+        """
+        Forward through CNN and head; derive features from the RNN output when enabled.
+
+        Assumes a recurrent head provides a sequence output at ``self.top.rec`` and
+        ``feat_source == 'rnn_mean'`` so the sequence is averaged over time and
+        projected to ``feat_dim``. The return signature follows the contract:
+        logits first, then ``feat`` (and optional PHOC).
+
+        Args:
+            x (torch.Tensor): Input images ``(B, 1, H, W)``.
+            return_feats (bool): If False, only logits are returned.
+
+        Returns:
+            torch.Tensor | tuple: Logits, optionally followed by ``feat`` and
+            ``phoc_logits`` if enabled.
+        """
         y = self.features(x)
-        feat = self.feat_head(y) if self.feat_dim and return_feats else None
+
+        # Capture RNN sequence outputs via a temporary hook when building features.
+        captured = {}
+        handle = None
+        if self.feat_dim and return_feats and hasattr(self.top, 'rec') and getattr(self, 'seq_feat_proj', None) is not None:
+            def _hook(_, _inputs, output):
+                seq = output[0] if isinstance(output, tuple) else output
+                captured['seq'] = seq  # (T, B, 2H)
+            handle = self.top.rec.register_forward_hook(_hook)
+
         logits = self.top(y)
+
+        if handle is not None:
+            handle.remove()
+
+        feat = None
+        if self.feat_dim and return_feats:
+            if 'seq' in captured:
+                seq_mean = captured['seq'].mean(dim=0)  # (T,B,2H) -> (B,2H)
+                feat = self.seq_feat_proj(seq_mean)
+            else:
+                feat = self.feat_head(y)
         phoc_logits = None
         if self.phoc_head is not None and feat is not None:
             phoc_logits = self.phoc_head(feat)
@@ -334,5 +384,4 @@ class HTRNet(nn.Module):
             out = (*out, phoc_logits)
         return out
     
-
 

@@ -10,6 +10,7 @@ This repository contains a minimal implementation for handwritten text recogniti
   - [Alignment Utilities](#alignment-utilities)
   - [Loss Functions](#loss-functions)
   - [Metrics](#metrics)
+  - [Evaluation Utilities](#evaluation-utilities)
   - [CTC Utilities](#ctc-utilities)
   - [Plotting Utilities](#plotting-utilities)
   - [Vocabulary Utilities](#vocabulary-utilities)
@@ -43,11 +44,13 @@ class HTRNet(nn.Module):
 **Attributes:**
 *   `features` (CNN): Convolutional feature extractor.
 *   `top` (nn.Module): CTC head chosen by `arch_cfg.head_type`.
-*   `feat_head` (nn.Module | None): Global descriptor pooling module.
+*   `feat_head` (nn.Module | None): Global descriptor pooling module. When `arch_cfg.feat_source == 'rnn_mean'` and the head is recurrent, the holistic feature is derived from the mean over time of the recurrent output and projected to `feat_dim`.
 *   `phoc_head` (nn.Module | None): Optional PHOC prediction layer.
 
 **Methods:**
-*   `forward(x, *, return_feats=True)`: Returns a tuple containing logits and, optionally, features and PHOC logits. The exact output depends on the model configuration and the `return_feats` flag.
+*   `forward(x, *, return_feats=True)`: Returns logits `(T, B, C)` or `(main_logits, aux_logits)` depending on the head. When `feat_dim` is set and `return_feats=True`, also returns a per-image descriptor `(B, feat_dim)`. If `phoc_levels` are provided, appends a PHOC vector `(B, (nclasses-1) * sum(levels))`.
+
+  - Feature source: when `arch_cfg.feat_source == 'rnn_mean'` and the active head is recurrent (`'rnn'` or `'both'`), the descriptor is computed by averaging the recurrent sequence output over time and projecting it to `feat_dim`. Otherwise, the descriptor is computed from the CNN feature map via `feat_pool`.
 
 
 #### Projector
@@ -280,6 +283,10 @@ class HTRDataset(Dataset):
 *   `external_word_histogram(save_dir='tests/figures', filename='external_word_hist.png', dpi=200)`: saves a bar plot of unique-word usage.
 *   `word_frequencies()` -> tuple[list[str], list[float]]: returns unique words
     and their probabilities, e.g. `dataset.word_frequencies()`.
+*   `get_test_indices() -> torch.Tensor`: Returns the positions (indices) of items
+    belonging to the `test` split when the dataset has been built with `subset='all'`.
+    Raises `RuntimeError` if `subset` is not `'all'`.
+
 
 **Initial seed alignment (`n_aligned`)**
 When `n_aligned > 0`, the dataset now selects **the `n_aligned` *distinct* words with the longest transcriptions** as the initial aligned set (ties are broken arbitrarily). This replaces the previous random sampling strategy and guarantees that each seed corresponds to a unique word, maximising lexical coverage from the outset.
@@ -599,6 +606,65 @@ class WER:
 
 
 
+### Evaluation Utilities
+
+#### compute_cer
+
+Located in: `alignment/eval.py`
+
+Evaluate Character Error Rate (CER) over a dataset using a CTC model.
+
+```python
+def compute_cer(
+    dataset: Dataset,
+    model: torch.nn.Module,
+    *,
+    batch_size: int = 64,
+    device: str = "cpu",
+    decode: str = "greedy",
+    beam_width: int = 10,
+    k: int = None,
+) -> float:
+```
+
+*   `dataset` (Dataset): Items yield `(img, transcription, _)` as in `HTRDataset`.
+*   `model` (torch.nn.Module): Network returning CTC logits `(T, B, C)`.
+*   `batch_size` (int): Mini-batch size during evaluation.
+*   `device` (str): Compute device for the forward pass.
+*   `decode` (str): `'greedy'` or `'beam'` decoding for CTC outputs.
+*   `beam_width` (int): Beam width used when `decode='beam'`.
+*   `k` (int | None): If set, also prints CER for samples with length `<= k` and `> k`.
+
+**Returns:**
+*   `float`: Overall CER across the dataset.
+
+
+#### compute_wer
+
+Located in: `alignment/eval.py`
+
+Compute Word Error Rate (WER) over a dataset using a CTC model.
+
+```python
+def compute_wer(
+    dataset: Dataset,
+    model: torch.nn.Module,
+    *,
+    batch_size: int = 64,
+    device: str = "cpu",
+    decode: str = "greedy",
+) -> float:
+```
+
+*   `dataset` (Dataset): Items yield `(img, transcription, _)` as in `HTRDataset`.
+*   `model` (torch.nn.Module): Network returning CTC logits `(T, B, C)`.
+*   `batch_size` (int): Mini-batch size during evaluation.
+*   `device` (str): Compute device for the forward pass.
+*   `decode` (str): `'greedy'` or `'beam'` decoding for CTC outputs.
+
+**Returns:**
+*   `float`: WER as a percentage (not rounded).
+
 ### CTC Utilities
 
 #### encode_for_ctc
@@ -860,6 +926,7 @@ def log_round_metrics(
         round_idx: int,
         correct_pseudo: int,
         cer_test: float,
+        wer_test: float,
         out_file: str
 ) -> None:
 ```
@@ -870,12 +937,13 @@ def log_round_metrics(
   1. the current round index (starting from `1`);
   2. the *absolute* number of correctly pseudo‑labelled samples in that round;
   3. the character error rate (CER) on the *test* split immediately
-     after the refinement round.
+     after the refinement round;
+  4. the word error rate (WER) on the *test* split for the same model state.
 * The function appends one TSV line
-  `<round>	<correct_pseudo>	<cer_test>` to `out_file`.
-* If `out_file` does not yet exist it is created automatically; the file
-  is **never** deleted by `trainer.py` so that long‑running experiments
-  accumulate their history in a single place.
+  `<round>	<correct_pseudo>	<cer_test>	<wer_test>` to `out_file`.
+* If `out_file` does not yet exist it is created automatically. On the first
+  round (`round_idx == 1`), an existing file from a previous run is deleted to
+  start a fresh log; subsequent rounds only append.
 * The file name and directory are set through
   `trainer_config.yaml → round_metrics_file`.
 
