@@ -1,11 +1,12 @@
 """Evaluation helpers for alignment module."""
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
 from htr_base.utils.metrics import CER
 from htr_base.utils.vocab import load_vocab
 from .ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
+from htr_base.utils.htr_dataset import HTRDataset
 
 
 def _assert_finite(t: torch.Tensor, where: str) -> None:
@@ -22,7 +23,7 @@ def _assert_finite(t: torch.Tensor, where: str) -> None:
 
 
 def compute_cer(
-    dataset: Dataset,
+    dataset: HTRDataset,
     model: torch.nn.Module,
     *,
     batch_size: int = 64,
@@ -35,7 +36,7 @@ def compute_cer(
 
     Parameters
     ----------
-    dataset : Dataset
+    dataset : HTRDataset
         Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.
     model : torch.nn.Module
         Network returning CTC logits (``(T,B,C)``).
@@ -63,7 +64,9 @@ def compute_cer(
         dataset.transforms = None
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    c2i, i2c = load_vocab()
+    # Support torch.utils.data.Subset by unwrapping base dataset for vocab
+    base_ds = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
+    c2i, i2c = load_vocab(base_ds.get_dataset_name())
 
     total = CER()
     le = CER(); gt = CER()
@@ -106,7 +109,7 @@ def compute_cer(
 
 
 def compute_wer(
-    dataset: Dataset,
+    dataset: HTRDataset,
     model: torch.nn.Module,
     *,
     batch_size: int = 64,
@@ -117,7 +120,7 @@ def compute_wer(
 
     Parameters
     ----------
-    dataset : Dataset
+    dataset : HTRDataset
         Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.
     model : torch.nn.Module
         Network returning CTC logits (``(T,B,C)``).
@@ -144,7 +147,9 @@ def compute_wer(
         dataset.transforms = None
 
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    c2i, i2c = load_vocab()
+    # Support torch.utils.data.Subset by unwrapping base dataset for vocab
+    base_ds = dataset.dataset if isinstance(dataset, torch.utils.data.Subset) else dataset
+    c2i, i2c = load_vocab(base_ds.get_dataset_name())
 
     total_dist = 0.0
     total_len = 0

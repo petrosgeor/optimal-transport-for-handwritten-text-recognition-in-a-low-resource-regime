@@ -276,6 +276,7 @@ class HTRDataset(Dataset):
 **Methods:**
 *   `__len__()` -> int: Dataset size.
 *   `__getitem__(index)` -> tuple: Returns processed image(s), text and alignment id.
+*   `get_dataset_name() -> str`: Returns `'IAM'` or `'GW'` inferred from `basefolder`.
 *   `letter_priors(transcriptions=None, n_words=50000)`: returns prior probabilities for characters.
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
@@ -286,6 +287,20 @@ class HTRDataset(Dataset):
 *   `get_test_indices() -> torch.Tensor`: Returns the positions (indices) of items
     belonging to the `test` split when the dataset has been built with `subset='all'`.
     Raises `RuntimeError` if `subset` is not `'all'`.
+
+##### HTRDataset.get_dataset_name
+
+Located in: `htr_base/utils/htr_dataset.py`
+
+Infer the dataset identifier from the dataset root path.
+
+```python
+def get_dataset_name(self) -> str:
+    """Infer dataset name ('IAM' or 'GW') from self.basefolder."""
+```
+
+Returns:
+- `str`: `'IAM'` or `'GW'` if the corresponding token is found in `self.basefolder` (case‑insensitive). Raises `ValueError` when neither token is present.
 
 
 **Initial seed alignment (`n_aligned`)**
@@ -871,31 +886,30 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
 
 ### Vocabulary Utilities
 
-#### create_vocab
-
-Located in: `htr_base/utils/vocab.py`
-
-Creates the default vocabulary pickles and returns the dictionaries.
-
-```python
-def create_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
-```
-
-**Returns:**
-*   `Tuple[Dict[str, int], Dict[int, str]]`: A tuple containing the character-to-index (`c2i`) and index-to-character (`i2c`) dictionaries.
-
 #### load_vocab
 
 Located in: `htr_base/utils/vocab.py`
 
-Loads `c2i` and `i2c` dictionaries from `saved_models`. If the pickle files do not exist, `create_vocab` is called to generate them first.
+Builds the `c2i` and `i2c` dictionaries in memory from a fixed character set
+defined per dataset (see `CHARSETS` in `vocab.py`). No files are read or
+written.
 
 ```python
-def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
+def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
 ```
 
-**Returns:**
-*   `Tuple[Dict[str, int], Dict[int, str]]`: A tuple containing the character-to-index (`c2i`) and index-to-character (`i2c`) dictionaries.
+Args:
+- `dataset_name` (str): Dataset identifier; must be `'GW'` or `'IAM'`.
+
+Returns:
+- `Tuple[Dict[str, int], Dict[int, str]]`: The character-to-index (`c2i`) and
+  index-to-character (`i2c`) mappings. Indices start at `1`; index `0` is
+  reserved for the CTC blank by convention in the rest of the codebase.
+
+Example:
+```python
+c2i, i2c = load_vocab('IAM')
+```
 
 ### Training Utilities
 

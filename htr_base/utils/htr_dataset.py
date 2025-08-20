@@ -104,7 +104,9 @@ class HTRDataset(Dataset):
         self.transcriptions = transcrs
         self.prior_char_probs = self.letter_priors()
         if self.character_classes is None:
-            c2i, _ = load_vocab()
+            # Infer dataset name from basefolder and load the matching vocabulary
+            dataset_name = self.get_dataset_name()
+            c2i, _ = load_vocab(dataset_name)
             self.character_classes = list(c2i.keys())
         # Vocabulary derived from dataset transcriptions
         self.unique_words, self.unique_word_probs = self.word_frequencies()
@@ -159,6 +161,30 @@ class HTRDataset(Dataset):
     def __len__(self):
         """Return the number of items in the dataset."""
         return len(self.data)
+
+    def get_dataset_name(self) -> str:
+        """Infer and return the dataset identifier from ``self.basefolder``.
+
+        Args:
+            None
+
+        Returns:
+            str: The dataset name, either ``'IAM'`` or ``'GW'``.
+
+        Raises:
+            ValueError: If the path in ``self.basefolder`` does not contain a
+            recognizable dataset token.
+        """
+        base = str(self.basefolder)
+        low = base.lower()
+        if "iam" in low:
+            return "IAM"
+        if "gw" in low:
+            return "GW"
+        raise ValueError(
+            f"Cannot infer dataset name from basefolder={self.basefolder!r}. "
+            "Expected the path to include 'IAM' or 'GW'."
+        )
 
     def get_test_indices(self) -> torch.Tensor:
         """Return indices of samples that belong to the ``test`` split.
@@ -427,8 +453,10 @@ class HTRDataset(Dataset):
         """
 
         from collections import Counter
-
-        words = [t.strip().lower() for t in self.transcriptions]
+        if self.get_dataset_name() == 'GW':        
+            words = [t.strip().lower() for t in self.transcriptions]
+        elif self.get_dataset_name() == 'IAM':
+            words = self.transcriptions
         counts = Counter(words)
         total = sum(counts.values())
         unique = list(counts.keys())

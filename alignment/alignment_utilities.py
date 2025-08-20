@@ -157,7 +157,6 @@ def calculate_ot_projections(
     inv_row_sum = np.divide(1.0, row_sum, out=np.zeros_like(row_sum), where=row_sum != 0)
     projections = inv_row_sum * (T @ Y)
     assert np.all(np.isfinite(projections)), "Non-finite values in projections"
-
     return projections, T
 
 
@@ -569,7 +568,8 @@ class OTAligner:
         removed = 0
         correct_removed = 0
         ptr = 0
-        _, i2c = load_vocab()
+        dataset_name = self.dataset.get_dataset_name()
+        _, i2c = load_vocab(dataset_name=dataset_name)
         for imgs, *_ in loader:
             imgs = imgs.to(device, non_blocking=True)
             logits, *_ = self.backbone(imgs, return_feats=False)

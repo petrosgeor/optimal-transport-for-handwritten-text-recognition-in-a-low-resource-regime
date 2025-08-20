@@ -1,47 +1,46 @@
-"""Utility helpers for the fixed character vocabulary."""
+"""Utility helpers for dataset-specific character vocabularies.
 
-import pickle
-from pathlib import Path
+Builds character→index and index→character mappings in-memory based on a
+curated symbol set per dataset. No disk IO is performed.
+"""
+
 from typing import Dict, Tuple
 
 
-def create_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Create the default vocabulary pickles and return the dictionaries.
 
-    The mapping contains digits ``0``–``9``, lowercase ``a``–``z`` and a
-    space character.  Index ``0`` is reserved for the CTC blank.
+
+CHARSETS = {
+    "GW": list("0123456789abcdefghijklmnopqrstuvwxyz "),
+    "IAM": [
+        ' ', '!', '"', '#', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/',
+        '0','1','2','3','4','5','6','7','8','9', ':',';','?',
+        'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R',
+        'S','T','U','V','W','X','Y','Z',
+        'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r',
+        's','t','u','v','w','x','y','z'
+    ]
+}
+
+def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
+    """Return vocabulary mappings for the given dataset.
+
+    Args:
+        dataset_name (str): Must be either ``'GW'`` or ``'IAM'``.
+
+    Returns:
+        tuple[dict, dict]: ``(c2i, i2c)`` where indices start at 1. Index 0 is
+        implicitly reserved for the CTC blank in downstream code.
+
+    Raises:
+        ValueError: If ``dataset_name`` is not one of the supported datasets.
     """
 
-    chars = list("0123456789abcdefghijklmnopqrstuvwxyz ")
+    if dataset_name not in CHARSETS:
+        raise ValueError(
+            f"dataset_name must be one of {list(CHARSETS.keys())}, got {dataset_name!r}"
+        )
+
+    chars = list(CHARSETS[dataset_name])
     c2i = {c: i + 1 for i, c in enumerate(chars)}
     i2c = {i + 1: c for i, c in enumerate(chars)}
-
-    base = Path(__file__).resolve().parents[2] / "htr_base" / "saved_models"
-    base.mkdir(parents=True, exist_ok=True)
-    with open(base / "c2i.pkl", "wb") as f:
-        pickle.dump(c2i, f)
-    with open(base / "i2c.pkl", "wb") as f:
-        pickle.dump(i2c, f)
-
-    return c2i, i2c
-
-
-def load_vocab() -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Load ``c2i`` and ``i2c`` dictionaries from ``saved_models``.
-
-    If the pickle files do not exist, :func:`create_vocab` is called to
-    generate them first.
-    """
-
-    base = Path(__file__).resolve().parents[2] / "htr_base" / "saved_models"
-    c2i_path = base / "c2i.pkl"
-    i2c_path = base / "i2c.pkl"
-    if not c2i_path.exists() or not i2c_path.exists():
-        create_vocab()
-
-    with open(c2i_path, "rb") as f:
-        c2i = pickle.load(f)
-    with open(i2c_path, "rb") as f:
-        i2c = pickle.load(f)
-
     return c2i, i2c

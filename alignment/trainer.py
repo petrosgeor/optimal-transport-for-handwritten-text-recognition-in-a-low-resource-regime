@@ -196,14 +196,61 @@ if str(cfg.device).startswith("cuda"):
 
 
 def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
-    """Load pretrained backbone weights if ``cfg.load_pretrained_backbone``."""
-    if getattr(cfg, "load_pretrained_backbone", False):
-        path = cfg.pretrained_backbone_path
-        # Load to CPU first, then the model will be moved to the correct
-        # device later in the training pipeline.
-        state = torch.load(path, map_location='cpu')
-        backbone.load_state_dict(state, strict=False)
-        print(f"[Init] loaded pretrained backbone from {path}")
+    """Load a checkpoint while skipping incompatible head layers.
+
+    Only parameters whose names exist in ``backbone.state_dict()`` AND whose
+    tensor shapes match exactly are loaded. This allows reusing the backbone
+    even when the vocabulary size (CTC head) or PHOC head configuration differs
+    from the checkpoint.
+    """
+    if not getattr(cfg, "load_pretrained_backbone", False):
+        return
+
+    path = cfg.pretrained_backbone_path
+    # Load checkpoint to CPU; caller can move model to device afterwards
+    ckpt = torch.load(path, map_location="cpu")
+
+    # Resolve the actual state_dict inside various checkpoint formats
+    if isinstance(ckpt, dict) and "state_dict" in ckpt and isinstance(ckpt["state_dict"], dict):
+        sd = ckpt["state_dict"]
+    else:
+        sd = ckpt if isinstance(ckpt, dict) else ckpt.state_dict()
+
+    model_sd = backbone.state_dict()
+
+    # Handle common prefixes from DDP or wrapper modules
+    def _maybe_strip_prefix(d: dict, prefix: str) -> dict:
+        if any(k.startswith(prefix) for k in d.keys()):
+            return { (k[len(prefix):] if k.startswith(prefix) else k): v for k, v in d.items() }
+        return d
+
+    # Try progressively stripping known prefixes to maximise matches
+    for pref in ("module.", "backbone."):
+        if not (set(sd.keys()) & set(model_sd.keys())):
+            sd = _maybe_strip_prefix(sd, pref)
+
+    # Keep only keys present in model with matching tensor shape
+    filtered = {}
+    shape_mismatch = []
+    matched = 0
+    for k, v in sd.items():
+        if k in model_sd:
+            if hasattr(v, 'shape') and getattr(model_sd[k], 'shape', None) == v.shape:
+                filtered[k] = v
+                matched += 1
+            else:
+                shape_mismatch.append(k)
+
+    # Load the compatible subset
+    incompatible = backbone.load_state_dict(filtered, strict=False)
+
+    # User-friendly summary
+    total_ckpt = len(sd)
+    print(
+        f"[Init] Loaded {matched}/{total_ckpt} tensors from {path}. "
+        f"Skipped {len(shape_mismatch)} shape-mismatched keys and "
+        f"{len(incompatible.unexpected_keys)} unexpected keys."
+    )
 
 # --------------------------------------------------------------------------- #
 #                            Main refinement routine                          #
@@ -267,7 +314,7 @@ def refine_visual_backbone(
     assert device.type == "cuda", "Backbone is not on a CUDA device"
     backbone.train().to(device)
     # Build CTC mapping once using the fixed vocabulary.
-    c2i, _ = load_vocab()
+    c2i, _ = load_vocab(dataset_name=dataset.get_dataset_name())
     assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned), "Dataset alignment flags vector is malformed."
 
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]

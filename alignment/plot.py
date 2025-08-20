@@ -232,7 +232,8 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
     """
     cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "trainer_config.yaml")
     arch_cfg = SimpleNamespace(**cfg["architecture"])
-    c2i, _ = load_vocab()
+    dataset_name = dataset.get_dataset_name()
+    c2i, _ = load_vocab(dataset_name=dataset_name)
     backbone = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
