@@ -148,29 +148,50 @@ def log_round_metrics(
     wer_test: float,
     out_file: str,
 ) -> None:
-    """Append refinement metrics to a TSV file.
-
-    On the first round (``round_idx == 1``), if a file already exists at
-    ``out_file`` from a previous run, it is deleted before writing the new
-    row. Subsequent rounds only append.
-
-    Args:
-        round_idx (int): Current refinement round index.
-        correct_pseudo (int): Number of correctly pseudo‑labelled samples.
-        cer_test (float): Character error rate on the test split.
-        wer_test (float): Word error rate on the test split.
-        out_file (str): Destination file for the appended metrics.
-
-    Returns:
-        None
     """
-    p = Path(out_file)
-    # Delete a stale metrics file from a previous run on the first round only
+    Append refinement metrics to a TSV file, with optional automatic path generation.
+
+    Behavior:
+      • If `out_file` is a concrete path (anything other than "auto", case-insensitive),
+        save exactly there (preserving current behavior).
+      • If `out_file == "auto"` (case-insensitive), build a path based on:
+            results/<DATASET>/<dataset_lower>_<n_aligned>samples.txt
+        where <DATASET> is inferred from `cfg.dataset.basefolder` and
+        `n_aligned` is read from `cfg.dataset.n_aligned`.
+
+    On the first round (`round_idx == 1`), an existing file at the final path is deleted.
+    Subsequent rounds append a single TSV row:
+        <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\n
+    """
+    # 1) Decide destination path
+    if isinstance(out_file, str) and out_file.strip().lower() == "auto":
+        # Infer dataset name from cfg.dataset.basefolder (supports GW/IAM/CVL)
+        base = str(getattr(cfg.dataset, "basefolder", ""))
+        tokens = [p.lower() for p in Path(base).parts]
+        ds_name = None
+        for candidate in ("GW", "IAM", "CVL"):
+            if candidate.lower() in tokens or candidate.lower() in base.lower():
+                ds_name = candidate
+                break
+        if ds_name is None:
+            # Fallback: use last folder name or a generic tag
+            ds_name = (Path(base).parts[-2] if len(Path(base).parts) >= 2 else "DATASET").upper()
+
+        n_aligned = int(getattr(cfg.dataset, "n_aligned", 0))
+        auto_dir = Path("results") / ds_name
+        auto_name = f"{ds_name.lower()}_{n_aligned}samples.txt"
+        p = auto_dir / auto_name
+    else:
+        # Respect explicit file path from config
+        p = Path(out_file)
+
+    # 2) Fresh-start semantics on first round; append afterwards
     if round_idx == 1 and p.is_file():
         p.unlink()
-
     p.parent.mkdir(parents=True, exist_ok=True)
     mode = "a" if p.is_file() else "w"
+
+    # 3) Write the row
     with open(p, mode, encoding="utf-8") as fh:
         fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\t{wer_test:.4f}\n")
 
@@ -647,6 +668,7 @@ def alternating_refinement(
     align_kwargs.setdefault("reg_m", cfg.align_reg_m)
     align_kwargs.setdefault("k", cfg.align_k)
     align_kwargs.setdefault("agree_threshold", cfg.agree_threshold)
+    align_kwargs.setdefault("metric", cfg.metric)
 
     # Build test dataset with n_aligned=0 to avoid seeding on the test split.
     
@@ -764,16 +786,16 @@ def alternating_refinement(
         )
 
         # --- restrict CER to already-aligned samples -------------------
-        aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
-        aligned_subset = torch.utils.data.Subset(dataset, aligned_idx.tolist())
-        print('CER on the aligned subset: ')
-        compute_cer(
-            aligned_subset,
-            backbone,
-            batch_size=cfg.eval_batch_size,
-            device=cfg.device,
-            k=4
-        )
+        # aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
+        # aligned_subset = torch.utils.data.Subset(dataset, aligned_idx.tolist())
+        # print('CER on the aligned subset: ')
+        # compute_cer(
+        #     aligned_subset,
+        #     backbone,
+        #     batch_size=cfg.eval_batch_size,
+        #     device=cfg.device,
+        #     k=4
+        # )
         cycle_idx += 1
 
     # ────────────────────────────────────────────────────────────────────────────────────────

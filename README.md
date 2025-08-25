@@ -260,14 +260,14 @@ class HTRDataset(Dataset):
 *   `character_classes` (list | None): Characters making up the vocabulary.
 *   `config` (Any): Optional configuration object with alignment parameters.
 *   `two_views` (bool): Return two augmented views when `True`.
-*   `use_wordfreq_probs` *(bool, default **False**)* – when *True*, the list `unique_word_probs` is computed with the [`wordfreq`](https://pypi.org/project/wordfreq/) language model (`word_frequency(word, "en")`) instead of empirical counts.
+*   `word_prob_strategy` (str): Controls how `unique_word_probs` are computed: `empirical` (default), `wordfreq`, or `uniform`.
 **Attributes:**
 *   `data` (list[tuple]): Pairs of image paths and transcriptions.
 *   `transcriptions` (list[str]): Text strings for each image.
 *   `character_classes` (list[str]): Dataset vocabulary of characters.
 *   `prior_char_probs` (dict): Prior probabilities for each character in the vocabulary.
 *   `unique_words` (list[str]): Unique words present in the dataset.
-*   `unique_word_probs` (list[float]): Prior probability of every word either from ground-truth frequency or, if `use_wordfreq_probs` is enabled, from the *wordfreq* corpus.
+*   `unique_word_probs` (list[float]): Prior probability of every unique word. Computed according to `word_prob_strategy` as empirical counts, wordfreq priors, or a uniform distribution.
 *   `unique_word_embeddings` (torch.Tensor): Embeddings for the unique words.
 *   `is_in_dict` (torch.IntTensor): ``1`` if a transcription is in `unique_words`.
 *   `aligned` (torch.IntTensor): Alignment indices or ``-1`` when unknown.
@@ -1073,7 +1073,7 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `align_k` (int): Pseudo-label this many least-moved descriptors.
 *   `metric` (str): Use projection-variance agreement.
 *   `eval_batch_size` (int): Mini-batch size during CER evaluation.
-*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `two_views`).
+*   `dataset` (dict): Parameters for `HTRDataset` (e.g., `basefolder`, `subset`, `fixed_size`, `n_aligned`, `word_emb_dim`, `word_prob_strategy`, `two_views`).
 *   `n_aligned` (int): Number of initially aligned instances.
 *   `ensemble_size` (int): Size of the projector ensemble.
 *   `agree_threshold` (int): Minimum number of projectors that must agree for pseudo-labeling.

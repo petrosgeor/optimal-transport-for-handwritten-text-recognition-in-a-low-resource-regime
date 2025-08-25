@@ -35,7 +35,8 @@ class HTRDataset(Dataset):
         two_views (bool): Whether to return two augmented views per sample.
         n_aligned (int): Number of initially aligned instances.
         word_emb_dim (int): Dimension of word embeddings.
-        use_wordfreq_probs (bool): Use language-model priors instead of empirical counts.
+        word_prob_strategy (str | None): One of ``'empirical'``, ``'wordfreq'`` or ``'uniform'``
+            controlling how ``unique_word_probs`` are computed. Defaults to ``'empirical'``.
         data (list[tuple[str, str]]): Image paths and their transcriptions.
         transcriptions (list[str]): Text strings for each image.
         prior_char_probs (dict): Prior probabilities for each character.
@@ -74,11 +75,12 @@ class HTRDataset(Dataset):
         self.config = config
         self.two_views = two_views
         self.n_aligned = 0
-        self.use_wordfreq_probs = False
+        self.word_prob_strategy = None
         if self.config is not None:
             self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
             self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
-            self.use_wordfreq_probs = bool(getattr(self.config, "use_wordfreq_probs", False))
+            # word probability strategy: 'empirical' (default), 'wordfreq', or 'uniform'
+            self.word_prob_strategy = getattr(self.config, "word_prob_strategy", None)
         # Load gt.txt from basefolder - each line contains image path and transcription
         if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
             raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
@@ -91,10 +93,25 @@ class HTRDataset(Dataset):
             subsets = [subset]
         for sub in subsets:
             gt_file = os.path.join(basefolder, sub, 'gt.txt')
-            with open(gt_file, 'r') as f:
+            if not os.path.isfile(gt_file):
+                # Allow datasets without a 'val' split (e.g., CVL) or incomplete setups.
+                # Skip missing subsets gracefully.
+                continue
+            with open(gt_file, 'r', encoding='utf-8') as f:
                 for line in f:
-                    img_path, transcr = line.strip().split(' ')[0], ' '.join(line.strip().split(' ')[1:])
-                    data.append((os.path.join(basefolder, sub, img_path + '.png'), transcr))
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # The first token is the filename; remaining tokens form the transcription.
+                    parts = line.split()
+                    img_token = parts[0]
+                    transcr = ' '.join(parts[1:])
+                    # If the filename in gt does not include an extension (GW/IAM),
+                    # default to '.png'. If it includes an extension (e.g., CVL '.tif'),
+                    # preserve it as-is.
+                    name, ext = os.path.splitext(img_token)
+                    filename = img_token if ext else (img_token + '.png')
+                    data.append((os.path.join(basefolder, sub, filename), transcr))
         self.data = data
         # Load images into memory and store transcriptions
         # imgs = []
@@ -110,8 +127,13 @@ class HTRDataset(Dataset):
             self.character_classes = list(c2i.keys())
         # Vocabulary derived from dataset transcriptions
         self.unique_words, self.unique_word_probs = self.word_frequencies()
-        if self.use_wordfreq_probs:
+        # Apply configured prior strategy for word probabilities
+        _strategy = (self.word_prob_strategy or "empirical").lower()
+        if _strategy == "wordfreq":
             self.unique_word_probs = self._estimated_word_probs(self.unique_words)
+        elif _strategy == "uniform":
+            n = len(self.unique_words)
+            self.unique_word_probs = ([1.0 / n] * n) if n > 0 else []
         self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=self.word_emb_dim)
 
         # All transcriptions are present in ``unique_words``
@@ -169,7 +191,7 @@ class HTRDataset(Dataset):
             None
 
         Returns:
-            str: The dataset name, either ``'IAM'`` or ``'GW'``.
+            str: The dataset name, one of ``'IAM'``, ``'GW'`` or ``'CVL'``.
 
         Raises:
             ValueError: If the path in ``self.basefolder`` does not contain a
@@ -181,9 +203,11 @@ class HTRDataset(Dataset):
             return "IAM"
         if "gw" in low:
             return "GW"
+        if "cvl" in low:
+            return "CVL"
         raise ValueError(
             f"Cannot infer dataset name from basefolder={self.basefolder!r}. "
-            "Expected the path to include 'IAM' or 'GW'."
+            "Expected the path to include 'IAM', 'GW' or 'CVL'."
         )
 
     def get_test_indices(self) -> torch.Tensor:
@@ -456,6 +480,12 @@ class HTRDataset(Dataset):
         if self.get_dataset_name() == 'GW':        
             words = [t.strip().lower() for t in self.transcriptions]
         elif self.get_dataset_name() == 'IAM':
+            words = self.transcriptions
+        elif self.get_dataset_name() == 'CVL':
+            # Preserve case for CVL (charset includes mixed case and umlauts)
+            words = self.transcriptions
+        else:
+            # Fallback: do not alter original transcriptions
             words = self.transcriptions
         counts = Counter(words)
         total = sum(counts.values())

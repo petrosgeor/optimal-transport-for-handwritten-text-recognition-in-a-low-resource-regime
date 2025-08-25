@@ -18,14 +18,29 @@ CHARSETS = {
         'S','T','U','V','W','X','Y','Z',
         'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r',
         's','t','u','v','w','x','y','z'
-    ]
+    ],
+    # CVL: character set extended to include common symbols.
+    # Union of: space, apostrophe, digits 0–9, all uppercase A–Z,
+    # all lowercase a–z, and dataset-specific umlauts.
+    "CVL": [
+        # Whitespace and punctuation
+        " ", "'",
+        # Digits
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+        # Uppercase A–Z
+        "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+        # Lowercase a–z
+        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+        # Umlauts present in CVL
+        "ä", "ö", "ü",
+    ],
 }
 
 def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
     """Return vocabulary mappings for the given dataset.
 
     Args:
-        dataset_name (str): Must be either ``'GW'`` or ``'IAM'``.
+        dataset_name (str): One of ``'GW'``, ``'IAM'`` or ``'CVL'``.
 
     Returns:
         tuple[dict, dict]: ``(c2i, i2c)`` where indices start at 1. Index 0 is

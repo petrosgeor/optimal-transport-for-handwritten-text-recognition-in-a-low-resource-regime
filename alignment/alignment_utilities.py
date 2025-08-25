@@ -398,9 +398,11 @@ class OTAligner:
             torch.Tensor: 1-D tensor of selected dataset indices.
         """
         assert self.k >= 0, "k must be non-negative"
-        # rank samples by uncertainty according to the chosen metric
+        # rank samples by certainty/uncertainty according to the chosen metric
         if self.metric == "variance":
-            order_unc = torch.argsort(var_scores).cpu().numpy()
+            # Lower variance across projectors → higher agreement (more certain)
+            # Build a certainty order directly (ascending by variance)
+            order_cert = torch.argsort(var_scores).cpu().numpy()
         else:
             order_unc = select_uncertain_instances(
                 m=len(self.dataset),
@@ -409,7 +411,7 @@ class OTAligner:
                 metric=self.metric,
             )
             order_cert = order_unc[::-1]
-            
+        
         mask_new = (aligned_all == -1).numpy()
         assert self.agree_threshold > 0, "agree_threshold must be positive"
         assert order_cert.size > 0, "No candidates produced"
