@@ -276,7 +276,7 @@ class HTRDataset(Dataset):
 **Methods:**
 *   `__len__()` -> int: Dataset size.
 *   `__getitem__(index)` -> tuple: Returns processed image(s), text and alignment id.
-*   `get_dataset_name() -> str`: Returns `'IAM'` or `'GW'` inferred from `basefolder`.
+*   `get_dataset_name() -> str`: Returns `'IAM'`, `'GW'`, or `'CVL'` inferred from `basefolder`.
 *   `letter_priors(transcriptions=None, n_words=50000)`: returns prior probabilities for characters.
 *   `find_word_embeddings(word_list, n_components=512)`: returns tensor of embeddings.
 *   `save_image(index, out_dir, filename=None)`: saves a preprocessed image to disk.
@@ -296,11 +296,11 @@ Infer the dataset identifier from the dataset root path.
 
 ```python
 def get_dataset_name(self) -> str:
-    """Infer dataset name ('IAM' or 'GW') from self.basefolder."""
+    """Infer dataset name ('IAM', 'GW', or 'CVL') from self.basefolder."""
 ```
 
 Returns:
-- `str`: `'IAM'` or `'GW'` if the corresponding token is found in `self.basefolder` (case‑insensitive). Raises `ValueError` when neither token is present.
+- `str`: `'IAM'`, `'GW'`, or `'CVL'` if the corresponding token is found in `self.basefolder` (case‑insensitive). Raises `ValueError` when none are present.
 
 
 **Initial seed alignment (`n_aligned`)**
@@ -333,8 +333,8 @@ class PretrainingHTRDataset(Dataset):
 *   `fixed_size` (tuple): `(height, width)` for resizing.
 *   `base_path` (str): Root directory prepended to each path in `list_file`.
 *   `transforms` (list | None): Optional Albumentations pipeline.
-*   `n_random` (int | None): If given, keep only `n_random` entries.
-*   `random_seed` (int): Seed controlling the random subset selection.
+*   `n_random` (int | None): If given, keep exactly `n_random` existing entries (see selection below).
+*   `random_seed` (int): Seed controlling the deterministic shuffle before selection.
 *   `preload_images` (bool): Load all images into memory on init.
 
 
@@ -350,6 +350,13 @@ class PretrainingHTRDataset(Dataset):
 *   `__getitem__(index)` -> tuple: Returns an image tensor and transcription.
 *   `save_image(index, out_dir, filename=None)` -> str: Save preprocessed image.
 *   `loaded_image_shapes()` -> List[tuple]: Shapes of cached images.
+
+Selection semantics
+
+- Deterministic ordering: After filtering by filename validity, the candidate list is deterministically shuffled using `random_seed` and scanned left-to-right.
+- Existence check: Only entries whose absolute path exists on disk are kept.
+- `n_random` guarantee: When `n_random` is set, the dataset contains exactly that many existing images; if the filesystem cannot supply enough, the constructor raises `RuntimeError` with a helpful summary.
+- Preloading robustness: With `preload_images=True`, unreadable files are replaced by the next available candidates from the shuffled list; if not enough replacements exist to satisfy `n_random`, a `RuntimeError` is raised.
 
 
 
@@ -899,16 +906,20 @@ def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
 ```
 
 Args:
-- `dataset_name` (str): Dataset identifier; must be `'GW'` or `'IAM'`.
+- `dataset_name` (str): Dataset identifier; must be `'GW'`, `'IAM'`, `'CVL'`,
+  or `'ALL_DATASETS'`. The special `'ALL_DATASETS'` charset is the union of
+  all supported datasets.
 
 Returns:
 - `Tuple[Dict[str, int], Dict[int, str]]`: The character-to-index (`c2i`) and
   index-to-character (`i2c`) mappings. Indices start at `1`; index `0` is
   reserved for the CTC blank by convention in the rest of the codebase.
 
-Example:
+Examples:
 ```python
 c2i, i2c = load_vocab('IAM')
+# Union vocabulary across all datasets
+c2i_all, i2c_all = load_vocab('ALL_DATASETS')
 ```
 
 ### Training Utilities
@@ -968,6 +979,23 @@ Located in: `alignment/trainer.py`
 
 Fine-tunes the visual backbone on aligned words. After mixing synthetic and real images, the batch is shuffled. Setting `syn_batch_ratio=1` yields purely synthetic batches, while `syn_batch_ratio=0` uses only real data.
 
+### Preprocessing Utilities
+
+Located in: `htr_base/utils/preprocessing.py`
+
+- `load_image(path: str, *, ensure_black_bg: bool = True, bg_thresh: float = 0.55) -> np.ndarray`: Reads an image as float32 in [0,1], converts to grayscale if needed, and ensures a black background using a median‑based heuristic when `ensure_black_bg=True`.
+- `preprocess(img, input_size, border_size=8) -> np.ndarray`: Resizes and symmetrically pads `img` to `input_size` with median padding.
+- `is_image_corrupted(path: str, fast: bool = True) -> bool`: Checks basic integrity of an image file. With `fast=True`, validates headers/structure using Pillow without full decode; with `fast=False`, fully decodes the image. Returns `True` if the file appears corrupted/unreadable.
+
+Example:
+
+```python
+from htr_base.utils.preprocessing import is_image_corrupted
+
+assert is_image_corrupted("/data/good.png") is False
+assert is_image_corrupted("/data/truncated.png") is True
+```
+
 ```python
 def refine_visual_backbone(
     dataset: HTRDataset,
@@ -1026,12 +1054,22 @@ def alternating_refinement(
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
+    enable_pseudo_labeling: bool = cfg.enable_pseudo_labeling,
 ) -> None:
 ```
 
 ```python
 alternating_refinement(ds, backbone, projectors)
 ```
+
+- When `enable_pseudo_labeling` is set to `False` (also supported via
+  `alignment/alignment_configs/trainer_config.yaml → enable_pseudo_labeling`),
+  the function skips the call to `align_more_instances` and exits after
+  performing the configured `rounds` of training. This trains only the
+  backbone on the initially aligned samples (projectors are not trained)
+  without expanding the aligned set. Metrics are
+  still computed and logged each round via `log_round_metrics` with
+  `correct_pseudo=0` to preserve logging parity.
 
 ### Configuration Files
 
@@ -1048,6 +1086,8 @@ Hyperparameters for backbone refinement, projector training, and overall alignme
 *   `refine_aux_weight` (float): Weight for the auxiliary CTC loss.
 *   `refine_epochs` (int): Epochs spent refining the backbone.
 *   `syn_batch_ratio` (float): Fraction of each batch drawn from `PretrainingHTRDataset`.
+*   `enable_pseudo_labeling` (bool): If `false`, skip OT pseudo‑labeling and
+    train only on initially aligned samples; per‑round metrics are still logged.
 *   `enable_phoc` (bool): Turn PHOC loss on/off.
 *   `phoc_levels` (list): Descriptor levels for PHOC.
 *   `phoc_loss_weight` (float): Scaling factor for the PHOC loss.

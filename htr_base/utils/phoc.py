@@ -6,22 +6,19 @@ def build_phoc_description(words: List[str],
                            c2i: Dict[str, int],
                            *,
                            levels: List[int] = (1, 2, 3, 4)) -> torch.Tensor:
-    """Convert *words* into binary PHOC descriptors.
+    """Convert words into binary PHOC descriptors (case-preserving).
 
-    Parameters
-    ----------
-    words : list[str]
-        Words to encode.
-    c2i : dict[str, int]
-        Mapping from character to index. This dictionary **does not**
-        contain the CTC blank which is implicitly reserved at index 0.
-    levels : list[int], optional
-        Pyramid levels. Default ``(1, 2, 3, 4)``.
+    Args:
+        words (list[str]): Words to encode. Characters are used as-is; no
+            lowercasing is applied so that datasets with case-sensitive
+            vocabularies (e.g., CVL) are handled correctly.
+        c2i (dict[str, int]): Character→index mapping. This dictionary does
+            not contain the CTC blank (index 0 is implicitly reserved).
+        levels (list[int], optional): Pyramid levels. Defaults to ``(1,2,3,4)``.
 
-    Returns
-    -------
-    torch.BoolTensor
-        Tensor of shape ``(B, len(c2i) * sum(levels))`` with PHOC descriptors.
+    Returns:
+        torch.BoolTensor: Tensor of shape ``(B, len(c2i) * sum(levels))`` with
+        PHOC descriptors.
     """
     # alphabet ordered by index (index 0 reserved for the CTC blank)
     alphabet = [c for c, i in sorted(c2i.items(), key=lambda kv: kv[1]) if i != 0]
@@ -32,7 +29,8 @@ def build_phoc_description(words: List[str],
     phoc = torch.zeros(len(words), total_dim, dtype=torch.bool)
 
     for w_idx, word in enumerate(words):
-        text = word.lower()
+        # Preserve case to respect case-sensitive vocabularies.
+        text = str(word)
         offset = 0
         for l in levels:
             seg_len = max(len(text), 1) / l

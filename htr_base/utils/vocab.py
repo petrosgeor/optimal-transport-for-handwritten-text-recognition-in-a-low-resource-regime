@@ -36,18 +36,28 @@ CHARSETS = {
     ],
 }
 
+# Build a union charset that contains every symbol used across GW, IAM and CVL.
+# The ordering is alphabetical/unicode code‑point order for determinism.
+_UNION_KEYS = ("GW", "IAM", "CVL")
+_union_set = set()
+for _k in _UNION_KEYS:
+    _union_set.update(CHARSETS[_k])
+CHARSETS["ALL_DATASETS"] = sorted(_union_set)
+
 def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
-    """Return vocabulary mappings for the given dataset.
+    """Return character-index mappings for a named charset.
 
     Args:
-        dataset_name (str): One of ``'GW'``, ``'IAM'`` or ``'CVL'``.
+        dataset_name (str): One of ``'GW'``, ``'IAM'``, ``'CVL'`` or
+            ``'ALL_DATASETS'``. The special ``'ALL_DATASETS'`` entry is the
+            union of all supported dataset character sets.
 
     Returns:
         tuple[dict, dict]: ``(c2i, i2c)`` where indices start at 1. Index 0 is
         implicitly reserved for the CTC blank in downstream code.
 
     Raises:
-        ValueError: If ``dataset_name`` is not one of the supported datasets.
+        ValueError: If ``dataset_name`` is not a key in ``CHARSETS``.
     """
 
     if dataset_name not in CHARSETS:

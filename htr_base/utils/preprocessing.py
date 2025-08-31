@@ -3,6 +3,7 @@ import skimage.io as img_io
 import skimage.color as img_color
 from skimage.transform import resize
 import numpy as np
+from PIL import Image
 
 def load_image(path: str,
                *,                  # all args after this are keyword‑only
@@ -61,3 +62,29 @@ def preprocess(img, input_size, border_size=8):
     img = np.pad(img, ((top, bottom), (left, right)), mode='median')
 
     return img
+
+
+def is_image_corrupted(path: str, fast: bool = True) -> bool:
+    """
+    Check if an image file appears corrupted or unreadable.
+
+    Args:
+        path (str): Filesystem path to the image to test.
+        fast (bool): If True, validate headers/structure via ``PIL.Image.verify()``
+            without fully decoding pixels. If False, fully decodes the image
+            via ``PIL.Image.open(...).load()`` which is slower but more robust.
+
+    Returns:
+        bool: ``True`` if the image seems corrupted/unreadable, ``False`` otherwise.
+    """
+    try:
+        with Image.open(path) as im:
+            if fast:
+                # Header/structure validation without full decode
+                im.verify()
+            else:
+                # Force full decode to catch deeper corruption
+                im.load()
+        return False
+    except Exception:
+        return True

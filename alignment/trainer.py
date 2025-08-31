@@ -20,6 +20,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from itertools import cycle
 from torch.utils.data import DataLoader, TensorDataset
+from torch.amp import autocast, GradScaler
 root = Path(__file__).resolve().parents[1]
 if str(root) not in sys.path:
     sys.path.insert(0, str(root))
@@ -55,6 +56,31 @@ warnings.filterwarnings(
     "ignore",
     category=RequestsDependencyWarning
 )
+
+# --------------------------------------------------------------------------- #
+#                          CUDA device normalization                          #
+# --------------------------------------------------------------------------- #
+# Ensure the current device is the single visible GPU (local cuda:0) and
+# sanitize any 'cuda:<n>' strings in the config to plain 'cuda'. This avoids
+# device-index mismatches (e.g., with KeOps/GeomLoss) when CUDA_VISIBLE_DEVICES
+# remaps the selected physical GPU to local index 0.
+try:
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.set_device(0)
+        except Exception:
+            # Best-effort; continue if setting current device fails
+            pass
+    # Normalize device strings like 'cuda:3' -> 'cuda' since only local 0 is visible
+    if isinstance(cfg.device, str) and cfg.device.startswith("cuda") and ":" in cfg.device:
+        print("[trainer] Normalizing cfg.device to 'cuda' (use gpu_id to select GPU)")
+        cfg.device = "cuda"
+    if isinstance(cfg.align_device, str) and cfg.align_device.startswith("cuda") and ":" in cfg.align_device:
+        print("[trainer] Normalizing cfg.align_device to 'cuda' (use gpu_id to select GPU)")
+        cfg.align_device = "cuda"
+except Exception:
+    # Keep training resilient to unexpected config types or missing attributes
+    pass
 
 
 def _assert_finite(t: torch.Tensor, where: str) -> None:
@@ -210,10 +236,15 @@ CONTRASTIVE_WEIGHT = float(cfg.get("contrastive_weight", 0.0))
 CONTRASTIVE_TAU = float(cfg.get("contrastive_tau", 0.07))
 CONTRASTIVE_TEXT_T = float(cfg.get("contrastive_text_T", 1.0))
 
-# Ensure CUDA_VISIBLE_DEVICES matches the configured GPU index
-os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
-if str(cfg.device).startswith("cuda"):
-    cfg.device = "cuda:0"
+# Legacy safeguard removed: device selection happens at import
+# and device strings are normalized earlier.
+
+# Enable cuDNN autotuner for potentially faster kernels on fixed-size inputs
+try:
+    import torch.backends.cudnn as cudnn
+    cudnn.benchmark = True
+except Exception:
+    pass
 
 
 def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
@@ -555,6 +586,7 @@ def train_projector(  # pylint: disable=too-many-arguments
         batch_size=batch_size,
         shuffle=True, # Shuffle is True here for training
         pin_memory=(device.type == "cuda"),
+        num_workers=num_workers,
     )
 
     # ---------------------------------------------------------------- 3. Optimiser + loss
@@ -562,28 +594,40 @@ def train_projector(  # pylint: disable=too-many-arguments
     # Iterate over each projector in the ensemble
     for idx, proj in enumerate(projs):
         optimiser = optim.AdamW(proj.parameters(), lr=lr, weight_decay=weight_decay)
+        scaler = GradScaler("cuda")
 
         # Training loop for the current projector
         for epoch in range(1, num_epochs + 1):
             running_loss = 0.0
             num_batches = 0
             for feats_cpu, align_cpu in proj_loader:
-                feats = feats_cpu.to(device);
-                align = align_cpu.to(device);
-                
-                # Forward pass through the projector
-                pred = proj(feats)
-                # Compute the projection loss
-                loss = criterion.forward(pred, word_embs, align, word_probs)
+                feats = feats_cpu.to(device)
+                align = align_cpu.to(device)
 
-                # Backpropagation and optimization
-                loss.backward()
-                
-                torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0)
-
-                optimiser.step()
                 optimiser.zero_grad(set_to_none=True)
-                running_loss += loss.item()
+                # Mixed-precision projector forward
+                with autocast("cuda", dtype=torch.float16):
+                    pred = proj(feats)
+
+                # Compute OT loss in float32 for PyKeOps/GeomLoss stability
+                # Avoid autocast so inputs remain full precision for Sinkhorn.
+                with autocast("cuda", enabled=False):
+                    loss = criterion.forward(
+                        pred.float(),
+                        word_embs.float(),
+                        align,
+                        word_probs.float(),
+                    )
+
+                # Backpropagation with gradient scaling
+                scaler.scale(loss).backward()
+                # Unscale before gradient clipping
+                scaler.unscale_(optimiser)
+                torch.nn.utils.clip_grad_norm_(proj.parameters(), max_norm=1.0)
+                scaler.step(optimiser)
+                scaler.update()
+
+                running_loss += float(loss.detach().item())
                 num_batches += 1
             
             avg_loss = running_loss / num_batches if num_batches > 0 else 0
@@ -615,6 +659,7 @@ def alternating_refinement(
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
+    enable_pseudo_labeling: bool = bool(getattr(cfg, "enable_pseudo_labeling", True)),
 ) -> None:
     """
     Performs an alternating training cycle between the backbone and projectors.
@@ -637,6 +682,11 @@ def alternating_refinement(
         refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.
         projector_kwargs: Additional keyword arguments for `train_projector`.
         align_kwargs: Additional keyword arguments for `align_more_instances`.
+        enable_pseudo_labeling (bool): If ``False``, skip calls to
+            :func:`align_more_instances` and train only on the currently
+            aligned samples. Metrics (CER/WER) are still computed and logged
+            for each refinement round with ``correct_pseudo=0``. Defaults to
+            ``cfg.enable_pseudo_labeling`` (True if missing).
     """
 
     out_dir = "results"
@@ -644,6 +694,16 @@ def alternating_refinement(
     if out_path.is_dir():
         for f in out_path.glob("pseudo_labels_round_*.txt"):
             f.unlink()
+
+    # Dataset-specific output folder for pseudo-label TSVs
+    save_dir = Path("results") / dataset.get_dataset_name() / "pseudo_labels" / f"{dataset.n_aligned}_initial"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    for f in save_dir.glob("pseudo_labels_round_*.txt"):
+        f.unlink()
+
+    # Save initial aligned examples (seeds) as round 0
+    init_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
+    log_pseudo_labels(init_idx, dataset, round_idx=0, out_dir=str(save_dir))
 
     maybe_load_backbone(backbone, cfg)
 
@@ -685,6 +745,48 @@ def alternating_refinement(
     )
 
     cycle_idx = 1
+    # If pseudo‑labelling is disabled, run exactly `rounds` refinement cycles
+    # training the BACKBONE ONLY (no projector training), compute CER/WER each
+    # round, log metrics with correct_pseudo=0, and return.
+    if not enable_pseudo_labeling:
+        for r in range(rounds):
+            print(f"[Round {r + 1}/{rounds}] Refining backbone...")
+            if backbone_epochs > 0:
+                refine_visual_backbone(
+                    dataset,
+                    backbone,
+                    num_epochs=backbone_epochs,
+                    **(refine_kwargs or {}),
+                )
+
+            # Ensure projectors are frozen; do not train them in disabled mode
+            for proj in projectors:
+                for p in proj.parameters():
+                    p.requires_grad_(False)
+
+            # In disabled mode we still log metrics once per round
+            cer_test = compute_cer(
+                test_dataset,
+                backbone,
+                batch_size=cfg.eval_batch_size,
+                device=cfg.device,
+                k=4,
+            )
+            wer_test = compute_wer(
+                test_dataset,
+                backbone,
+                batch_size=cfg.eval_batch_size,
+                device=cfg.device,
+            )
+            log_round_metrics(
+                r + 1,
+                0,  # no new pseudo‑labels in disabled mode
+                cer_test,
+                float(wer_test),
+                cfg.round_metrics_file,
+            )
+        return
+
     # Main loop: continue as long as there are unaligned instances
     while (dataset.aligned == -1).any():
         for r in range(rounds):
@@ -758,7 +860,8 @@ def alternating_refinement(
         changed = torch.nonzero(
             (prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True
         )[0]
-        # log_pseudo_labels(changed, dataset, cycle_idx, out_dir="results")
+        # Log newly pseudo-labeled items for this cycle
+        log_pseudo_labels(changed, dataset, round_idx=cycle_idx, out_dir=str(save_dir))
         correct_round = sum(
             dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
             for i in changed.tolist()
@@ -811,7 +914,6 @@ def alternating_refinement(
         )
 
 if __name__ == "__main__":
-    """Run a *tiny* end‑to‑end refinement cycle to verify code execution."""
     from types import SimpleNamespace
 
     # ── 1. Dataset with 200 unique words and a handful of alignments ─────

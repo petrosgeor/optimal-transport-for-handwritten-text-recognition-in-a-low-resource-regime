@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset
 from os.path import isfile
 from skimage.transform import resize
-from .preprocessing import load_image, preprocess
+from .preprocessing import load_image, preprocess, is_image_corrupted
 from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
@@ -514,11 +514,20 @@ class HTRDataset(Dataset):
 class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining.
 
-    If ``n_random`` is provided, ``random_seed`` ensures the same
-    subset of images is selected each time.  When ``preload_images``
-    is ``True`` the raw images are cached in memory for faster
-    access. Labels can be filtered by length using ``min_length``
-    and ``max_length`` before random subsampling occurs.
+    Selection is deterministic for a fixed `list_file`, filesystem, and
+    `random_seed`: the candidate list is first filtered by filename validity,
+    then deterministically shuffled and scanned left-to-right. Only entries
+    that actually exist on disk are kept. When ``n_random`` is provided, the
+    dataset contains exactly ``n_random`` existing images; otherwise all
+    existing images from the filtered list are used. If the filesystem cannot
+    supply ``n_random`` existing files, a ``RuntimeError`` is raised with a
+    concise summary.
+
+    If ``preload_images`` is ``True``, images are loaded into memory. Should a
+    corrupted file cause a read failure during preloading, the dataset attempts
+    to replace it by scanning the remaining shuffled candidates; if no
+    replacement can be found while satisfying ``n_random``, a ``RuntimeError``
+    is raised.
     """
 
     def __init__(
@@ -538,32 +547,116 @@ class PretrainingHTRDataset(Dataset):
             fixed_size (tuple): ``(height, width)`` for resizing.
             base_path (str): Root directory prepended to each path in ``list_file``.
             transforms (list | None): Optional Albumentations pipeline.
-            n_random (int | None): If given, keep only ``n_random`` entries.
-            min_length (int): Lower bound on label length to keep.
-            max_length (int): Upper bound on label length to keep.
-            random_seed (int): Seed controlling the random subset selection.
+            n_random (int | None): If given, keep exactly ``n_random`` existing entries.
+            random_seed (int): Seed controlling the deterministic shuffle.
             preload_images (bool): Load all images into memory on init.
+
+        Raises:
+            RuntimeError: When ``n_random`` is set and fewer existing images are
+                available than requested, or when preloading cannot satisfy the
+                requested count due to unreadable/corrupted files.
         """
         self.fixed_size = fixed_size
         self.base_path = base_path
         self.transforms = transforms
         self.preload_images = preload_images
 
-
+        # 1) Build candidate list from file, preserving current validity filter
         with open(list_file, 'r') as f:
             rel_paths = [line.strip() for line in f if line.strip()]
 
-        def _valid(p):
-            desc = os.path.basename(p).split('_')[1]
+        def _valid(p: str) -> bool:
+            """Return True if the filename-based descriptor passes the heuristic filter."""
+            try:
+                desc = os.path.basename(p).split('_')[1]
+            except Exception:
+                return False
             return (not desc.isupper()) and desc.isalnum()
 
         filtered = [p for p in rel_paths if _valid(p)]
-        if n_random is not None and n_random > 0:
-            rng = random.Random(random_seed)
-            filtered = rng.sample(filtered, min(n_random, len(filtered)))
-        self.img_paths, self.transcriptions = self.process_paths(filtered)
+
+        # Deterministic permutation using the provided seed
+        rng = random.Random(random_seed)
+        rng.shuffle(filtered)
+
+        # 2) Scan permuted list, keep first n_random existing absolute paths
+        want_n = n_random if (n_random is not None and n_random > 0) else None
+        keep_paths: List[str] = []
+        keep_labels: List[str] = []
+
+        # Helper to convert one relative path to absolute path and label
+        def _to_abs_and_label(rel: str) -> tuple[str, str]:
+            abs_path = os.path.normpath(os.path.join(self.base_path, rel.lstrip('./')))
+            desc = os.path.basename(rel).split('_')[1].lower()
+            return abs_path, desc
+
+        # Gather from shuffled candidates
+        for rel in filtered:
+            abs_path, label = _to_abs_and_label(rel)
+            # Keep only files that exist and are not corrupted (header check)
+            if os.path.isfile(abs_path) and not is_image_corrupted(abs_path, fast=False):
+                keep_paths.append(abs_path)
+                keep_labels.append(label)
+                if want_n is not None and len(keep_paths) >= want_n:
+                    break
+
+        if want_n is not None and len(keep_paths) < want_n:
+            msg = (
+                f"Requested n_random={want_n}, but only {len(keep_paths)} existing images "
+                f"were found after filtering (listed={len(rel_paths)}, valid={len(filtered)}). "
+                "Re-download the dataset or lower n_random."
+            )
+            raise RuntimeError(msg)
+
+        # Persist selected items
+        self.img_paths = keep_paths
+        self.transcriptions = keep_labels
+
+        # Optional 5) Robust preloading with fallback to remaining candidates
         if self.preload_images:
-            self.images = [load_image(p) for p in self.img_paths]
+            self.images = []
+            kept_set = set(self.img_paths)
+            # Iterator over remaining candidates (beyond those already chosen)
+            remaining_iter = (rel for rel in filtered if os.path.normpath(os.path.join(self.base_path, rel.lstrip('./'))) not in kept_set)
+
+            def _next_replacement():
+                for rel in remaining_iter:
+                    abs_path, label = _to_abs_and_label(rel)
+                    if os.path.isfile(abs_path):
+                        try:
+                            img = load_image(abs_path)
+                        except Exception:
+                            continue
+                        return abs_path, label, img
+                return None
+
+            for i, p in enumerate(list(self.img_paths)):
+                try:
+                    img = load_image(p)
+                    self.images.append(img)
+                except Exception:
+                    repl = _next_replacement()
+                    if repl is None:
+                        # Not enough replacements; enforce the invariant when n_random was requested
+                        want = want_n if want_n is not None else len(self.img_paths)
+                        raise RuntimeError(
+                            f"Failed to preload image at index {i} and no replacement available. "
+                            f"Requested {want} images but could not preload that many."
+                        )
+                    abs_path, label, img = repl
+                    # Replace entry i to keep counts and labels consistent
+                    self.img_paths[i] = abs_path
+                    self.transcriptions[i] = label
+                    self.images.append(img)
+
+        # 6) Log a concise summary of selection
+        total_listed = len(rel_paths)
+        total_valid = len(filtered)
+        total_kept = len(self.img_paths)
+        print(
+            f"[PretrainingHTRDataset] listed={total_listed} valid={total_valid} kept={total_kept} "
+            f"(n_random={n_random if n_random is not None else 'all'}; preload={self.preload_images})"
+        )
 
     def process_paths(self, filtered_list):
         """Convert relative image paths to absolute ones and extract labels.

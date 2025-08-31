@@ -1,15 +1,16 @@
 # ----------------------------------------------------------------------
 # Backbone refinement
 # ----------------------------------------------------------------------
-refine_batch_size: 64      # mini-batch size used when fine-tuning the backbone
+refine_batch_size: 128      # mini-batch size used when fine-tuning the backbone
 refine_lr: 1e-3             # learning rate during backbone refinement
 refine_main_weight: 1.0     # weight for the main CTC loss branch
 refine_aux_weight: 0.1      # weight for the auxiliary CTC loss
 refine_epochs: 50           # epochs used for backbone refinement
-syn_batch_ratio: 0        # fraction of each batch drawn from PretrainingHTRDataset. 1 for only synthetic and 0 for only real
+refine_workers: 2           # dataloader workers during backbone refinement
+syn_batch_ratio: 0.5       # fraction of each batch drawn from PretrainingHTRDataset. 1 for only synthetic and 0 for only real
 
 # optional PHOC training
-enable_phoc: true        # turn PHOC loss on/off
+enable_phoc: false        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # descriptor levels for PHOC (Pyramidal Histogram of Characters)
 phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 
@@ -41,7 +42,7 @@ architecture:
 projector_epochs: 150       # number of epochs for the projector network
 projector_batch_size: 16000  # mini-batch size when collecting descriptors
 projector_lr: 1e-4          # learning rate for projector optimisation
-projector_workers: 0        # dataloader workers used during descriptor caching
+projector_workers: 2        # dataloader workers used during descriptor caching
 projector_weight_decay: 1e-4  # weight decay for the projector optimiser
 plot_tsne: false              # save t-SNE plots during projector training
 
@@ -49,12 +50,13 @@ plot_tsne: false              # save t-SNE plots during projector training
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
-gpu_id: 0                  # which CUDA device index to use
+gpu_id: 1                  # which CUDA device index to use
 
 # ----------------------------------------------------------------------
 # Alternating training cycle
 # ----------------------------------------------------------------------
 alt_rounds: 1               # number of backbone/projector cycles per pass
+enable_pseudo_labeling: true  # when false, skip OT pseudo‑labeling entirely; metrics still logged per round
 
 # ----------------------------------------------------------------------
 # Align-more-instances defaults
@@ -64,19 +66,19 @@ align_device: cuda           # device used during alignment post-processing
 align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
 align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
-align_k: 10000                  # pseudo-label this many least-moved descriptors
+align_k: 200                  # pseudo-label this many least-moved descriptors
 metric: entropy          # use projection-variance agreement ('gap', 'variance', 'entropy')
 eval_batch_size: 64         # mini-batch size during CER evaluation
-round_metrics_file: results/CVL/cvl_607samples.txt  # path to TSV log for refinement rounds
+round_metrics_file: results/GW/no_phoc/gw_24samples_no_phoc3.txt  # path to TSV log for refinement rounds
 
 # ----------------------------------------------------------------------
 # Dataset parameters
 # ----------------------------------------------------------------------
 dataset:
-  basefolder: 'htr_base/data/CVL/processed_words' # Base folder for the dataset
+  basefolder: 'htr_base/data/GW/processed_words' # Base folder for the dataset
   subset: 'all'       # Subset of the dataset to use (e.g., 'train_val', 'test')
   fixed_size: [64, 256]     # Fixed size to which images are resized [height, width]
-  n_aligned: 607            # Number of initially aligned instances
+  n_aligned: 24            # Number of initially aligned instances
   word_emb_dim: 100         # Dimension of word embeddings
   # How to compute prior probabilities for unique words:
   #   - empirical: use ground-truth frequency from dataset transcriptions
@@ -99,7 +101,9 @@ pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone_new.pt" # P
 # ----------------------------------------------------------------------
 synthetic_dataset:
   list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt" # Path to the list file for synthetic dataset
+  # list_file: "/home/pger/data/synthetic_data/90kDICT32px/imlist.txt"
   base_path: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px" # Base path for synthetic dataset images
+  # base_path: "/home/pger/data/synthetic_data/90kDICT32px"
   n_random: 7000            # Number of random samples to use from the synthetic dataset
   fixed_size: [64, 256]     # Fixed size for synthetic images [height, width]
   preload_images: true      # Preload images into memory for faster access

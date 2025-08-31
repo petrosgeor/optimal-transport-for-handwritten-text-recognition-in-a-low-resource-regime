@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------
 # Pretraining PHOC
 # ----------------------------------------------------------------------
-enable_phoc: false        # turn PHOC loss on/off
+enable_phoc: true        # turn PHOC loss on/off
 phoc_levels: [1, 2, 3, 4] # same default as HTRNet
 phoc_loss_weight: 0.5     # loss scaling factor
 
@@ -42,12 +42,12 @@ pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
 # ``pretraining.py`` and other scripts use the same values.
 device: cuda           # target device
 gpu_id: 0              # CUDA device index
-list_file: "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"
-train_set_size: 30000  # number of random training images
+list_file: "/home/pger/data/synthetic_data/90kDICT32px/imlist.txt"
+train_set_size: 500000  # number of random training images
 test_set_size: 10000   # number of random test images
 min_length: 0   # keep training images whose label length \u2208 [min_length, max_length]
 max_length: 100
-batch_size: 128
+batch_size: 256
 num_epochs: 10000
 learning_rate: 1e-3
 fixed_size: [64, 256]
@@ -55,6 +55,6 @@ base_path: null        # defaults to list_file directory if null
 use_augmentations: true
 main_loss_weight: 1.0
 aux_loss_weight: 0.1
-save_path: "htr_base/saved_models/pretrained_backbone_new.pt"
+save_path: "htr_base/saved_models/pretrained_backbone_all_chars.pt"
 save_backbone: true
 results_file: false

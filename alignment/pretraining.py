@@ -58,7 +58,6 @@ from htr_base.utils.phoc import build_phoc_description
 from omegaconf import OmegaConf
 import torch
 import torch.optim as optim
-import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.data import DataLoader
 
 yaml_cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml")
@@ -85,7 +84,11 @@ PRETRAINING_CONFIG = {
     "use_augmentations": bool(yaml_cfg.get("use_augmentations", True)),
     "main_loss_weight": float(yaml_cfg.get("main_loss_weight", 1.0)),
     "aux_loss_weight": float(yaml_cfg.get("aux_loss_weight", 0.1)),
-    "save_path": yaml_cfg.get("save_path", "htr_base/saved_models/pretrained_backbone.pt"),
+    # Save pretrained backbone using the union vocabulary across all datasets
+    "save_path": yaml_cfg.get(
+        "save_path",
+        "htr_base/saved_models/pretrained_backbone_all_chars.pt",
+    ),
     "save_backbone": bool(yaml_cfg.get("save_backbone", True)),
 }
 # Architecture configuration for the pretraining backbone
@@ -93,7 +96,15 @@ PRETRAINING_CONFIG = {
 ARCHITECTURE_CONFIG = yaml_cfg["architecture"]
 
 def main(config: dict | None = None) -> Path:
-    """Train a small HTRNet on the given image list using dictionary configuration."""
+    """Train an HTRNet on a synthetic list using the ALL_DATASETS charset.
+
+    Args:
+        config (dict | None): Optional overrides for pretraining settings.
+
+    Returns:
+        Path: Filesystem path where the backbone weights are stored. The default
+        save location is ``htr_base/saved_models/pretrained_backbone_all_chars.pt``.
+    """
     if config is None:
         config = {}
     config = {**PRETRAINING_CONFIG, **config}
@@ -104,7 +115,8 @@ def main(config: dict | None = None) -> Path:
     num_epochs = config["num_epochs"]
     batch_size = config["batch_size"]
     assert batch_size > 0 and batch_size <= 1024, "batch_size must be between 1 and 1024"
-    lr = config["learning_rate"]
+    # Fix the learning rate regardless of the config as per requirement
+    lr = 1e-4
     assert lr > 0, "learning_rate must be positive"
     base_path = config.get("base_path", None)
     fixed_size = config["fixed_size"]
@@ -138,7 +150,7 @@ def main(config: dict | None = None) -> Path:
         base_path=base_path,
         transforms=transforms,
         n_random=n_random,
-        preload_images=True,
+        preload_images=False,
         random_seed=0,
     )
     assert len(train_set) > 0, "training dataset is empty"
@@ -150,18 +162,16 @@ def main(config: dict | None = None) -> Path:
         base_path=base_path,
         transforms=None,
         n_random=config.get("test_set_size", 10000),
-        preload_images=True,
+        preload_images=False,
         random_seed=1,
     )
     assert test_set.fixed_size == fixed_size, "test_set fixed_size mismatch"
     print(f"[Pretraining] Dataset size: {len(train_set)}")
     print(f"[Pretraining] Test set size: {len(test_set)}")
     save_dir = Path(save_path).parent
-    c2i_path = save_dir / "c2i.pkl"
-    i2c_path = save_dir / "i2c.pkl"
 
-    # Use the fixed vocabulary for training
-    c2i, i2c = load_vocab()
+    # Use the union vocabulary across all supported datasets
+    c2i, i2c = load_vocab("ALL_DATASETS")
 
     assert 0 not in c2i.values(), "blank index 0 found in c2i values"
 
@@ -183,12 +193,11 @@ def main(config: dict | None = None) -> Path:
     n_params = sum(p.numel() for p in net.parameters() if p.requires_grad)
     print(f"[Pretraining] Network parameters: {n_params:,}")
     # Create data loader and optimizer
-    n_workers_train = int(config.get("num_workers", 3))
-    n_workers_test = int(config.get("test_num_workers", 1))
+    n_workers_train = 2
+    n_workers_test = 2
     train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=n_workers_train)
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=n_workers_test)
     opt = optim.Adam(net.parameters(), lr=lr)
-    sched = lr_scheduler.StepLR(opt, step_size=1500, gamma=0.5)
     contr_loss_fn = SoftContrastiveLoss(CONTR_TAU, CONTR_TTXT).to(device)
     print(f"[Pretraining] Starting training...")
     print(f"[Pretraining] PHOC loss enabled: {ENABLE_PHOC}")
@@ -284,10 +293,10 @@ def main(config: dict | None = None) -> Path:
         avg_loss = epoch_loss / max(1, num_batches)
         avg_phoc_loss = phoc_epoch_loss / max(1, num_batches)
         avg_contr_loss = running_contr / max(1, num_batches)
-        sched.step()
         # Print progress every 20 epochs or on last epoch
-        if (epoch + 1) % 30 == 0 or epoch == num_epochs - 1:
-            lr_val = sched.get_last_lr()[0]
+        if (epoch + 1) % 3 == 0 or epoch == num_epochs - 1:
+            # With a fixed learning rate, read it directly from the optimizer
+            lr_val = opt.param_groups[0]["lr"]
             import math
             assert lr_val > 0 and math.isfinite(lr_val), "learning rate underflow or became non-finite"
             msg = f"[Pretraining] Epoch {epoch+1:03d}/{num_epochs} - Loss: {avg_loss:.4f}"

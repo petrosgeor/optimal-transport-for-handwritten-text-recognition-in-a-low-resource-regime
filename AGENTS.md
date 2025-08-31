@@ -6,6 +6,15 @@ These rules define how agents must operate on the codebase to ensure it remains 
 
 ---
 
+## Planning
+
+Before responding, please:
+
+1. Decompose the request into core components
+2. Identify any ambiguities that need clarification
+3. Create a structured approach to address each component
+4. Validate your understanding before proceeding
+
 ## 1. ✍️ Document All Code with Docstrings
 
 .``Whenever you **create or modify** a function or class, you **must** include a concise docstring.
@@ -99,47 +108,36 @@ To ensure the high-level documentation is always current, every time you **add o
 
 ---
 
-## 3. 🧪 Self-Test All Changes with `pytest`
+## 3. 🧪 Self-Test All Changes via Command Line
 
-Whenever you **introduce or modify** any functionality:
+Whenever you **introduce or modify** any functionality, validate it using
+ephemeral toy examples executed in the command line. Do not create, modify,
+or delete any files for these checks.
 
-* Whenever a **function** or **class** is created or modified, the agent should **automatically write a corresponding test**. This test should be placed in a **new file inside the `tests/` directory**, and it must **import the relevant function or class**.
-* You should then:
-    1. **Write example usage** of the function or class.
-    2. **Use assertions and print statements** to verify the behavior.
-    3. If anything looks suspicious or unexpected, you should **revisit the original code** and investigate. You edit the function or class you created again and go through the same process until it works as expected. You then delete the test file you made and put the test code you just written inside the `tests/functionalities_test.py`, inside a function which will work with pytest.
-* You can use any command you want (e.g., `python ...`, `pytest`) to run your tests.
-* Always add or update tests in the file:
-  `tests/functionalities_test.py`.
-
-### If `tests/functionalities_test.py`:
-
-* **Does not exist** → Create it and include at least one test for the new/changed functionality.
-* **Exists** → Append relevant new test(s) in the same file.
-
-### If a test becomes **obsolete** (e.g., due to interface change or removed behavior):
-
-* **Remove it**, as long as it no longer represents the updated truth and would raise an invalid assertion.
-
-### Test expectations:
-
-* **Use `assert` statements** to check meaningful output.
-* Test **core logic only** (no edge-case overfitting).
-* **Commit the test** in the **same commit** as the corresponding code change.
+- Write a minimal example that imports the updated function/class and exercises
+  its core behavior. Prefer a single command such as:
+  - `python - <<'PY' ... PY`
+  - or `python -c "..."`
+- Use simple `print` statements and/or inline `assert` statements to confirm
+  expected outcomes. The example must not write to the repository or leave
+  artifacts on disk.
+- If outputs are unexpected, iterate on the implementation and re-run the same
+  command-line example until it behaves as intended.
+- Do not add or edit files under `tests/` and do not use `pytest`.
 
 ---
 
-## 4. ▶️ Run the Tests and Report Results
+## 4. ▶️ Run Checks and Report Results
 
-After making any change and writing/updating the tests:
+After making a change and preparing a toy example:
 
-* **Run all tests** using `pytest`.
-* **Report the result**:
+- **Run the command-line example** that validates the change.
+- **Report the result** by pasting the exact command and its output, stating:
+  - What was expected, and
+  - What was observed (including any traceback if it failed).
 
-  * Confirm **all tests passed**, or
-  * Identify and explain any test failures (whether from new or existing tests).
-
-Do **not** consider the task complete until all tests pass and the test suite is clean.
+Do **not** consider the task complete until the command-line example clearly
+demonstrates correct behavior.
 
 ---
 
@@ -185,17 +183,20 @@ Before making **any modification** to an existing file or introducing new code i
 
 * Add a docstring explaining its purpose, arguments, and return value.
 * Update `README.md` to reflect the new function.
-* Add a test like:
+* Validate via a toy command-line example (no file writes):
 
-```python
-def test_normalize():
-    assert normalize([3, 4]) == [0.6, 0.8]
+```bash
+python - <<'PY'
+from your_module import normalize
+v = normalize([3, 4])
+print('result:', v)
+assert all(abs(a-b)<1e-6 for a,b in zip(v, [0.6, 0.8]))
+print('OK')
+PY
 ```
 
-* Save this inside `tests/functionalities_test.py`. Create the file if needed.
-* Remove any obsolete tests if needed.
-* Run `pytest` and confirm all tests pass.
-* Report the test result clearly.
+* If the assertion fails, refine the implementation and re-run the same
+  example until it prints the expected result and `OK`.
 
 ---
 
@@ -203,7 +204,7 @@ def test_normalize():
 
 Keep the repo:
 
-* **Self-verifying** through tests
+* **Self-verifying** through lightweight command-line checks
 * **Well-documented** through docstrings and `README.md`
 * **Minimal and truthful** through careful removals
 * **Reliable** by ensuring every commit leaves the test suite in a passing state
