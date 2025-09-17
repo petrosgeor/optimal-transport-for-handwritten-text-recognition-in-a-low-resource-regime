@@ -32,15 +32,15 @@ We iteratively project backbone descriptors into a word-embedding space via opti
 ## Pipeline Overview
 ```mermaid
 flowchart LR
-    A[HTRDataset\n(aligned, unique_words,\nword embeddings/probs)] --> B[Refine Backbone\nCTC on aligned only]
-    A -->|all images (eval)| C[Harvest Descriptors]
-    C --> D[Train Projector(s)\nProjectionLoss (OT + supervised MSE)]
-    D --> E[OTAligner.align()\ncompute OT plan + projections]
-    E --> F[Select Candidates\nmetric: gap/entropy + agreement]
-    F --> G[Update dataset.aligned\n(pseudo-labels)]
+    A["HTRDataset<br/>(aligned, unique_words,<br/>word embeddings/probs)"] --> B["Refine Backbone<br/>CTC on aligned only"]
+    A -->|all images (eval)| C["Harvest Descriptors"]
+    C --> D["Train Projector(s)<br/>ProjectionLoss (OT + supervised MSE)"]
+    D --> E["OTAligner.align()<br/>compute OT plan + projections"]
+    E --> F["Select Candidates<br/>metric: gap/entropy + agreement"]
+    F --> G["Update dataset.aligned<br/>(pseudo-labels)"]
     G -->|loop| B
-    A --> H[Test split (n_aligned=0)]
-    H --> I[compute_cer / compute_wer]
+    A --> H["Test split (n_aligned=0)"]
+    H --> I["compute_cer / compute_wer"]
 ```
 
 **Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train projector(s) with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples that meet confidence and agreement thresholds. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
