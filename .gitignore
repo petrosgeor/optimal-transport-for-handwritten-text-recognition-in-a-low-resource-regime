@@ -1,7 +1,12 @@
 # General ignores
 __pycache__/
 **/__pycache__/
+.cache/
+.pytest_cache/
+.vscode/
 .env
+.repomix/
+repomix.config.json
 *.xml
 *.json
 !overview/knowledge_graph.json
@@ -26,6 +31,7 @@ tests/figures/
 # Project-specific directories
 google_drive_upload/
 results/
+scripts/
 
 
 # Markdown files (except specific ones)
