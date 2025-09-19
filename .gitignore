@@ -9,12 +9,9 @@ __pycache__/
 repomix.config.json
 *.xml
 *.json
-!overview/knowledge_graph.json
 *.sh
 instructions.txt
 results.txt
-overview/README.md
-overview/knowledge_graph.graphml
 
 # Data and models
 htr_base/data/*
@@ -25,19 +22,18 @@ htr_base/saved_models/
 htr_base/saved_models/pretrained_backbone.pt
 
 # Test-related ignores
-tests/figures/
-# tests/test.py
+tests/
 
 # Project-specific directories
 google_drive_upload/
 results/
 scripts/
+overview/
 
 
 # Markdown files (except specific ones)
 *.md
 !/README.md
 !AGENTS.md
-!overview/project_overview.md
 !GEMINI.md
 !docs/knowledge_graph.md

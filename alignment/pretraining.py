@@ -5,10 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from omegaconf import OmegaConf
 
-# Set CUDA devices before importing torch
-_cfg_file = Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml"
-_cfg = OmegaConf.load(_cfg_file)
-os.environ["CUDA_VISIBLE_DEVICES"] = str(_cfg.gpu_id)
+CONFIG_PATH = Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml"
+CFG = OmegaConf.load(CONFIG_PATH)
+os.environ["CUDA_VISIBLE_DEVICES"] = str(CFG.get("gpu_id", 0))
 
 import torch
 
@@ -55,45 +54,62 @@ from alignment.ctc_utils import (
 )
 from alignment.losses import _ctc_loss_fn, SoftContrastiveLoss   # new class
 from htr_base.utils.phoc import build_phoc_description
-from omegaconf import OmegaConf
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-yaml_cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "pretraining_config.yaml")
-GPU_ID = int(yaml_cfg.get("gpu_id", 0))
-DEVICE = "cuda"
-ENABLE_PHOC = bool(yaml_cfg.get("enable_phoc", False))
-PHOC_LEVELS = tuple(yaml_cfg.get("phoc_levels", (1, 2, 3, 4)))
-PHOC_W = float(yaml_cfg.get("phoc_loss_weight", 0.1))
-ENABLE_CONTR = bool(yaml_cfg.get("contrastive_enable", False))
-CONTR_W      = float(yaml_cfg.get("contrastive_weight", 0.0))
-CONTR_TAU    = float(yaml_cfg.get("contrastive_tau", 0.07))
-CONTR_TTXT   = float(yaml_cfg.get("contrastive_text_T", 1.0))
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+GPU_ID = int(CFG.get("gpu_id", 0)) if DEVICE == "cuda" else None
+ENABLE_PHOC = bool(CFG.get("enable_phoc", False))
+PHOC_LEVELS = tuple(CFG.get("phoc_levels", (1, 2, 3, 4)))
+PHOC_W = float(CFG.get("phoc_loss_weight", 0.1))
+ENABLE_CONTR = bool(CFG.get("contrastive_enable", False))
+CONTR_W      = float(CFG.get("contrastive_weight", 0.0))
+CONTR_TAU    = float(CFG.get("contrastive_tau", 0.07))
+CONTR_TTXT   = float(CFG.get("contrastive_text_T", 1.0))
 # Default pretraining configuration
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolve_path(value, *, required: bool = False, must_exist: bool = False) -> Path | None:
+    """Resolve config paths relative to the repository root."""
+    if value in (None, ""):
+        if required:
+            raise ValueError(
+                f"Configuration value is required; update {CONFIG_PATH}.")
+        return None
+    candidate = Path(value).expanduser()
+    if not candidate.is_absolute():
+        candidate = REPO_ROOT / candidate
+    if must_exist and not candidate.exists():
+        raise FileNotFoundError(
+            f"Resolved path '{candidate}' does not exist. Update {CONFIG_PATH}.")
+    return candidate
+
+
 PRETRAINING_CONFIG = {
-    "list_file": yaml_cfg.get("list_file", "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt"),
-    "train_set_size": int(yaml_cfg.get("train_set_size", 30000)),
-    "test_set_size": int(yaml_cfg.get("test_set_size", 10000)),
-    "num_epochs": int(yaml_cfg.get("num_epochs", 10000)),
-    "batch_size": int(yaml_cfg.get("batch_size", 128)),
-    "learning_rate": float(yaml_cfg.get("learning_rate", 1e-3)),
-    "base_path": yaml_cfg.get("base_path", None),
-    "fixed_size": tuple(yaml_cfg.get("fixed_size", (64, 256))),
+    "list_file": CFG.get("list_file", None),
+    "train_set_size": int(CFG.get("train_set_size", 30000)),
+    "test_set_size": int(CFG.get("test_set_size", 10000)),
+    "num_epochs": int(CFG.get("num_epochs", 10000)),
+    "batch_size": int(CFG.get("batch_size", 128)),
+    "learning_rate": float(CFG.get("learning_rate", 1e-3)),
+    "base_path": CFG.get("base_path", None),
+    "fixed_size": tuple(CFG.get("fixed_size", (64, 256))),
     "device": DEVICE,
-    "use_augmentations": bool(yaml_cfg.get("use_augmentations", True)),
-    "main_loss_weight": float(yaml_cfg.get("main_loss_weight", 1.0)),
-    "aux_loss_weight": float(yaml_cfg.get("aux_loss_weight", 0.1)),
+    "use_augmentations": bool(CFG.get("use_augmentations", True)),
+    "main_loss_weight": float(CFG.get("main_loss_weight", 1.0)),
+    "aux_loss_weight": float(CFG.get("aux_loss_weight", 0.1)),
     # Save pretrained backbone using the union vocabulary across all datasets
-    "save_path": yaml_cfg.get(
+    "save_path": CFG.get(
         "save_path",
         "htr_base/saved_models/pretrained_backbone_all_chars.pt",
     ),
-    "save_backbone": bool(yaml_cfg.get("save_backbone", True)),
+    "save_backbone": bool(CFG.get("save_backbone", True)),
 }
 # Architecture configuration for the pretraining backbone
 # Loaded from alignment/alignment_configs/pretraining_config.yaml to stay consistent with other scripts
-ARCHITECTURE_CONFIG = yaml_cfg["architecture"]
+ARCHITECTURE_CONFIG = CFG["architecture"]
 
 def main(config: dict | None = None) -> Path:
     """Train an HTRNet on a synthetic list using the ALL_DATASETS charset.
@@ -109,26 +125,28 @@ def main(config: dict | None = None) -> Path:
         config = {}
     config = {**PRETRAINING_CONFIG, **config}
     # Extract parameters from config
-    list_file = config["list_file"]
-    assert Path(list_file).is_file(), "list_file not found"
+    list_file_path = _resolve_path(config["list_file"], required=True, must_exist=True)
+    list_file = str(list_file_path)
     n_random = config.get("train_set_size", config.get("n_random", None))
     num_epochs = config["num_epochs"]
     batch_size = config["batch_size"]
-    assert batch_size > 0 and batch_size <= 1024, "batch_size must be between 1 and 1024"
-    # Fix the learning rate regardless of the config as per requirement
-    lr = 1e-4
+    assert 0 < batch_size <= 1024, "batch_size must be between 1 and 1024"
+    lr = float(config.get("learning_rate", 1e-4))
     assert lr > 0, "learning_rate must be positive"
-    base_path = config.get("base_path", None)
+    base_path_cfg = config.get("base_path", None)
     fixed_size = config["fixed_size"]
     assert fixed_size[0] > 0 and fixed_size[1] > 0, "fixed_size dimensions must be positive"
     device = config["device"]
     gpu_id = config.pop("gpu_id", None)
     if gpu_id is not None:
-        print("[Pretraining] 'gpu_id' in config is ignored; set it in alignment/alignment_configs/trainer_config.yaml")
+        print(
+            f"[Pretraining] 'gpu_id' in runtime overrides is ignored; configure it in {CONFIG_PATH}")
     use_augmentations = config.get("use_augmentations", True)
     main_weight = config.get("main_loss_weight", 1.0)
     aux_weight = config.get("aux_loss_weight", 0.1)
-    save_path = config.get("save_path", "htr_base/saved_models/pretrained_backbone.pt")
+    save_path_resolved = _resolve_path(
+        config.get("save_path", "htr_base/saved_models/pretrained_backbone.pt"))
+    save_path = str(save_path_resolved)
     save_backbone = config.get("save_backbone", False)
     print(f"[Pretraining] Starting with config:")
     print(f"  list_file: {list_file}")
@@ -139,9 +157,11 @@ def main(config: dict | None = None) -> Path:
     print(f"  device: {device}")
     print(f"  augmentations: {use_augmentations}")
     print(f"  save_backbone: {save_backbone}")
-    print(f"  gpu_id: {GPU_ID}")
-    if base_path is None:
-        base_path = str(Path(list_file).parent)
+    print(f"  gpu_id: {GPU_ID if GPU_ID is not None else 'CPU'}")
+    if base_path_cfg is None:
+        base_path = str(list_file_path.parent)
+    else:
+        base_path = str(_resolve_path(base_path_cfg, must_exist=True))
     # Create training dataset with optional augmentations
     transforms = aug_transforms if use_augmentations else None
     train_set = PretrainingHTRDataset(
@@ -173,6 +193,7 @@ def main(config: dict | None = None) -> Path:
     # Use the union vocabulary across all supported datasets
     c2i, i2c = load_vocab("ALL_DATASETS")
 
+    # CTC blank symbol is reserved at index 0 by convention.
     assert 0 not in c2i.values(), "blank index 0 found in c2i values"
 
     # Optionally (re-)save the dictionaries next to the backbone weights

@@ -8,6 +8,7 @@ This repository accompanies the paper *"Optimal Transport for Handwritten Text R
 - [Pipeline Overview](#pipeline-overview)
 - [Guardrails and Assumptions](#guardrails-and-assumptions)
 - [Getting Started](#getting-started)
+- [Pretraining the Backbone](#pretraining-the-backbone)
 - [Configuration at a Glance](#configuration-at-a-glance)
 - [Running the Pipeline](#running-the-pipeline)
 - [Reproducing Paper Results](#reproducing-paper-results)
@@ -32,15 +33,15 @@ We iteratively project backbone descriptors into a word-embedding space via opti
 ## Pipeline Overview
 ```mermaid
 flowchart LR
-    A["HTRDataset<br/>(aligned, unique_words,<br/>word embeddings/probs)"] --> B["Refine Backbone<br/>CTC on aligned only"]
-    A -->|all images (eval)| C["Harvest Descriptors"]
-    C --> D["Train Projector(s)<br/>ProjectionLoss (OT + supervised MSE)"]
-    D --> E["OTAligner.align()<br/>compute OT plan + projections"]
-    E --> F["Select Candidates<br/>metric: gap/entropy + agreement"]
-    F --> G["Update dataset.aligned<br/>(pseudo-labels)"]
+    A[HTRDataset (aligned words + embeddings)] --> B[Refine Backbone (CTC on aligned only)]
+    A -->|all images for eval| C[Harvest Descriptors]
+    C --> D[Train Projector(s) with ProjectionLoss]
+    D --> E[OTAligner.align() computes OT plan]
+    E --> F[Select Candidates (gap / entropy + agreement)]
+    F --> G[Update dataset.aligned with pseudo-labels]
     G -->|loop| B
-    A --> H["Test split (n_aligned=0)"]
-    H --> I["compute_cer / compute_wer"]
+    A --> H[Test split (n_aligned = 0)]
+    H --> I[compute_cer / compute_wer]
 ```
 
 **Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train projector(s) with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples that meet confidence and agreement thresholds. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
@@ -77,6 +78,38 @@ pip install -r requirements.txt
 3. Place the processed data under `htr_base/data/<DATASET>/processed_words/{train,val,test}` with PNG images and matching `gt.txt` lines `<filename> <transcription>`. IAM also includes optional `.uttlist` files under `splits/`.
 4. Optional: prepare the synthetic 90k dataset (`PretrainingHTRDataset`) if you plan to mix synthetic samples during backbone refinement.
 5. Build word embeddings and priors on first run; the dataset utilities cache them on disk.
+
+## Pretraining the Backbone
+This repository includes a standalone pretraining script that warms up the CTC backbone on a large synthetic word list before running the alternating OT loop. The script reads all hyperparameters from `alignment/alignment_configs/pretraining_config.yaml` and saves the resulting network weights to a configurable path.
+
+### Configure
+Edit `alignment/alignment_configs/pretraining_config.yaml` and set at minimum:
+- `list_file`: Path to the synthetic word list file (one image path per line). Relative paths are resolved from the repository root.
+- `base_path` (optional): If `null`, the script uses the directory of `list_file` as the base; otherwise resolve relative to repo root.
+- `batch_size`, `num_epochs`, `learning_rate`, `fixed_size`: Training hyperparameters used verbatim by the script.
+- `device`, `gpu_id`: `gpu_id` sets `CUDA_VISIBLE_DEVICES`. If CUDA is not available, the script runs on CPU automatically.
+- `save_path`, `save_backbone`: Where to save the pretrained backbone and whether to save it during training. Defaults to `htr_base/saved_models/pretrained_backbone_all_chars.pt`.
+
+Notes
+- The vocabulary used for pretraining is the union over all supported datasets (`ALL_DATASETS`). The CTC blank symbol is reserved at index `0`.
+- All output directories are created on demand. Paths in the YAML can be absolute or relative to the repository root.
+
+### Run
+From the repository root:
+```bash
+python alignment/pretraining.py
+# or
+python -m alignment.pretraining
+```
+
+### Outputs
+- Checkpoints: When `save_backbone: true`, the script writes the model state dict to `save_path` (directory is auto-created). It saves at periodic progress points and on the final epoch.
+- Console logs: Per-epoch (or periodic) progress, CER on a held-out synthetic set, and a few decoded examples for quick sanity checks.
+
+Example `save_path` after a default run:
+```
+htr_base/saved_models/pretrained_backbone_all_chars.pt
+```
 
 ## Configuration at a Glance
 `alignment/alignment_configs/trainer_config.yaml` drives the experiments. Tune these groups:
