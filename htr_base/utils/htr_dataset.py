@@ -11,7 +11,7 @@ from wordfreq import top_n_list, word_frequency
 from sklearn.manifold import MDS
 import editdistance
 import random
-from typing import List
+from typing import List, Callable
 from htr_base.utils.vocab import load_vocab
 class HTRDataset(Dataset):
     """Dataset of handwritten text images with optional alignment data.
@@ -20,9 +20,12 @@ class HTRDataset(Dataset):
         basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
         subset (str): Portion of the dataset to load.
         fixed_size (tuple): ``(height, width)`` used to resize images.
-        transforms (list | None): Optional Albumentations pipeline.
+        transforms (Callable | None): Albumentations-style callable returning a
+            dict that includes the preprocessed image under the ``'image'`` key.
+            ``None`` disables extra augmentations.
         character_classes (list | None): Characters making up the vocabulary.
-        config (Any): Optional configuration object with alignment parameters.
+        config (Any): Configuration object with alignment parameters. This
+            dataset requires a configuration; passing ``None`` raises an error.
         two_views (bool): Return two augmented views when ``True``.
 
     Attributes:
@@ -51,9 +54,9 @@ class HTRDataset(Dataset):
         basefolder: str = 'IAM/',                # Root folder
         subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
         fixed_size: tuple =(128, None),          # Resize inputs to this size
-        transforms: list = None,                 # List of augmentation transforms to apply on input
+        transforms: Callable | None = None,      # Albumentations-style callable or None
         character_classes: list = None,          # If None, computed automatically; else list of characters
-        config=None,                            # Configuration object with optional parameters
+        config=None,                            # Configuration object with alignment parameters
         two_views: bool = False,                # Whether to return two views of each image
         ):
         """Load handwritten text images and optional alignment info.
@@ -62,11 +65,18 @@ class HTRDataset(Dataset):
             basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
             subset (str): Portion of the dataset to load.
             fixed_size (tuple): ``(height, width)`` used to resize images.
-            transforms (list | None): Optional Albumentations pipeline.
+            transforms (Callable | None): Albumentations-style callable returning
+                ``{'image': np.ndarray}``; ``None`` disables extra augmentation.
             character_classes (list | None): Characters making up the vocabulary.
-            config (Any): Optional configuration object with alignment parameters.
+            config (Any): Configuration object with alignment parameters. Passing
+                ``None`` is not supported.
             two_views (bool): Return two augmented views when ``True``.
         """
+        if config is None:
+            raise ValueError(
+                "HTRDataset requires a configuration object with alignment "
+                "metadata (e.g., n_aligned, word_emb_dim)."
+            )
         self.basefolder = basefolder
         self.subset = subset
         self.fixed_size = fixed_size
@@ -76,11 +86,10 @@ class HTRDataset(Dataset):
         self.two_views = two_views
         self.n_aligned = 0
         self.word_prob_strategy = None
-        if self.config is not None:
-            self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
-            self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
-            # word probability strategy: 'empirical' (default), 'wordfreq', or 'uniform'
-            self.word_prob_strategy = getattr(self.config, "word_prob_strategy", None)
+        self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
+        self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
+        # word probability strategy: 'empirical' (default), 'wordfreq', or 'uniform'
+        self.word_prob_strategy = getattr(self.config, "word_prob_strategy", None)
         # Load gt.txt from basefolder - each line contains image path and transcription
         if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
             raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
@@ -159,6 +168,10 @@ class HTRDataset(Dataset):
         Returns:
             tuple: ``(image, text, aligned_id)`` or ``((img1, img2), text, aligned_id)``
             when ``two_views`` is enabled.
+
+        Notes:
+            The transcription is wrapped with leading and trailing spaces to
+            preserve the convention used by downstream alignment code.
         """
         img_path = self.data[index][0]
         transcr1 = " " + self.data[index][1] + " "
@@ -196,6 +209,11 @@ class HTRDataset(Dataset):
         Raises:
             ValueError: If the path in ``self.basefolder`` does not contain a
             recognizable dataset token.
+
+        Notes:
+            This mapping is intentionally hard-coded to the three supported
+            datasets and should remain as such unless the rest of the pipeline
+            grows support for additional corpora.
         """
         base = str(self.basefolder)
         low = base.lower()

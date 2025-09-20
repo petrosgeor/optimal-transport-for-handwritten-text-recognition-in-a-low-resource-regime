@@ -75,12 +75,18 @@ class BasicBlock(nn.Module):
 class CNN(nn.Module):
     """Configurable convolutional feature extractor for handwriting images.
 
+    Purpose:
+        Build a CNN trunk following ``cnn_cfg`` and apply an optional flattening
+        step that prepares the feature map for CTC heads.
     Args:
-        cnn_cfg (list): List describing convolutional layers and pooling.
-        flattening (str): Output flattening mode, ``'maxpool'`` or ``'concat'``.
-
+        cnn_cfg (list): Sequence describing convolutional blocks and pooling
+            layers. Integers denote residual blocks, ``'M'`` denotes max pooling.
+        flattening (str): Flattening strategy. ``'maxpool'`` collapses the height
+            dimension with a global max-pool; ``'concat'`` keeps all spatial rows
+            by reshaping; ``'avgpool'`` leaves the feature map untouched (the head
+            must therefore cope with multi-row inputs).
     Returns:
-        torch.Tensor: Feature map after optional flattening.
+        torch.Tensor: Feature map after the requested flattening step.
     """
 
     def __init__(self, cnn_cfg, flattening='maxpool'):
@@ -135,11 +141,15 @@ class AttentivePool(nn.Module):
 class CTCtopC(nn.Module):
     """CTC head implemented with a single convolutional layer.
 
+    Purpose:
+        Map the CNN feature map to sequence logits in a lightweight fashion.
+        The design assumes the incoming tensor has height ``1``; when upstream
+        layers output taller maps (e.g. ``flattening='concat'``) only the first
+        row is consumed. Keep this in mind when extending the architecture.
     Args:
-        input_size (int): Number of input channels.
-        nclasses (int): Number of output classes.
+        input_size (int): Number of input channels produced by the CNN trunk.
+        nclasses (int): Number of output classes (including blank).
         dropout (float): Dropout rate before the convolution.
-
     Returns:
         torch.Tensor: Sequence logits of shape ``(T, B, nclasses)``.
     """
@@ -251,6 +261,16 @@ class HTRNet(nn.Module):
             - ``'cnn'``: use CNN feature map + ``feat_pool``.
             - ``'rnn_mean'``: mean over time of the RNN output (for RNN heads) projected
               to ``feat_dim``. Falls back to ``'cnn'`` path if head is not RNN-based.
+
+    Notes:
+        • For ``flattening='concat'`` the number of CNN channels is derived via a
+          heuristic (``2 * 8 * last_block_channels``) matching the default paper
+          setup. Changing the spatial resolution or block layout requires
+          updating this calculation manually.
+        • When ``feat_source='rnn_mean'`` the implementation attaches a temporary
+          forward hook to the recurrent head so the sequence output can be
+          averaged. Heads without a ``rec`` attribute automatically fall back to
+          the CNN pooling path.
     """
     def __init__(self, arch_cfg, nclasses):
         super().__init__()
@@ -347,6 +367,14 @@ class HTRNet(nn.Module):
         Returns:
             torch.Tensor | tuple: Logits, optionally followed by ``feat`` and
             ``phoc_logits`` if enabled.
+
+        Notes:
+            • When a recurrent head is present and ``feat_source='rnn_mean'``, a
+              forward hook captures the sequence tensor so it can be averaged. If
+              you subclass the heads, keep the ``rec`` attribute to retain this
+              behaviour.
+            • If the hook does not trigger (e.g. CNN-only heads) the feature head
+              falls back to the CNN pooling branch defined by ``feat_pool``.
         """
         y = self.features(x)
 
@@ -384,4 +412,3 @@ class HTRNet(nn.Module):
             out = (*out, phoc_logits)
         return out
     
-
