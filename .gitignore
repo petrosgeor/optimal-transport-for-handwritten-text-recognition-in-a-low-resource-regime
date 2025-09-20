@@ -14,9 +14,6 @@ results.txt
 
 # Data and models
 htr_base/data/*
-!htr_base/data/GW/
-!htr_base/data/GW/**
-htr_base/data/IAM/
 htr_base/saved_models/
 htr_base/saved_models/pretrained_backbone.pt
 
