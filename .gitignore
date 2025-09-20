@@ -10,7 +10,6 @@ repomix.config.json
 *.xml
 *.json
 *.sh
-instructions.txt
 results.txt
 
 # Data and models

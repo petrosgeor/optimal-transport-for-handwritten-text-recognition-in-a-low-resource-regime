@@ -31,18 +31,18 @@ We iteratively project backbone descriptors into a word-embedding space via opti
 - Clear entry point at `alignment/trainer.py`, which coordinates the full alternating loop and is the script reviewers should run to reproduce results.
 
 ## Pipeline Overview
-```mermaid
 flowchart LR
-    A[HTRDataset (aligned words + embeddings)] --> B[Refine Backbone (CTC on aligned only)]
-    A -->|all images for eval| C[Harvest Descriptors]
-    C --> D[Train Projector(s) with ProjectionLoss]
-    D --> E[OTAligner.align() computes OT plan]
-    E --> F[Select Candidates (gap / entropy + agreement)]
-    F --> G[Update dataset.aligned with pseudo-labels]
-    G -->|loop| B
-    A --> H[Test split (n_aligned = 0)]
-    H --> I[compute_cer / compute_wer]
-```
+  A["HTRDataset (aligned words + embeddings)"] --> B["Refine Backbone (CTC on aligned only)"]
+  A -- "all images for eval" --> C["Harvest Descriptors"]
+  C --> D["Train Projector(s) with ProjectionLoss"]
+  D --> E["OTAligner.align() computes OT plan"]
+  E --> F["Select Candidates (gap / entropy + agreement)"]
+  F --> G["Update dataset.aligned with pseudo-labels"]
+  G -- "loop" --> B
+  A --> H["Test split (n_aligned = 0)"]
+  H --> I["compute_cer / compute_wer"]
+
+
 
 **Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train projector(s) with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples that meet confidence and agreement thresholds. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
 
