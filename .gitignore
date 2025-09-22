@@ -1,0 +1,31 @@
+# General ignores
+__pycache__/
+**/__pycache__/
+.cache/
+.pytest_cache/
+.vscode/
+.env
+.repomix/
+*.xml
+*.json
+*.sh
+results.txt
+
+# Data and models
+htr_base/data/*
+htr_base/saved_models/
+htr_base/saved_models/pretrained_backbone.pt
+
+# Test-related ignores
+tests/
+
+# Project-specific directories
+google_drive_upload/
+results/
+scripts/
+overview/
+
+
+# Markdown files (except specific ones)
+*.md
+!/README.md
