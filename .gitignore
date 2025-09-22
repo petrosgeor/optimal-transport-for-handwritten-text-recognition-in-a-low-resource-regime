@@ -6,7 +6,6 @@ __pycache__/
 .vscode/
 .env
 .repomix/
-repomix.config.json
 *.xml
 *.json
 *.sh
@@ -30,4 +29,3 @@ overview/
 # Markdown files (except specific ones)
 *.md
 !/README.md
-!docs/knowledge_graph.md

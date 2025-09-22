@@ -4,9 +4,7 @@ import torch.nn.functional as F
 from types import SimpleNamespace
 
 
-###############################################################################
-#                            ─────  MLP Projector  ─────                       #
-###############################################################################
+
 class Projector(nn.Module):
     """Map CNN descriptors to an embedding space using a small MLP.
 
@@ -16,7 +14,7 @@ class Projector(nn.Module):
         dropout (float): Dropout rate applied after activations.
 
     Returns:
-        torch.Tensor: Projected descriptors of shape ``(N, output_dim)``.
+        torch.Tensor: Projected descriptors of shape (N, output_dim).
     """
 
     def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.2) -> None:
@@ -47,10 +45,10 @@ class BasicBlock(nn.Module):
     Args:
         in_planes (int): Number of input channels.
         planes (int): Number of output channels.
-        stride (int): Convolution stride for ``conv1``.
+        stride (int): Convolution stride for conv1.
 
     Returns:
-        torch.Tensor: Output tensor with ``planes`` channels.
+        torch.Tensor: Output tensor with planes channels.
     """
 
     expansion = 1
@@ -76,14 +74,14 @@ class CNN(nn.Module):
     """Configurable convolutional feature extractor for handwriting images.
 
     Purpose:
-        Build a CNN trunk following ``cnn_cfg`` and apply an optional flattening
+        Build a CNN trunk following cnn_cfg and apply an optional flattening
         step that prepares the feature map for CTC heads.
     Args:
         cnn_cfg (list): Sequence describing convolutional blocks and pooling
-            layers. Integers denote residual blocks, ``'M'`` denotes max pooling.
-        flattening (str): Flattening strategy. ``'maxpool'`` collapses the height
-            dimension with a global max-pool; ``'concat'`` keeps all spatial rows
-            by reshaping; ``'avgpool'`` leaves the feature map untouched (the head
+            layers. Integers denote residual blocks, M denotes max pooling.
+        flattening (str): Flattening strategy. maxpool collapses the height
+            dimension with a global max-pool; concat keeps all spatial rows
+            by reshaping; avgpool leaves the feature map untouched (the head
             must therefore cope with multi-row inputs).
     Returns:
         torch.Tensor: Feature map after the requested flattening step.
@@ -143,15 +141,15 @@ class CTCtopC(nn.Module):
 
     Purpose:
         Map the CNN feature map to sequence logits in a lightweight fashion.
-        The design assumes the incoming tensor has height ``1``; when upstream
-        layers output taller maps (e.g. ``flattening='concat'``) only the first
+        The design assumes the incoming tensor has height 1; when upstream
+        layers output taller maps (e.g. flattening=concat) only the first
         row is consumed. Keep this in mind when extending the architecture.
     Args:
         input_size (int): Number of input channels produced by the CNN trunk.
         nclasses (int): Number of output classes (including blank).
         dropout (float): Dropout rate before the convolution.
     Returns:
-        torch.Tensor: Sequence logits of shape ``(T, B, nclasses)``.
+        torch.Tensor: Sequence logits of shape (T, B, nclasses).
     """
 
     def __init__(self, input_size, nclasses, dropout=0.0):
@@ -168,12 +166,12 @@ class CTCtopR(nn.Module):
 
     Args:
         input_size (int): Number of input channels.
-        rnn_cfg (Tuple[int, int]): ``(hidden_size, num_layers)`` for the RNN.
+        rnn_cfg (Tuple[int, int]): (hidden_size, num_layers) for the RNN.
         nclasses (int): Number of output classes.
-        rnn_type (str): ``'gru'`` or ``'lstm'``.
+        rnn_type (str): gru or lstm.
 
     Returns:
-        torch.Tensor: Sequence logits of shape ``(T, B, nclasses)``.
+        torch.Tensor: Sequence logits of shape (T, B, nclasses).
     """
 
     def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
@@ -198,9 +196,9 @@ class CTCtopB(nn.Module):
 
     Args:
         input_size (int): Number of input channels.
-        rnn_cfg (Tuple[int, int]): ``(hidden_size, num_layers)`` for the RNN.
+        rnn_cfg (Tuple[int, int]): (hidden_size, num_layers) for the RNN.
         nclasses (int): Number of output classes.
-        rnn_type (str): ``'gru'`` or ``'lstm'``.
+        rnn_type (str): gru or lstm.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Main and auxiliary logits.
@@ -254,22 +252,22 @@ class HTRNet(nn.Module):
     """
     HTRNet backbone with optional global feature projection.
 
-    Additional args in ``arch_cfg``:
+    Additional args in arch_cfg:
         feat_dim (int | None): Size of per-image descriptor.
-        feat_pool (str): Pooling for CNN-based feat head, ``'avg'`` or ``'attn'``.
+        feat_pool (str): Pooling for CNN-based feat head, avg or attn.
         feat_source (str): Source of holistic feature vector. One of:
-            - ``'cnn'``: use CNN feature map + ``feat_pool``.
-            - ``'rnn_mean'``: mean over time of the RNN output (for RNN heads) projected
-              to ``feat_dim``. Falls back to ``'cnn'`` path if head is not RNN-based.
+            - cnn: use CNN feature map + feat_pool.
+            - rnn_mean: mean over time of the RNN output (for RNN heads) projected
+              to feat_dim. Falls back to cnn path if head is not RNN-based.
 
     Notes:
-        • For ``flattening='concat'`` the number of CNN channels is derived via a
-          heuristic (``2 * 8 * last_block_channels``) matching the default paper
+        - For flattening=concat the number of CNN channels is derived via a
+          heuristic (2 * 8 * last_block_channels) matching the default paper
           setup. Changing the spatial resolution or block layout requires
           updating this calculation manually.
-        • When ``feat_source='rnn_mean'`` the implementation attaches a temporary
+        - When feat_source=rnn_mean the implementation attaches a temporary
           forward hook to the recurrent head so the sequence output can be
-          averaged. Heads without a ``rec`` attribute automatically fall back to
+          averaged. Heads without a rec attribute automatically fall back to
           the CNN pooling path.
     """
     def __init__(self, arch_cfg, nclasses):
@@ -355,26 +353,26 @@ class HTRNet(nn.Module):
         """
         Forward through CNN and head; derive features from the RNN output when enabled.
 
-        Assumes a recurrent head provides a sequence output at ``self.top.rec`` and
-        ``feat_source == 'rnn_mean'`` so the sequence is averaged over time and
-        projected to ``feat_dim``. The return signature follows the contract:
-        logits first, then ``feat`` (and optional PHOC).
+        Assumes a recurrent head provides a sequence output at self.top.rec and
+        feat_source == rnn_mean so the sequence is averaged over time and
+        projected to feat_dim. The return signature follows the contract:
+        logits first, then feat (and optional PHOC).
 
         Args:
-            x (torch.Tensor): Input images ``(B, 1, H, W)``.
+            x (torch.Tensor): Input images (B, 1, H, W).
             return_feats (bool): If False, only logits are returned.
 
         Returns:
-            torch.Tensor | tuple: Logits, optionally followed by ``feat`` and
-            ``phoc_logits`` if enabled.
+            torch.Tensor | tuple: Logits, optionally followed by feat and
+            phoc_logits if enabled.
 
         Notes:
-            • When a recurrent head is present and ``feat_source='rnn_mean'``, a
+            - When a recurrent head is present and feat_source=rnn_mean, a
               forward hook captures the sequence tensor so it can be averaged. If
-              you subclass the heads, keep the ``rec`` attribute to retain this
+              you subclass the heads, keep the rec attribute to retain this
               behaviour.
-            • If the hook does not trigger (e.g. CNN-only heads) the feature head
-              falls back to the CNN pooling branch defined by ``feat_pool``.
+            - If the hook does not trigger (e.g. CNN-only heads) the feature head
+              falls back to the CNN pooling branch defined by feat_pool.
         """
         y = self.features(x)
 

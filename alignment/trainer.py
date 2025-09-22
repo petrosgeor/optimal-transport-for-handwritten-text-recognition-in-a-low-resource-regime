@@ -84,7 +84,7 @@ except Exception:
 
 
 def _assert_finite(t: torch.Tensor, where: str) -> None:
-    """Assert that ``t`` contains no ``NaN`` or ``Inf`` values.
+    """Assert that t contains no NaN or Inf values.
 
     Args:
         t (torch.Tensor): Tensor to validate.
@@ -96,7 +96,7 @@ def _assert_finite(t: torch.Tensor, where: str) -> None:
     assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
 def _assert_grad_finite(model: nn.Module, name: str) -> None:
-    """Ensure all gradients in ``model`` are finite.
+    """Ensure all gradients in model are finite.
 
     Args:
         model (nn.Module): Model whose parameters were backpropagated.
@@ -115,7 +115,7 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
 
     Args:
         images (torch.Tensor): Tensor of images in the batch.
-        words (List[str]): Transcriptions corresponding to ``images``.
+        words (List[str]): Transcriptions corresponding to images.
 
     Returns:
         Tuple[torch.Tensor, List[str]]: Shuffled images and transcriptions.
@@ -142,13 +142,13 @@ def log_pseudo_labels(
     Parameters
     ----------
     new_indices : torch.Tensor
-        1‑D tensor with the positions in `dataset` that were newly pseudo‑labeled.
+        1‑D tensor with the positions in dataset that were newly pseudo‑labeled.
     dataset : HTRDataset
-        Must expose `unique_words`, `transcriptions` and `aligned` as in this repo.
+        Must expose unique_words, transcriptions and aligned as in this repo.
     round_idx : int
         Index of the refinement cycle (used to name the log file).
-    out_dir : str, default "results"
-        Directory where the file `pseudo_labels_round_<round_idx>.txt` is saved.
+    out_dir : str, default results
+        Directory where the file pseudo_labels_round_<round_idx>.txt is saved.
     """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -178,14 +178,14 @@ def log_round_metrics(
     Append refinement metrics to a TSV file, with optional automatic path generation.
 
     Behavior:
-      • If `out_file` is a concrete path (anything other than "auto", case-insensitive),
+      • If out_file is a concrete path (anything other than auto, case-insensitive),
         save exactly there (preserving current behavior).
-      • If `out_file == "auto"` (case-insensitive), build a path based on:
+      • If out_file == auto (case-insensitive), build a path based on:
             results/<DATASET>/<dataset_lower>_<n_aligned>samples.txt
-        where <DATASET> is inferred from `cfg.dataset.basefolder` and
-        `n_aligned` is read from `cfg.dataset.n_aligned`.
+        where <DATASET> is inferred from cfg.dataset.basefolder and
+        n_aligned is read from cfg.dataset.n_aligned.
 
-    On the first round (`round_idx == 1`), an existing file at the final path is deleted.
+    On the first round (round_idx == 1), an existing file at the final path is deleted.
     Subsequent rounds append a single TSV row:
         <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\n
     """
@@ -250,7 +250,7 @@ except Exception:
 def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
     """Load a checkpoint while skipping incompatible head layers.
 
-    Only parameters whose names exist in ``backbone.state_dict()`` AND whose
+    Only parameters whose names exist in backbone.state_dict() AND whose
     tensor shapes match exactly are loaded. This allows reusing the backbone
     even when the vocabulary size (CTC head) or PHOC head configuration differs
     from the checkpoint.
@@ -326,31 +326,31 @@ def refine_visual_backbone(
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
 ) -> None:
-    """Fine-tune ``backbone`` on words aligned to the dataset vocabulary.
+    """Fine-tune backbone on words aligned to the dataset vocabulary.
 
-    The routine trains only on samples whose ``dataset.aligned`` flag is not ``-1``.
-    Synthetic words from ``pretrain_ds`` can be mixed in, and optional PHOC and
+    The routine trains only on samples whose dataset.aligned flag is not -1.
+    Synthetic words from pretrain_ds can be mixed in, and optional PHOC and
     soft contrastive losses are supported.
 
-    When ``pretrain_ds`` is given, each epoch iterates over this synthetic
-    loader. Ground-truth batches are drawn from ``cycle(gt_loader)`` so the
-    epoch length matches ``len(pretrain_loader)``.
+    When pretrain_ds is given, each epoch iterates over this synthetic
+    loader. Ground-truth batches are drawn from cycle(gt_loader) so the
+    epoch length matches len(pretrain_loader).
     Batches are shuffled after combining synthetic and real samples to randomise ordering.
-    Setting ``syn_batch_ratio=1`` yields purely synthetic batches, while a value
-    of ``0`` disables the synthetic loader entirely.
+    Setting syn_batch_ratio=1 yields purely synthetic batches, while a value
+    of 0 disables the synthetic loader entirely.
 
     Args:
         dataset (HTRDataset): Training dataset with alignment information.
         backbone (HTRNet): Model to be refined.
-        num_epochs (int): Number of optimisation epochs. When ``pretrain_ds``
+        num_epochs (int): Number of optimisation epochs. When pretrain_ds
             is provided, one epoch spans the synthetic dataset.
         batch_size (int): Mini-batch size.
         lr (float): Learning rate for the optimiser.
         main_weight (float): Scale for the main CTC loss.
         aux_weight (float): Scale for the auxiliary CTC loss.
         pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.
-        syn_batch_ratio (float): Fraction of each batch drawn from ``pretrain_ds``.
-            ``1`` means only synthetic data is used, ``0`` only real data.
+        syn_batch_ratio (float): Fraction of each batch drawn from pretrain_ds.
+            1 means only synthetic data is used, 0 only real data.
         phoc_weight (float): Scale for the PHOC loss.
         enable_phoc (bool): Whether to include the PHOC loss.
         phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.
@@ -514,8 +514,8 @@ def train_projector(  # pylint: disable=too-many-arguments
     """
     Trains a projector network to map backbone features to an embedding space.
 
-    This function freezes the `backbone`, harvests image descriptors for the entire
-    dataset, and then trains the `projector` using a combination of an unsupervised
+    This function freezes the backbone, harvests image descriptors for the entire
+    dataset, and then trains the projector using a combination of an unsupervised
     Optimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.
     The projector can be a single module or a list of modules for ensemble training.
 
@@ -664,8 +664,8 @@ def alternating_refinement(
     """
     Performs an alternating training cycle between the backbone and projectors.
 
-    This function implements a semi-supervised learning strategy where the `backbone`
-    and `projectors` are trained in alternation. In each round, the backbone is first
+    This function implements a semi-supervised learning strategy where the backbone
+    and projectors are trained in alternation. In each round, the backbone is first
     refined, then the projectors are trained. After a set number of rounds, more
     instances from the dataset are pseudo-labeled using Optimal Transport (OT) alignment.
     This cycle continues as long as there are unaligned instances in the dataset.
@@ -679,14 +679,14 @@ def alternating_refinement(
         rounds: The number of backbone/projector training cycles per alignment pass.
         backbone_epochs: The number of epochs for each backbone refinement round.
         projector_epochs: The number of epochs for each projector training round.
-        refine_kwargs: Additional keyword arguments for `refine_visual_backbone`.
-        projector_kwargs: Additional keyword arguments for `train_projector`.
-        align_kwargs: Additional keyword arguments for `align_more_instances`.
-        enable_pseudo_labeling (bool): If ``False``, skip calls to
-            :func:`align_more_instances` and train only on the currently
+        refine_kwargs: Additional keyword arguments for refine_visual_backbone.
+        projector_kwargs: Additional keyword arguments for train_projector.
+        align_kwargs: Additional keyword arguments for align_more_instances.
+        enable_pseudo_labeling (bool): If False, skip calls to
+            :func:align_more_instances and train only on the currently
             aligned samples. Metrics (CER/WER) are still computed and logged
-            for each refinement round with ``correct_pseudo=0``. Defaults to
-            ``cfg.enable_pseudo_labeling`` (True if missing).
+            for each refinement round with correct_pseudo=0. Defaults to
+            cfg.enable_pseudo_labeling (True if missing).
     """
 
     out_dir = "results"

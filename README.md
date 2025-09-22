@@ -4,7 +4,6 @@ This repository accompanies the paper *"Optimal Transport for Handwritten Text R
 
 ## Table of Contents
 - [Abstract](#abstract)
-- [Repository Highlights](#repository-highlights)
 - [Pipeline Overview](#pipeline-overview)
 - [Guardrails and Assumptions](#guardrails-and-assumptions)
 - [Getting Started](#getting-started)
@@ -22,28 +21,8 @@ This repository accompanies the paper *"Optimal Transport for Handwritten Text R
 ## Abstract
 We iteratively project backbone descriptors into a word-embedding space via optimal transport, selectively pseudo-label the most confident unlabeled images, and refine a CTC-based handwritten text recogniser. The procedure delivers competitive CER/WER in low-resource settings while never exposing the model to the ground-truth transcripts of unaligned samples.
 
-## Repository Highlights
-- Alternating optimisation loop that cycles between CTC refinement, projector training, and OT-based pseudo-labelling.
-- Dataset utilities that track aligned/unaligned indices, word priors, and embeddings for large vocabularies.
-- Guardrails that prevent leakage: the backbone trains only on aligned items, pseudo-labelling draws exclusively from unaligned instances, and evaluation uses a clean test split with `n_aligned = 0`.
-- Self-contained configuration through `OmegaConf` YAML files and reproducible experiment scripts in `alignment/`.
-- Visualisation helpers (t-SNE plots, augmentations) and metric reporting (CER/WER) aligned with the paper.
-- Clear entry point at `alignment/trainer.py`, which coordinates the full alternating loop and is the script reviewers should run to reproduce results.
 
 ## Pipeline Overview
-flowchart LR
-  A["HTRDataset (aligned words + embeddings)"] --> B["Refine Backbone (CTC on aligned only)"]
-  A -- "all images for eval" --> C["Harvest Descriptors"]
-  C --> D["Train Projector(s) with ProjectionLoss"]
-  D --> E["OTAligner.align() computes OT plan"]
-  E --> F["Select Candidates (gap / entropy + agreement)"]
-  F --> G["Update dataset.aligned with pseudo-labels"]
-  G -- "loop" --> B
-  A --> H["Test split (n_aligned = 0)"]
-  H --> I["compute_cer / compute_wer"]
-
-
-
 **Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train projector(s) with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples that meet confidence and agreement thresholds. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
 
 ## Guardrails and Assumptions

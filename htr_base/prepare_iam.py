@@ -22,10 +22,10 @@ def parse_arguments() -> argparse.Namespace:
     Purpose:
         Collect the user-provided configuration for preparing the IAM dataset.
     Args:
-        None: All inputs are gathered from ``sys.argv``.
+        None: All inputs are gathered from sys.argv.
     Returns:
-        argparse.Namespace: Namespace including ``iam_root``, ``output_root``,
-            ``max_words`` and ``padding``.
+        argparse.Namespace: Namespace including iam_root, output_root,
+            max_words and padding.
     """
     parser = argparse.ArgumentParser(
         description="Prepare the IAM dataset into processed word-level splits."
@@ -56,13 +56,13 @@ def parse_arguments() -> argparse.Namespace:
 
 
 def load_split_definitions(split_dir: Path) -> SplitMap:
-    """Load IAM split definitions from ``.uttlist`` files.
+    """Load IAM split definitions from .uttlist files.
 
     Purpose:
         Read the official IAM train/val/test form lists and return them by split.
     Args:
-        split_dir (Path): Directory containing ``train.uttlist``, ``validation.uttlist``
-            and ``test.uttlist`` files provided with the IAM dataset.
+        split_dir (Path): Directory containing train.uttlist, validation.uttlist
+            and test.uttlist files provided with the IAM dataset.
     Returns:
         dict[str, list[str]]: Mapping of split names to ordered form identifiers.
     """
@@ -95,7 +95,7 @@ def extract_word_images(
         page_image (Image.Image): Grayscale page image associated with the XML.
         padding (int): Additional pixels to add around each cropped word region.
     Returns:
-        Iterator[tuple[Image.Image, str]]: Iterator of ``(crop, transcription)`` tuples.
+        Iterator[tuple[Image.Image, str]]: Iterator of (crop, transcription) tuples.
     """
     if padding < 0:
         raise ValueError("padding must be non-negative")
@@ -138,7 +138,7 @@ def copy_split_files(raw_split_dir: Path, output_split_dir: Path) -> None:
     """Copy official IAM split files into the output directory.
 
     Purpose:
-        Ensure downstream consumers can reuse the original ``.uttlist`` files.
+        Ensure downstream consumers can reuse the original .uttlist files.
     Args:
         raw_split_dir (Path): Source directory containing the canonical splits.
         output_split_dir (Path): Destination directory where the files are written.
@@ -161,10 +161,10 @@ def prepare_iam_dataset(
     """Convert the raw IAM dataset into word-level splits.
 
     Purpose:
-        Generate ``processed_words/{train,val,test}`` folders with PNG crops and ``gt.txt`` files.
+        Generate processed_words/{train,val,test} folders with PNG crops and gt.txt files.
     Args:
         iam_root (Path): Root of the raw IAM dataset.
-        output_root (Path): Destination directory that will contain ``processed_words`` and ``splits``.
+        output_root (Path): Destination directory that will contain processed_words and splits.
         max_words (int | None): Optional maximum number of words to extract per split.
         padding (int): Extra pixels to pad around each cropped word image.
     Returns:

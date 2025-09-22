@@ -17,37 +17,37 @@ class HTRDataset(Dataset):
     """Dataset of handwritten text images with optional alignment data.
 
     Args:
-        basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
+        basefolder (str): Root folder containing train/, val/ and test/.
         subset (str): Portion of the dataset to load.
-        fixed_size (tuple): ``(height, width)`` used to resize images.
+        fixed_size (tuple): (height, width) used to resize images.
         transforms (Callable | None): Albumentations-style callable returning a
-            dict that includes the preprocessed image under the ``'image'`` key.
-            ``None`` disables extra augmentations.
+            dict that includes the preprocessed image under the image key.
+            None disables extra augmentations.
         character_classes (list | None): Characters making up the vocabulary.
         config (Any): Configuration object with alignment parameters. This
-            dataset requires a configuration; passing ``None`` raises an error.
-        two_views (bool): Return two augmented views when ``True``.
+            dataset requires a configuration; passing None raises an error.
+        two_views (bool): Return two augmented views when True.
 
     Attributes:
         basefolder (str): Root folder containing dataset splits.
         subset (str): Selected subset to load.
-        fixed_size (tuple): Target image size ``(height, width)``.
+        fixed_size (tuple): Target image size (height, width).
         transforms (list | None): Albumentations pipeline applied to images.
         character_classes (list[str]): Dataset vocabulary of characters.
         config (Any): Optional configuration object with alignment parameters.
         two_views (bool): Whether to return two augmented views per sample.
         n_aligned (int): Number of initially aligned instances.
         word_emb_dim (int): Dimension of word embeddings.
-        word_prob_strategy (str | None): One of ``'empirical'``, ``'wordfreq'`` or ``'uniform'``
-            controlling how ``unique_word_probs`` are computed. Defaults to ``'empirical'``.
+        word_prob_strategy (str | None): One of empirical, wordfreq or uniform
+            controlling how unique_word_probs are computed. Defaults to empirical.
         data (list[tuple[str, str]]): Image paths and their transcriptions.
         transcriptions (list[str]): Text strings for each image.
         prior_char_probs (dict): Prior probabilities for each character.
         unique_words (list[str]): Unique words present in the dataset.
         unique_word_probs (list[float]): Prior probability of each unique word.
         unique_word_embeddings (torch.Tensor): Embeddings for unique words.
-        is_in_dict (torch.IntTensor): ``1`` if a transcription is in ``unique_words``.
-        aligned (torch.IntTensor): Alignment indices or ``-1`` when unknown.
+        is_in_dict (torch.IntTensor): 1 if a transcription is in unique_words.
+        aligned (torch.IntTensor): Alignment indices or -1 when unknown.
     """
 
     def __init__(self,
@@ -62,15 +62,15 @@ class HTRDataset(Dataset):
         """Load handwritten text images and optional alignment info.
 
         Args:
-            basefolder (str): Root folder containing ``train/``, ``val/`` and ``test/``.
+            basefolder (str): Root folder containing train/, val/ and test/.
             subset (str): Portion of the dataset to load.
-            fixed_size (tuple): ``(height, width)`` used to resize images.
+            fixed_size (tuple): (height, width) used to resize images.
             transforms (Callable | None): Albumentations-style callable returning
-                ``{'image': np.ndarray}``; ``None`` disables extra augmentation.
+                {image: np.ndarray}; None disables extra augmentation.
             character_classes (list | None): Characters making up the vocabulary.
             config (Any): Configuration object with alignment parameters. Passing
-                ``None`` is not supported.
-            two_views (bool): Return two augmented views when ``True``.
+                None is not supported.
+            two_views (bool): Return two augmented views when True.
         """
         if config is None:
             raise ValueError(
@@ -166,8 +166,8 @@ class HTRDataset(Dataset):
             index (int): Index of the sample to load.
 
         Returns:
-            tuple: ``(image, text, aligned_id)`` or ``((img1, img2), text, aligned_id)``
-            when ``two_views`` is enabled.
+            tuple: (image, text, aligned_id) or ((img1, img2), text, aligned_id)
+            when two_views is enabled.
 
         Notes:
             The transcription is wrapped with leading and trailing spaces to
@@ -198,16 +198,16 @@ class HTRDataset(Dataset):
         return len(self.data)
 
     def get_dataset_name(self) -> str:
-        """Infer and return the dataset identifier from ``self.basefolder``.
+        """Infer and return the dataset identifier from self.basefolder.
 
         Args:
             None
 
         Returns:
-            str: The dataset name, one of ``'IAM'``, ``'GW'`` or ``'CVL'``.
+            str: The dataset name, one of IAM, GW or CVL.
 
         Raises:
-            ValueError: If the path in ``self.basefolder`` does not contain a
+            ValueError: If the path in self.basefolder does not contain a
             recognizable dataset token.
 
         Notes:
@@ -229,21 +229,21 @@ class HTRDataset(Dataset):
         )
 
     def get_test_indices(self) -> torch.Tensor:
-        """Return indices of samples that belong to the ``test`` split.
+        """Return indices of samples that belong to the test split.
 
-        The dataset must have been constructed with ``subset='all'`` so that
-        the ``test`` split is present. Indices are returned as a 1‑D tensor
-        of type ``torch.long`` and refer to positions in ``self.data``.
+        The dataset must have been constructed with subset=all so that
+        the test split is present. Indices are returned as a 1‑D tensor
+        of type torch.long and refer to positions in self.data.
 
         Args:
             None
 
         Returns:
-            torch.Tensor: 1‑D tensor with the positions of all ``test`` items
+            torch.Tensor: 1‑D tensor with the positions of all test items
             within the concatenated dataset order.
 
         Raises:
-            RuntimeError: If the dataset was not built with ``subset='all'``.
+            RuntimeError: If the dataset was not built with subset=all.
         """
 
         if getattr(self, 'subset', None) != 'all':
@@ -261,12 +261,12 @@ class HTRDataset(Dataset):
 
         Behavior
         --------
-        - Returns up to ``n_aligned`` **distinct dataset indices** (no duplicates).
-        - For every subset except ``'all'``: sample uniformly at random from the
-        items present in *this* dataset instance (e.g., 'train', 'val', 'test',
-        or 'train_val'), **without replacement**.
-        - For ``subset == 'all'``: sample uniformly at random **only from the
-        'train' split**, **without replacement**. Returned indices are **global**
+        - Returns up to n_aligned **distinct dataset indices** (no duplicates).
+        - For every subset except all: sample uniformly at random from the
+        items present in *this* dataset instance (e.g., train, val, test,
+        or train_val), **without replacement**.
+        - For subset == all: sample uniformly at random **only from the
+        train split**, **without replacement**. Returned indices are **global**
         (positions in the concatenated [train, val, test] dataset order).
 
         Rationale
@@ -278,7 +278,7 @@ class HTRDataset(Dataset):
         Returns
         -------
         list[int]
-            A list with up to ``n_aligned`` distinct dataset indices.
+            A list with up to n_aligned distinct dataset indices.
         """
         if self.n_aligned <= 0:
             return []
@@ -306,11 +306,11 @@ class HTRDataset(Dataset):
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):
-        """Return prior probabilities for ``a-z0-9``.
+        """Return prior probabilities for a-z0-9.
 
-        If ``transcriptions`` is ``None`` the distribution is computed from the
-        ``n_words`` most common English words provided by ``wordfreq``.
-        Otherwise ``transcriptions`` are used directly.
+        If transcriptions is None the distribution is computed from the
+        n_words most common English words provided by wordfreq.
+        Otherwise transcriptions are used directly.
         """
 
         letters = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -434,14 +434,14 @@ class HTRDataset(Dataset):
     ) -> None:
         """
         Plot a histogram showing how many ground-truth transcriptions
-        exactly match each word in ``unique_words`` and save it under
+        exactly match each word in unique_words and save it under
         *tests/figures/* by default.
 
         Parameters
         ----------
-        save_dir : str | Path, default "tests/figures"
+        save_dir : str | Path, default tests/figures
             Directory where the PNG will be written.  Created if missing.
-        filename : str, default "external_word_hist.png"
+        filename : str, default external_word_hist.png
             Name of the output file inside *save_dir*.
         dpi : int, default 200
             Resolution of the saved figure.
@@ -449,7 +449,7 @@ class HTRDataset(Dataset):
         Notes
         -----
         • The method **returns nothing**; its side-effect is a saved PNG.
-        • An exception is raised if the dataset contains no ``unique_words``.
+        • An exception is raised if the dataset contains no unique_words.
         """
         # ── sanity check ────────────────────────────────────────────────
         if not getattr(self, "unique_words", None):
@@ -514,7 +514,7 @@ class HTRDataset(Dataset):
     def _estimated_word_probs(self, words):
         """Return probabilities for *words* using the wordfreq corpus.
 
-        The values are ``word_frequency(w, "en")``; zeros are replaced with a
+        The values are word_frequency(w, en); zeros are replaced with a
         tiny epsilon and the vector is normalised to sum to 1.
 
         Args:
@@ -532,19 +532,19 @@ class HTRDataset(Dataset):
 class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining.
 
-    Selection is deterministic for a fixed `list_file`, filesystem, and
-    `random_seed`: the candidate list is first filtered by filename validity,
+    Selection is deterministic for a fixed list_file, filesystem, and
+    random_seed: the candidate list is first filtered by filename validity,
     then deterministically shuffled and scanned left-to-right. Only entries
-    that actually exist on disk are kept. When ``n_random`` is provided, the
-    dataset contains exactly ``n_random`` existing images; otherwise all
+    that actually exist on disk are kept. When n_random is provided, the
+    dataset contains exactly n_random existing images; otherwise all
     existing images from the filtered list are used. If the filesystem cannot
-    supply ``n_random`` existing files, a ``RuntimeError`` is raised with a
+    supply n_random existing files, a RuntimeError is raised with a
     concise summary.
 
-    If ``preload_images`` is ``True``, images are loaded into memory. Should a
+    If preload_images is True, images are loaded into memory. Should a
     corrupted file cause a read failure during preloading, the dataset attempts
     to replace it by scanning the remaining shuffled candidates; if no
-    replacement can be found while satisfying ``n_random``, a ``RuntimeError``
+    replacement can be found while satisfying n_random, a RuntimeError
     is raised.
     """
 
@@ -562,15 +562,15 @@ class PretrainingHTRDataset(Dataset):
 
         Args:
             list_file (str): Path to a text file with relative image paths.
-            fixed_size (tuple): ``(height, width)`` for resizing.
-            base_path (str): Root directory prepended to each path in ``list_file``.
+            fixed_size (tuple): (height, width) for resizing.
+            base_path (str): Root directory prepended to each path in list_file.
             transforms (list | None): Optional Albumentations pipeline.
-            n_random (int | None): If given, keep exactly ``n_random`` existing entries.
+            n_random (int | None): If given, keep exactly n_random existing entries.
             random_seed (int): Seed controlling the deterministic shuffle.
             preload_images (bool): Load all images into memory on init.
 
         Raises:
-            RuntimeError: When ``n_random`` is set and fewer existing images are
+            RuntimeError: When n_random is set and fewer existing images are
                 available than requested, or when preloading cannot satisfy the
                 requested count due to unreadable/corrupted files.
         """
@@ -680,7 +680,7 @@ class PretrainingHTRDataset(Dataset):
         """Convert relative image paths to absolute ones and extract labels.
 
         Args:
-            filtered_list (list[str]): Relative paths as read from ``list_file``.
+            filtered_list (list[str]): Relative paths as read from list_file.
 
         Returns:
             tuple[list[str], list[str]]: Absolute paths and lowercase labels.
@@ -746,7 +746,7 @@ class PretrainingHTRDataset(Dataset):
         Raises
         ------
         RuntimeError
-            If ``preload_images`` was ``False`` when the dataset was built.
+            If preload_images was False when the dataset was built.
         """
 
         if not hasattr(self, "images"):

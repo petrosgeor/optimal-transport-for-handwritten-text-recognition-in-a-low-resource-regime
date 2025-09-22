@@ -37,7 +37,7 @@ class WER:
         """Create a WER accumulator.
 
         Args:
-            mode (str): Either ``'tokenizer'`` or ``'space'`` controlling how words are split.
+            mode (str): Either tokenizer or space controlling how words are split.
         """
         self.total_dist = 0
         self.total_len = 0

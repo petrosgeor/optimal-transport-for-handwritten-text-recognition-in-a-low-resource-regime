@@ -11,7 +11,7 @@ def _ctc_loss_fn(
     inp_lens: torch.IntTensor,
     tgt_lens: torch.IntTensor,
 ) -> torch.Tensor:
-    """A thin wrapper around `torch.nn.functional.ctc_loss` that takes *logits*."""
+    """A thin wrapper around torch.nn.functional.ctc_loss that takes *logits*."""
     log_probs = F.log_softmax(logits, dim=2)
     loss = F.ctc_loss(
         log_probs,
@@ -32,14 +32,14 @@ class ProjectionLoss(torch.nn.Module):
     Parameters
     ----------
     reg : float, optional
-        Entropic regularisation strength passed to ``ot.sinkhorn2`` or
-        ``ot.unbalanced.sinkhorn_unbalanced2``.  Default = 0.1.
+        Entropic regularisation strength passed to ot.sinkhorn2 or
+        ot.unbalanced.sinkhorn_unbalanced2.  Default = 0.1.
     unbalanced : bool, optional
-        If ``True`` use the unbalanced OT formulation
-        ``ot.unbalanced.sinkhorn_unbalanced2`` (requires an additional
-        ``reg_m`` parameter that can be passed through ``sinkhorn_kwargs``);
-        otherwise use the balanced formulation ``ot.sinkhorn2``.
-        Default = ``False`` (balanced).
+        If True use the unbalanced OT formulation
+        ot.unbalanced.sinkhorn_unbalanced2 (requires an additional
+        reg_m parameter that can be passed through sinkhorn_kwargs);
+        otherwise use the balanced formulation ot.sinkhorn2.
+        Default = False (balanced).
     supervised_weight : float, optional
         Scale for the supervised descriptor distance term.  Default = 1.0.
     sinkhorn_kwargs : dict, optional
@@ -54,7 +54,7 @@ class ProjectionLoss(torch.nn.Module):
         2‑D “vocabulary” embedding coordinates (target support).
     aligned : torch.Tensor                    # shape (N,)
         For each descriptor, the index of its aligned word in
-        ``word_embeddings`` (‒1 if no alignment available).
+        word_embeddings (‒1 if no alignment available).
     tgt_probs : torch.Tensor                  # shape (M,)
         Marginal probabilities for the target distribution.  For the balanced
         version it will be renormalised to sum to 1.

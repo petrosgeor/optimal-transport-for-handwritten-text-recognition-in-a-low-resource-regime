@@ -14,10 +14,10 @@ def build_phoc_description(words: List[str],
             vocabularies (e.g., CVL) are handled correctly.
         c2i (dict[str, int]): Character→index mapping. This dictionary does
             not contain the CTC blank (index 0 is implicitly reserved).
-        levels (list[int], optional): Pyramid levels. Defaults to ``(1,2,3,4)``.
+        levels (list[int], optional): Pyramid levels. Defaults to (1,2,3,4).
 
     Returns:
-        torch.BoolTensor: Tensor of shape ``(B, len(c2i) * sum(levels))`` with
+        torch.BoolTensor: Tensor of shape (B, len(c2i) * sum(levels)) with
         PHOC descriptors.
     """
     # alphabet ordered by index (index 0 reserved for the CTC blank)

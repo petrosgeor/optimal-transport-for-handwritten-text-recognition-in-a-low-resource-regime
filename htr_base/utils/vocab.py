@@ -48,16 +48,16 @@ def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
     """Return character-index mappings for a named charset.
 
     Args:
-        dataset_name (str): One of ``'GW'``, ``'IAM'``, ``'CVL'`` or
-            ``'ALL_DATASETS'``. The special ``'ALL_DATASETS'`` entry is the
+        dataset_name (str): One of GW, IAM, CVL or
+            ALL_DATASETS. The special ALL_DATASETS entry is the
             union of all supported dataset character sets.
 
     Returns:
-        tuple[dict, dict]: ``(c2i, i2c)`` where indices start at 1. Index 0 is
+        tuple[dict, dict]: (c2i, i2c) where indices start at 1. Index 0 is
         implicitly reserved for the CTC blank in downstream code.
 
     Raises:
-        ValueError: If ``dataset_name`` is not a key in ``CHARSETS``.
+        ValueError: If dataset_name is not a key in CHARSETS.
     """
 
     if dataset_name not in CHARSETS:

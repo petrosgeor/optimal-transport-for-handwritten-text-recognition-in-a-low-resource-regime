@@ -18,9 +18,9 @@ def load_image(path: str,
     ensure_black_bg : bool, default True
         If False, keep the legacy unconditional inversion.
     bg_thresh : float, default 0.55
-        When `ensure_black_bg` is True we compute the **median** gray value of
+        When ensure_black_bg is True we compute the **median** gray value of
         the image (after rgb→gray, before any inversion).  If the median is
-        *brighter* than `bg_thresh` we invert, otherwise we keep the pixel
+        *brighter* than bg_thresh we invert, otherwise we keep the pixel
         values as-is.
     """
     img = img_io.imread(path)
@@ -41,7 +41,7 @@ def load_image(path: str,
 
 
 def preprocess(img, input_size, border_size=8):
-    """Resize ``img`` and symmetrically pad it to ``input_size``."""
+    """Resize img and symmetrically pad it to input_size."""
 
     h_target, w_target = input_size
 
@@ -70,12 +70,12 @@ def is_image_corrupted(path: str, fast: bool = True) -> bool:
 
     Args:
         path (str): Filesystem path to the image to test.
-        fast (bool): If True, validate headers/structure via ``PIL.Image.verify()``
+        fast (bool): If True, validate headers/structure via PIL.Image.verify()
             without fully decoding pixels. If False, fully decodes the image
-            via ``PIL.Image.open(...).load()`` which is slower but more robust.
+            via PIL.Image.open(...).load() which is slower but more robust.
 
     Returns:
-        bool: ``True`` if the image seems corrupted/unreadable, ``False`` otherwise.
+        bool: True if the image seems corrupted/unreadable, False otherwise.
     """
     try:
         with Image.open(path) as im:

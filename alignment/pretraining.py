@@ -12,7 +12,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(CFG.get("gpu_id", 0))
 import torch
 
 def _assert_finite(t: torch.Tensor, name: str) -> None:
-    """Check ``t`` for ``NaN`` or ``Inf`` values.
+    """Check t for NaN or Inf values.
 
     Args:
         t (torch.Tensor): Tensor produced during training.
@@ -24,10 +24,10 @@ def _assert_finite(t: torch.Tensor, name: str) -> None:
     assert torch.isfinite(t).all(), f"{name} contains NaN/Inf"
 
 def _check_grad_finite(model: torch.nn.Module) -> None:
-    """Ensure all gradients in ``model`` are finite.
+    """Ensure all gradients in model are finite.
 
     Args:
-        model (torch.nn.Module): Model to validate after ``backward``.
+        model (torch.nn.Module): Model to validate after backward.
 
     Returns:
         None
@@ -119,7 +119,7 @@ def main(config: dict | None = None) -> Path:
 
     Returns:
         Path: Filesystem path where the backbone weights are stored. The default
-        save location is ``htr_base/saved_models/pretrained_backbone_all_chars.pt``.
+        save location is htr_base/saved_models/pretrained_backbone_all_chars.pt.
     """
     if config is None:
         config = {}

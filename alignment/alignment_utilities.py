@@ -39,7 +39,7 @@ def harvest_backbone_features(
     """Return image descriptors and alignment info for the whole dataset.
 
     Dataset augmentations are temporarily disabled while collecting
-    descriptors. The backbone is run in evaluation mode on ``device``.
+    descriptors. The backbone is run in evaluation mode on device.
 
     Parameters
     ----------
@@ -50,17 +50,17 @@ def harvest_backbone_features(
     batch_size : int, optional
         Mini-batch size when forwarding the dataset.
     num_workers : int, optional
-        Worker processes used by the ``DataLoader``.
+        Worker processes used by the DataLoader.
     device : torch.device | str, optional
         Device on which the backbone runs.
 
     Returns
     -------
     torch.Tensor
-        Tensor of descriptors with shape ``(N, D)`` where ``N`` is the
+        Tensor of descriptors with shape (N, D) where N is the
         dataset size.
     torch.Tensor
-        Alignment tensor of shape ``(N,)`` copied from the dataset.
+        Alignment tensor of shape (N,) copied from the dataset.
     """
 
     device = torch.device(device)
@@ -113,22 +113,22 @@ def calculate_ot_projections(
     reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute OT projections of ``X`` onto ``Y``.
+    """Compute OT projections of X onto Y.
 
     Parameters
     ----------
     pa : np.ndarray
-        Source distribution over ``X`` of shape ``(N,)``.
+        Source distribution over X of shape (N,).
     X : np.ndarray
-        Source features of shape ``(N, D)``.
+        Source features of shape (N, D).
     pb : np.ndarray
-        Target distribution over ``Y`` of shape ``(M,)``.
+        Target distribution over Y of shape (M,).
     Y : np.ndarray
-        Target features of shape ``(M, D)``.
+        Target features of shape (M, D).
     reg : float, optional
         Entropic regularisation.
     unbalanced : bool, optional
-        Use unbalanced OT formulation if ``True``.
+        Use unbalanced OT formulation if True.
     reg_m : float, optional
         Unbalanced mass regularisation.
     sinkhorn_kwargs : dict, optional
@@ -137,9 +137,9 @@ def calculate_ot_projections(
     Returns
     -------
     projections : np.ndarray
-        ``X`` projected in the space of ``Y`` (``(N, D)``).
+        X projected in the space of Y ((N, D)).
     plan : np.ndarray
-        Optimal transport plan of shape ``(N, M)``.
+        Optimal transport plan of shape (N, M).
     """
     if sinkhorn_kwargs is None:
         sinkhorn_kwargs = {}
@@ -167,24 +167,24 @@ def select_uncertain_instances(
     dist_matrix: Optional[np.ndarray] = None,
     metric: str = "gap",
 ) -> np.ndarray:
-    """Return indices of the ``m`` most uncertain instances.
+    """Return indices of the m most uncertain instances.
 
     Parameters
     ----------
     m : int
         Number of indices to return.
     transport_plan : np.ndarray, optional
-        OT plan of shape ``(N, V)``. Required for ``metric='entropy'``.
+        OT plan of shape (N, V). Required for metric=entropy.
     dist_matrix : np.ndarray, optional
-        Pre-computed pairwise distances ``(N, V)``. Required for
-        ``metric='gap'``.
+        Pre-computed pairwise distances (N, V). Required for
+        metric=gap.
     metric : str, optional
-        Either ``'gap'`` or ``'entropy'`` selecting the uncertainty measure.
+        Either gap or entropy selecting the uncertainty measure.
 
     Returns
     -------
     np.ndarray
-        Array of ``m`` indices sorted by decreasing uncertainty.
+        Array of m indices sorted by decreasing uncertainty.
     """
     if metric not in {"gap", "entropy"}:
         raise ValueError("metric must be 'gap' or 'entropy'")
@@ -268,7 +268,7 @@ class OTAligner:
         """Compute the OT projection of projector outputs onto word embeddings.
 
         Args:
-            proj_feats (torch.Tensor): Projector features of shape ``(N, D)``.
+            proj_feats (torch.Tensor): Projector features of shape (N, D).
 
         Returns:
             tuple[torch.Tensor, np.ndarray]:
@@ -309,7 +309,7 @@ class OTAligner:
         Returns:
             dict: Dictionary containing the OT plan, mean projected features,
             distance matrix, moved distances, nearest word indices,
-            per-sample variance scores and the ``aligned`` vector from the
+            per-sample variance scores and the aligned vector from the
             dataset.
         """
         # collect image descriptors from the backbone
@@ -391,7 +391,7 @@ class OTAligner:
             counts (torch.Tensor): Agreement counts from the projector ensemble.
             dist_matrix (torch.Tensor): Pairwise distances to word embeddings.
             plan (torch.Tensor): Optimal transport plan from OT alignment.
-            aligned_all (torch.Tensor): Current alignment vector ``(N,)``.
+            aligned_all (torch.Tensor): Current alignment vector (N,).
             var_scores (torch.Tensor): Per-sample variance scores.
 
         Returns:
@@ -427,7 +427,7 @@ class OTAligner:
 
     # ------------------------------------------------------------------
     def _update_dataset(self, chosen: torch.Tensor, nearest_word: torch.Tensor) -> None:
-        """Write newly aligned indices back into ``dataset.aligned``.
+        """Write newly aligned indices back into dataset.aligned.
 
         Args:
             chosen (torch.Tensor): Dataset indices selected for labelling.
@@ -544,13 +544,13 @@ class OTAligner:
         decode_cfg : dict | None, optional
             Decoding configuration forwarded to the decoding helper.
         num_workers : int, optional
-            Workers used by the ``DataLoader``.
+            Workers used by the DataLoader.
 
         Returns
         -------
         int
             Number of samples that were un-aligned because the distance
-            exceeded ``edit_threshold``.
+            exceeded edit_threshold.
         """
         self.backbone.eval()
         device = self.device
@@ -654,12 +654,12 @@ def align_more_instances(
     metric: str = "entropy",          # 'gap', 'entropy' or 'variance' (assignment certainty)
     agree_threshold: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Wrapper over :class:`OTAligner` for backward compatibility.
+    """Wrapper over :class:OTAligner for backward compatibility.
 
-    When ``cfg.pseudo_label_validation.enable`` is ``True``, this function
-    invokes :meth:`OTAligner.validate_pseudo_labels` once the number of
-    calls to :func:`align_more_instances` reaches the configured
-    ``start_iteration``.
+    When cfg.pseudo_label_validation.enable is True, this function
+    invokes :meth:OTAligner.validate_pseudo_labels once the number of
+    calls to :func:align_more_instances reaches the configured
+    start_iteration.
     """
     global _ALIGN_CALL_COUNT
     _ALIGN_CALL_COUNT += 1

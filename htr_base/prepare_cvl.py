@@ -19,10 +19,10 @@ def parse_arguments() -> argparse.Namespace:
     Purpose:
         Collect CLI inputs describing source and destination paths.
     Args:
-        None: Inputs are taken directly from ``sys.argv``.
+        None: Inputs are taken directly from sys.argv.
     Returns:
-        argparse.Namespace: Namespace containing ``cvl_root``, ``output_root``
-            and ``max_words``.
+        argparse.Namespace: Namespace containing cvl_root, output_root
+            and max_words.
     """
     parser = argparse.ArgumentParser(
         description="Prepare the CVL dataset into processed word-level splits."
@@ -90,9 +90,9 @@ def write_split(records: Iterable[WordRecord], destination: Path, label: str) ->
     """Write CVL word records and the accompanying ground-truth file.
 
     Purpose:
-        Copy images into the processed split folder and emit ``gt.txt``.
+        Copy images into the processed split folder and emit gt.txt.
     Args:
-        records (Iterable[WordRecord]): Sequence of ``(path, transcription)`` pairs.
+        records (Iterable[WordRecord]): Sequence of (path, transcription) pairs.
         destination (Path): Output directory for the processed split.
         label (str): Progress label displayed during copy.
     Returns:
@@ -115,9 +115,9 @@ def prepare_cvl_dataset(
     """Convert the raw CVL dataset into processed word-level splits.
 
     Purpose:
-        Generate ``processed_words/train`` and ``processed_words/test`` directories with ``gt.txt`` files.
+        Generate processed_words/train and processed_words/test directories with gt.txt files.
     Args:
-        cvl_root (Path): Root directory containing ``trainset`` and ``testset`` folders.
+        cvl_root (Path): Root directory containing trainset and testset folders.
         output_root (Path): Destination that will hold the processed data layout.
         max_words (int | None): Optional per-split limit for copied examples.
     Returns:

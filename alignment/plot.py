@@ -84,10 +84,10 @@ def plot_tsne_embeddings(
 ) -> None:
     """Generate a coloured t-SNE plot of backbone embeddings and save it.
 
-    A random subset of ``n_samples`` is drawn from the dataset. Features
+    A random subset of n_samples is drawn from the dataset. Features
     and current alignment labels are harvested, and t-SNE projects the
     descriptors to 2-D. The scatter plot colours samples in blue when
-    ``aligned == 1`` and black otherwise. All plotted samples are annotated
+    aligned == 1 and black otherwise. All plotted samples are annotated
     with their ground-truth transcriptions.
 
     Parameters
@@ -182,9 +182,9 @@ def plot_projector_tsne(
     Parameters
     ----------
     projections : torch.Tensor
-        Output of the projector with shape ``(N, E)``.
+        Output of the projector with shape (N, E).
     dataset : HTRDataset
-        Provides ``unique_word_embeddings`` of shape ``(V, E)``.
+        Provides unique_word_embeddings of shape (V, E).
     save_path : str
         Destination path for the PNG figure.
     """

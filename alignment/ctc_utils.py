@@ -22,7 +22,7 @@ def encode_for_ctc(
 ) -> Tuple[torch.IntTensor, torch.IntTensor]:
     """
     Convert a batch of raw string transcriptions to the (targets, lengths)
-    format expected by ``nn.CTCLoss``.
+    format expected by nn.CTCLoss.
 
     Parameters
     ----------
@@ -145,15 +145,15 @@ def beam_search_ctc_decode(
     Parameters
     ----------
     logits : torch.Tensor
-        Network output – either ``(T, B, C)`` if *time_first* or ``(B, T, C)``.
+        Network output – either (T, B, C) if *time_first* or (B, T, C).
     i2c : dict[int, str]
         Index-to-character map **excluding** the blank id.
     beam_width : int, optional
         Number of prefixes kept after every time-step.
     blank_id : int, optional
-        Integer assigned to the CTC blank (defaults to ``0``).
+        Integer assigned to the CTC blank (defaults to 0).
     time_first : bool, optional
-        ``True`` if *logits* are ``(T, B, C)``, else ``False`` for ``(B, T, C)``.
+        True if *logits* are (T, B, C), else False for (B, T, C).
 
     Returns
     -------
@@ -212,21 +212,21 @@ def ctc_target_probability(
     Parameters
     ----------
     logits : torch.Tensor
-        Two-dimensional tensor ``(T, C)`` containing raw network scores for
-        a **single** sample. ``T`` is the time dimension and ``C`` includes
+        Two-dimensional tensor (T, C) containing raw network scores for
+        a **single** sample. T is the time dimension and C includes
         the blank class.
     target : str
-        Decoded transcription consisting of characters present in ``c2i``.
+        Decoded transcription consisting of characters present in c2i.
     c2i : dict[str, int]
         Mapping from characters to label indices. The blank id is **not**
         expected to be present.
     blank_id : int, optional
-        Integer assigned to the CTC blank (defaults to ``0``).
+        Integer assigned to the CTC blank (defaults to 0).
 
     Returns
     -------
     float
-        Probability that ``logits`` collapse to ``target`` according to the
+        Probability that logits collapse to target according to the
         CTC formulation.
     """
 

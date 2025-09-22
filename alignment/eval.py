@@ -10,11 +10,11 @@ from htr_base.utils.htr_dataset import HTRDataset
 
 
 def _assert_finite(t: torch.Tensor, where: str) -> None:
-    """Raise an error if ``t`` contains ``NaN`` or ``Inf`` values.
+    """Raise an error if t contains NaN or Inf values.
 
     Args:
         t (torch.Tensor): Tensor to check for numeric stability.
-        where (str): Description of the tensor's origin used in the message.
+        where (str): Description of the tensors origin used in the message.
 
     Returns:
         None
@@ -37,19 +37,19 @@ def compute_cer(
     Parameters
     ----------
     dataset : HTRDataset
-        Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.
+        Items yield (img, transcription, _) triples as in HTRDataset.
     model : torch.nn.Module
-        Network returning CTC logits (``(T,B,C)``).
+        Network returning CTC logits ((T,B,C)).
     batch_size : int, optional
         Mini-batch size used during evaluation.
     device : str or torch.device, optional
         Compute device for the forward pass.
-    decode : {'greedy', 'beam'}, optional
+    decode : {greedy, beam}, optional
         Decoding strategy for CTC outputs.
     beam_width : int, optional
-        Beam width when ``decode='beam'``.
+        Beam width when decode=beam.
     k : int, optional
-        If given, also report CER for samples of length ``<= k`` and ``> k``.
+        If given, also report CER for samples of length <= k and > k.
 
     Returns
     -------
@@ -121,14 +121,14 @@ def compute_wer(
     Parameters
     ----------
     dataset : HTRDataset
-        Items yield ``(img, transcription, _)`` triples as in ``HTRDataset``.
+        Items yield (img, transcription, _) triples as in HTRDataset.
     model : torch.nn.Module
-        Network returning CTC logits (``(T,B,C)``).
+        Network returning CTC logits ((T,B,C)).
     batch_size : int, optional
         Mini-batch size used during evaluation.
     device : str or torch.device, optional
         Compute device for the forward pass.
-    decode : {'greedy', 'beam'}, optional
+    decode : {greedy, beam}, optional
         Decoding strategy for CTC outputs.
 
     Returns
