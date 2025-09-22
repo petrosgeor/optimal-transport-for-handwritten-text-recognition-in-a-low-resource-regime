@@ -1,2 +1,0 @@
-"""Core HTR base package."""
-
