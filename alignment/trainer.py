@@ -362,22 +362,37 @@ def refine_visual_backbone(
     Returns:
         None
     """
+    # The refinement path in this codebase is designed for CUDA execution.
+    # Keep the explicit assertion so failures happen early and readably.
     device = next(backbone.parameters()).device
     assert device.type == "cuda", "Backbone is not on a CUDA device"
+
+    # Train mode enables dropout/batchnorm updates during refinement.
     backbone.train().to(device)
-    # Build CTC mapping once using the fixed vocabulary.
+
+    # Build CTC mapping once from the dataset-specific charset. This mapping is
+    # reused for every batch in this function.
     c2i, _ = load_vocab(dataset_name=dataset.get_dataset_name())
+
+    # Sanity check: one alignment flag per dataset sample.
     assert dataset.aligned.ndim == 1 and len(dataset) == len(dataset.aligned), "Dataset alignment flags vector is malformed."
 
+    # Real-data supervision is available only for samples already aligned to a
+    # word id (aligned != -1).
     aligned_indices = (dataset.aligned != -1).nonzero(as_tuple=True)[0]
     subset = torch.utils.data.Subset(dataset, aligned_indices.tolist())
 
+    # Nothing to optimize if we have neither aligned real samples nor synthetic
+    # batches enabled.
     if len(aligned_indices) == 0 and (pretrain_ds is None or syn_batch_ratio <= 0):
         return
 
+    # Split each mini-batch into synthetic and real portions. If synthetic data
+    # is absent, syn_bs is forced to 0 and the full batch is real.
     syn_bs = int(batch_size * syn_batch_ratio) if pretrain_ds is not None else 0
     gt_bs = batch_size - syn_bs
 
+    # Loader for aligned real samples (ground truth supervision).
     gt_loader = None
     if gt_bs > 0 and len(aligned_indices) > 0:
         gt_loader = DataLoader(
@@ -388,6 +403,7 @@ def refine_visual_backbone(
             pin_memory=(device.type == "cuda"),
         )
 
+    # Loader for optional synthetic pretraining samples.
     pretrain_loader = None
     if pretrain_ds is not None and syn_bs > 0:
         pretrain_loader = DataLoader(
@@ -398,6 +414,9 @@ def refine_visual_backbone(
             pin_memory=(device.type == "cuda"),
         )
 
+    # Epoch length convention:
+    # - if synthetic is enabled, one epoch follows pretrain_loader length;
+    # - real batches are drawn from an infinite cycle to match that length.
     if pretrain_loader is not None:
         epoch_loader = pretrain_loader
         gt_iter = cycle(gt_loader) if gt_loader is not None else None
@@ -405,19 +424,30 @@ def refine_visual_backbone(
         epoch_loader = gt_loader
         gt_iter = None
 
+    # Optimizer updates only backbone parameters in this stage.
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
+
+    # Construct contrastive criterion lazily only when requested.
     contr_fn = None
     if enable_contrastive:
         contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
-    # Training loop for backbone refinement
+
+    # Main refinement loop.
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
         effective_batches = 0
         for batch in epoch_loader:
+            # Batch assembly has two modes:
+            # 1) synthetic-driven epoch (optionally mixed with real aligned data)
+            # 2) real-only aligned batches.
             if pretrain_loader is not None:
+                # Synthetic dataset already returns text strings for CTC.
                 imgs, trans = batch
                 words = list(trans)
                 if gt_iter is not None:
+                    # Append real aligned samples, convert alignment ids to words,
+                    # then reshuffle so model does not see fixed ordering
+                    # (all-real first, all-synthetic second).
                     imgs_gt, _, aligned = next(gt_iter)
                     imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
                     words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()] + words
@@ -425,6 +455,7 @@ def refine_visual_backbone(
                 else:
                     imgs = imgs.to(device)
             else:
+                # Real-only path: convert aligned ids to their string labels.
                 imgs, _, aligned = batch
                 words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()]
                 imgs = imgs.to(device)
@@ -439,38 +470,53 @@ def refine_visual_backbone(
                 or enable_contrastive
             )
             out = backbone(imgs, return_feats=need_feats)
+
+            # This routine expects the dual-CTC-head contract:
+            # (main_logits, aux_logits, ...).
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
             if need_feats:
+                # With features enabled:
+                # out[:3] -> main logits, auxiliary logits, pooled descriptors.
                 main_logits, aux_logits, feats = out[:3]
+                # PHOC logits may be present as an extra tail element.
                 phoc_logits = out[3] if enable_phoc and backbone.phoc_head is not None else None
             else:
                 main_logits, aux_logits = out[:2]
                 feats = None
                 phoc_logits = None
 
+            # CTC dimensions:
+            # T = input sequence length, K = batch size.
             T, K, _ = main_logits.shape
             assert main_logits.shape[2] == len(c2i) + 1, "CTC class dimension mismatch"
 
-            # Encode transcriptions for CTC loss
+            # Encode text targets into the flattened CTC representation.
             targets, tgt_lens = encode_for_ctc(words, c2i, device=device)
 
+            # CTC input lengths are constant across the batch because all samples
+            # share the same time dimension T after the forward pass.
             inp_lens = torch.full((K,), T, dtype=torch.int32, device=device)
-            # Compute CTC losses for main and auxiliary heads
+
+            # Main objective: CTC on the recurrent/main branch.
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, tgt_lens)
+            # Auxiliary objective: CTC on the secondary head.
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, tgt_lens)
+
+            # Optional PHOC regularization branch (off by default).
             loss_phoc = torch.tensor(0.0, device=device)
             if enable_phoc and phoc_logits is not None:
                 phoc_targets = build_phoc_description(words, c2i, levels=phoc_levels)
                 phoc_targets = phoc_targets.float().to(device)
                 loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
 
+            # Optional contrastive regularization over pooled descriptors.
             loss_contr = torch.tensor(0.0, device=device)
             if enable_contrastive and feats is not None:
-                loss_contr = contr_fn(feats, targets, tgt_lens)
+                loss_contr = contr_fn.forward(feats, targets, tgt_lens)
                 _assert_finite(loss_contr, "contrastive loss")
 
-            # Combine losses with configured weights
+            # Weighted multi-objective loss.
             loss = (
                 main_weight * loss_main +
                 aux_weight * loss_aux +
@@ -479,21 +525,25 @@ def refine_visual_backbone(
             )
             _assert_finite(loss, "loss")
 
-            # Optimization step
+            # Standard optimizer step with explicit finite-gradient check.
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             _assert_grad_finite(backbone, "backbone")
             optimizer.step()
             epoch_loss += loss.item()
             effective_batches += 1
+        # Debug logging kept disabled to reduce console noise on long runs.
         # if effective_batches:
         #     avg_loss = epoch_loss / effective_batches
         #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
     
+    # End-of-stage diagnostic plot (side effect): saves a t-SNE figure.
     plot_tsne_embeddings(dataset=dataset, backbone=backbone, save_path='results/figures/tsne_backbone_contrastive.png', device=device)
     # print('the backbone TSNE plot is saved')
+
+    # Leave backbone in eval mode for downstream phases (projector/alignment).
     backbone.eval()
 
 # File: alignment/trainer.py

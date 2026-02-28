@@ -15,6 +15,7 @@ results.txt
 htr_base/data/*
 htr_base/saved_models/
 htr_base/saved_models/pretrained_backbone.pt
+saved_models/
 
 # Test-related ignores
 tests/

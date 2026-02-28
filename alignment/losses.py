@@ -1,3 +1,11 @@
+"""Loss functions used by the alignment and pretraining pipelines.
+
+This module contains:
+- a CTC helper wrapper used by backbone training routines,
+- an OT-based projection loss with an optional supervised anchor term, and
+- a soft contrastive loss that builds text-space similarities from edit distance.
+"""
+
 import torch
 import torch.nn.functional as F
 import ot  # POT - Python Optimal Transport
@@ -5,13 +13,24 @@ from geomloss.samples_loss import SamplesLoss
 from rapidfuzz import process, distance
 import numpy as np
 
+
 def _ctc_loss_fn(
     logits: torch.Tensor,
     targets: torch.IntTensor,
     inp_lens: torch.IntTensor,
     tgt_lens: torch.IntTensor,
 ) -> torch.Tensor:
-    """A thin wrapper around torch.nn.functional.ctc_loss that takes *logits*."""
+    """Compute CTC loss from raw logits.
+
+    Args:
+    - logits (torch.Tensor): Unnormalized class scores with shape (T, B, C).
+    - targets (torch.IntTensor): Flattened encoded targets with shape (sum(L),).
+    - inp_lens (torch.IntTensor): Input sequence lengths per sample with shape (B,).
+    - tgt_lens (torch.IntTensor): Target lengths per sample with shape (B,).
+
+    Returns:
+    - (torch.Tensor): Scalar loss tensor on the same device as logits.
+    """
     log_probs = F.log_softmax(logits, dim=2)
     loss = F.ctc_loss(
         log_probs,
@@ -25,44 +44,21 @@ def _ctc_loss_fn(
 
 
 class ProjectionLoss(torch.nn.Module):
-    """
-    Entropic‑regularised optimal‑transport projection loss with optional
-    unbalanced formulation.
+    """Optimal-transport projection loss with optional supervised anchors.
 
-    Parameters
-    ----------
-    reg : float, optional
-        Entropic regularisation strength passed to ot.sinkhorn2 or
-        ot.unbalanced.sinkhorn_unbalanced2.  Default = 0.1.
-    unbalanced : bool, optional
-        If True use the unbalanced OT formulation
-        ot.unbalanced.sinkhorn_unbalanced2 (requires an additional
-        reg_m parameter that can be passed through sinkhorn_kwargs);
-        otherwise use the balanced formulation ot.sinkhorn2.
-        Default = False (balanced).
-    supervised_weight : float, optional
-        Scale for the supervised descriptor distance term.  Default = 1.0.
-    sinkhorn_kwargs : dict, optional
-        Extra keyword arguments forwarded to the solver (e.g. max_iter, tol,
-        log, reg_m for the unbalanced case).
+    The loss has two parts:
+    - Sinkhorn OT term that moves projected descriptors toward word embeddings.
+    - Optional supervised MSE term on samples with known alignment ids.
 
-    Forward Inputs
-    --------------
-    descriptors : torch.Tensor                # shape (N, d)
-        Source features extracted by the network.
-    word_embeddings : torch.Tensor            # shape (M, d)
-        2‑D “vocabulary” embedding coordinates (target support).
-    aligned : torch.Tensor                    # shape (N,)
-        For each descriptor, the index of its aligned word in
-        word_embeddings (‒1 if no alignment available).
-    tgt_probs : torch.Tensor                  # shape (M,)
-        Marginal probabilities for the target distribution.  For the balanced
-        version it will be renormalised to sum to 1.
+    Args:
+    - reg (float): Entropic regularization strength for Sinkhorn.
+    - unbalanced (bool): Whether to use unbalanced Sinkhorn with mass relaxation.
+    - reg_m (float): Mass regularization used only in unbalanced mode.
+    - supervised_weight (float): Weight applied to the supervised MSE term.
+    - sinkhorn_kwargs (dict): Extra keyword args passed to GeomLoss SamplesLoss.
 
-    Returns
-    -------
-    loss : torch.Tensor
-        Scalar loss = OT loss + supervised alignment loss.
+    Returns:
+    - (None): Module constructor does not return a value.
     """
     def __init__(
         self,
@@ -73,6 +69,18 @@ class ProjectionLoss(torch.nn.Module):
         supervised_weight: float = 1.0,
         **sinkhorn_kwargs,
     ):
+        """Initialize OT loss components.
+
+        Args:
+        - reg (float): Entropic regularization for Sinkhorn.
+        - unbalanced (bool): Toggle unbalanced OT formulation.
+        - reg_m (float): Unbalanced mass regularization parameter.
+        - supervised_weight (float): Weight for supervised MSE anchor term.
+        - sinkhorn_kwargs (dict): Extra options forwarded to SamplesLoss.
+
+        Returns:
+        - (None): Constructor does not return a value.
+        """
         super().__init__()
         self.reg = reg
         self.unbalanced = unbalanced
@@ -89,6 +97,70 @@ class ProjectionLoss(torch.nn.Module):
                 loss="sinkhorn", p=2, blur=self.reg, debias=True, **self.sinkhorn_kwargs
             )
 
+    def _validate_projection_inputs(
+        self,
+        descriptors: torch.Tensor,
+        word_embeddings: torch.Tensor,
+        aligned: torch.Tensor,
+        tgt_probs: torch.Tensor,
+    ) -> tuple[int, int, int]:
+        """Validate projection-loss inputs and return key shape dimensions.
+
+        Args:
+        - descriptors (torch.Tensor): Source descriptors expected with shape (N, D).
+        - word_embeddings (torch.Tensor): Target embeddings expected with shape (M, D).
+        - aligned (torch.Tensor): Alignment indices expected with shape (N,).
+        - tgt_probs (torch.Tensor): Target marginal probabilities expected with shape (M,).
+
+        Returns:
+        - (tuple[int, int, int]): The tuple (N, M, D) from validated tensor shapes.
+
+        Raises:
+        - ValueError: If shapes, dtypes, or finiteness checks fail.
+        """
+        if descriptors.ndim != 2:
+            raise ValueError(
+                f"descriptors must have shape (N, D); got descriptors.shape={tuple(descriptors.shape)}"
+            )
+        if word_embeddings.ndim != 2:
+            raise ValueError(
+                "word_embeddings must have shape (M, D); "
+                f"got word_embeddings.shape={tuple(word_embeddings.shape)}"
+            )
+        n_samples, feat_dim = descriptors.shape
+        n_words, emb_dim = word_embeddings.shape
+        if feat_dim != emb_dim:
+            raise ValueError(
+                f"descriptor and embedding dimensions must match; got D={feat_dim} and D'={emb_dim}"
+            )
+        if aligned.shape != (n_samples,):
+            raise ValueError(
+                f"aligned must have shape ({n_samples},); got aligned.shape={tuple(aligned.shape)}"
+            )
+        if tgt_probs.shape != (n_words,):
+            raise ValueError(
+                f"tgt_probs must have shape ({n_words},); got tgt_probs.shape={tuple(tgt_probs.shape)}"
+            )
+
+        if aligned.dtype not in (torch.int32, torch.int64):
+            raise ValueError(
+                f"aligned must be int32 or int64; got aligned.dtype={aligned.dtype}"
+            )
+        if not tgt_probs.dtype.is_floating_point:
+            raise ValueError(
+                f"tgt_probs must be a floating-point tensor; got tgt_probs.dtype={tgt_probs.dtype}"
+            )
+
+        for tensor, name in (
+            (descriptors, "descriptors"),
+            (word_embeddings, "word_embeddings"),
+            (tgt_probs, "tgt_probs"),
+        ):
+            if not torch.isfinite(tensor).all():
+                raise ValueError(f"{name} contains NaN/Inf")
+
+        return n_samples, n_words, feat_dim
+
     def forward(
         self,
         descriptors: torch.Tensor,
@@ -96,41 +168,47 @@ class ProjectionLoss(torch.nn.Module):
         aligned: torch.Tensor,
         tgt_probs: torch.Tensor,
     ) -> torch.Tensor:
-        # sanity checks on shapes
-        assert descriptors.ndim == 2, "descriptors must be 2-D (N, d)"
-        assert word_embeddings.ndim == 2, "word_embeddings must be 2-D (M, d)"
-        N, d = descriptors.shape
-        M, d2 = word_embeddings.shape
-        assert d == d2, "descriptor and embedding dimensions differ"
-        assert aligned.shape == (N,), "aligned must have shape (N,)"
-        assert tgt_probs.shape == (M,), "tgt_probs must have shape (M,)"
+        """Compute projection loss for a batch of descriptors.
 
-        # check for NaN or Inf values
-        for tensor, name in [
-            (descriptors, "descriptors"),
-            (word_embeddings, "word_embeddings"),
-            (tgt_probs, "tgt_probs"),
-        ]:
-            assert not torch.isnan(tensor).any(), f"{name} contains NaN values"
-            assert not torch.isinf(tensor).any(), f"{name} contains infinite values"
-        # create uniform source distribution
-        n = descriptors.shape[0]
-        a = torch.full((n,), 1.0 / n, dtype=descriptors.dtype, device=descriptors.device)
-        # target distribution
+        Args:
+        - descriptors (torch.Tensor): Source descriptors with shape (N, D).
+        - word_embeddings (torch.Tensor): Target embeddings with shape (M, D).
+        - aligned (torch.Tensor): Alignment ids with shape (N,). Use -1 for unknown.
+        - tgt_probs (torch.Tensor): Target distribution weights with shape (M,).
+
+        Returns:
+        - (torch.Tensor): Scalar loss = OT term + weighted supervised MSE term.
+
+        Raises:
+        - ValueError: If inputs are invalid, if balanced-mode tgt_probs sums to
+          non-positive values, or if OT loss becomes non-finite.
+        """
+        N, M, _ = self._validate_projection_inputs(
+            descriptors=descriptors,
+            word_embeddings=word_embeddings,
+            aligned=aligned,
+            tgt_probs=tgt_probs,
+        )
+
+        # Build source and target marginals. Balanced mode renormalizes tgt_probs.
+        a = torch.full((N,), 1.0 / N, dtype=descriptors.dtype, device=descriptors.device)
         if not self.unbalanced:
-            b = tgt_probs / tgt_probs.sum()
+            tgt_sum = tgt_probs.sum()
+            if tgt_sum.item() <= 0:
+                raise ValueError("tgt_probs must sum to > 0 in balanced mode")
+            b = tgt_probs / tgt_sum
         else:
             b = tgt_probs
 
-        # compute OT loss depending on balanced/unbalanced mode
+        # Compute OT loss.
         if self.unbalanced:
             ot_loss = self.unbalanced_ot_loss(a, descriptors, b, word_embeddings)
         else:
             ot_loss = self.balanced_ot_loss(a, descriptors, b, word_embeddings)
-        assert not torch.isnan(ot_loss).any(), "OT loss is NaN"
-        assert not torch.isinf(ot_loss).any(), "OT loss is infinite"
+        if not torch.isfinite(ot_loss).all():
+            raise ValueError("OT loss is NaN/Inf")
 
-        # compute supervised alignment loss when alignments are provided
+        # Compute supervised anchor term.
         aligned_indices = torch.where(aligned != -1)[0]
         if aligned_indices.numel() == 0:
             distance_loss = torch.tensor(0.0, device=descriptors.device, dtype=descriptors.dtype)
@@ -140,6 +218,7 @@ class ProjectionLoss(torch.nn.Module):
             distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
         return ot_loss + self.supervised_weight * distance_loss
 
+
 # ------------------------------------------------------------------
 # Soft Contrastive / InfoNCE with continuous positives (Euclidean)
 # ------------------------------------------------------------------
@@ -147,27 +226,46 @@ from .ctc_utils import _unflatten_targets
 
 
 class SoftContrastiveLoss(torch.nn.Module):
-    """
-    InfoNCE‑style loss that pulls together image descriptors whose
-    transcripts have small Levenshtein distance.
+    """Soft InfoNCE-style contrastive loss using text edit distance.
 
-    Parameters
-    ----------
-    tau   : float  – temperature in image space (distance → similarity).
-    T_txt : float  – temperature in transcript space (controls softness).
-    eps   : float  – numeric stability.
+    The image-space similarity comes from pairwise feature distances, while
+    text-space similarity is computed from pairwise Levenshtein distances
+    between decoded target sequences.
+
+    Args:
+    - tau (float): Temperature for image-space similarities.
+    - T_txt (float): Temperature for text-space similarities.
+    - eps (float): Small constant for numerical stability.
+
+    Returns:
+    - (None): Module constructor does not return a value.
     """
     def __init__(self, tau: float = .07, T_txt: float = 1.0, eps: float = 1e-8):
+        """Initialize contrastive-loss temperatures.
+
+        Args:
+        - tau (float): Temperature for image-space pair similarities.
+        - T_txt (float): Temperature for text-space pair similarities.
+        - eps (float): Numerical-stability constant for division and log.
+
+        Returns:
+        - (None): Constructor does not return a value.
+        """
         super().__init__()
         self.tau   = tau
         self.T_txt = T_txt
         self.eps   = eps
 
     def forward(self, feats: torch.Tensor, targets: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
-        """
-        feats        : (B, D) float tensor (output of HTRNet, 3ʳᵈ element)
-        targets      : (sum(L),) int tensor of encoded labels
-        lengths      : (B,) int tensor of label lengths
+        """Compute soft contrastive loss for one minibatch.
+
+        Args:
+        - feats (torch.Tensor): Feature matrix with shape (B, D).
+        - targets (torch.Tensor): Flattened encoded CTC targets with shape (sum(L),).
+        - lengths (torch.Tensor): Target lengths with shape (B,).
+
+        Returns:
+        - (torch.Tensor): Scalar contrastive loss. Returns 0 when B < 2.
         """
         B = len(lengths)
         if B < 2:

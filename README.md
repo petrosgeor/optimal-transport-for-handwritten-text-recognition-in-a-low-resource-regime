@@ -67,7 +67,7 @@ Edit `alignment/alignment_configs/pretraining_config.yaml` and set at minimum:
 - `base_path` (optional): If `null`, the script uses the directory of `list_file` as the base; otherwise resolve relative to repo root.
 - `batch_size`, `num_epochs`, `learning_rate`, `fixed_size`: Training hyperparameters used verbatim by the script.
 - `device`, `gpu_id`: `gpu_id` sets `CUDA_VISIBLE_DEVICES`. If CUDA is not available, the script runs on CPU automatically.
-- `save_path`, `save_backbone`: Where to save the pretrained backbone and whether to save it during training. Defaults to `htr_base/saved_models/pretrained_backbone_all_chars.pt`.
+- `save_path`, `checkpoint_every`, `save_backbone`: `save_path` is a run name (for example `peter`) and checkpoints are stored under `saved_models/pretrained_models/<run_name>/`. `checkpoint_every` controls how often `last.pt` is refreshed.
 
 Notes
 - The vocabulary used for pretraining is the union over all supported datasets (`ALL_DATASETS`). The CTC blank symbol is reserved at index `0`.
@@ -82,12 +82,16 @@ python -m alignment.pretraining
 ```
 
 ### Outputs
-- Checkpoints: When `save_backbone: true`, the script writes the model state dict to `save_path` (directory is auto-created). It saves at periodic progress points and on the final epoch.
+- Checkpoints: When `save_backbone: true`, the script creates `saved_models/pretrained_models/<run_name>/` and writes:
+  - `hparams.yaml` with resolved hyperparameters/metadata
+  - `last.pt` (latest checkpoint, overwritten each save)
+  - `best_cer.pt` (best checkpoint by CER, overwritten on improvement)
+  The script auto-resumes from `last.pt` when present.
 - Console logs: Per-epoch (or periodic) progress, CER on a held-out synthetic set, and a few decoded examples for quick sanity checks.
 
-Example `save_path` after a default run:
+Example checkpoint layout for `save_path: default_run`:
 ```
-htr_base/saved_models/pretrained_backbone_all_chars.pt
+saved_models/pretrained_models/default_run/
 ```
 
 ## Configuration at a Glance
