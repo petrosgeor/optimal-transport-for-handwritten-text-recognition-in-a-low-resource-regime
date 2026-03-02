@@ -9,19 +9,16 @@ def load_image(path: str,
                *,                  # all args after this are keyword‑only
                ensure_black_bg: bool = True,
                bg_thresh: float = .55) -> np.ndarray:
-    """
-    Read *path* and return a float32 array in [0,1] whose background is black
-    and foreground (text) is white.
+    """Load one image as a grayscale float array in [0, 1].
 
-    Parameters
-    ----------
-    ensure_black_bg : bool, default True
-        If False, keep the legacy unconditional inversion.
-    bg_thresh : float, default 0.55
-        When ensure_black_bg is True we compute the **median** gray value of
-        the image (after rgb→gray, before any inversion).  If the median is
-        *brighter* than bg_thresh we invert, otherwise we keep the pixel
-        values as-is.
+    Args:
+        path (str): Filesystem path to the source image.
+        ensure_black_bg (bool): If True, invert only when background appears
+            bright; if False, always invert.
+        bg_thresh (float): Brightness threshold used by adaptive inversion.
+
+    Returns:
+        np.ndarray: Grayscale image array with shape (H, W) and dtype float32.
     """
     img = img_io.imread(path)
     if img.ndim == 3:
@@ -41,7 +38,16 @@ def load_image(path: str,
 
 
 def preprocess(img, input_size, border_size=8):
-    """Resize img and symmetrically pad it to input_size."""
+    """Resize and pad an image to a fixed output shape.
+
+    Args:
+        img (np.ndarray): Input image with shape (H, W).
+        input_size (tuple[int, int]): Target output size as (H_out, W_out).
+        border_size (int): Minimum padding applied on each image side.
+
+    Returns:
+        np.ndarray: Preprocessed image with shape (H_out, W_out).
+    """
 
     h_target, w_target = input_size
 

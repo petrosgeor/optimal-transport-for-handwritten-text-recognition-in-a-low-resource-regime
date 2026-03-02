@@ -167,8 +167,6 @@ def prepare_cvl_dataset(
         cvl_root (Path): Root directory containing trainset and testset folders.
         output_root (Path): Destination that will hold the processed data layout.
         max_words (int | None): Optional per-split limit for copied examples.
-    Returns:
-        None
     """
     cvl_root = cvl_root.expanduser().resolve()
     output_root = output_root.expanduser().resolve()
@@ -206,8 +204,6 @@ def main() -> None:
     Purpose:
         Parse CLI arguments and launch the preprocessing routine.
     Args:
-        None
-    Returns:
         None
     """
     args = parse_arguments()

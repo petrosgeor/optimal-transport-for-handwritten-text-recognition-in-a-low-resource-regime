@@ -13,11 +13,8 @@ def _assert_finite(t: torch.Tensor, where: str) -> None:
     """Raise an error if t contains NaN or Inf values.
 
     Args:
-        t (torch.Tensor): Tensor to check for numeric stability.
+        t (torch.Tensor): Tensor to check for numeric stability, with any shape.
         where (str): Description of the tensors origin used in the message.
-
-    Returns:
-        None
     """
     assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
@@ -34,27 +31,19 @@ def compute_cer(
 ) -> float:
     """Return character error rate on *dataset* using *model*.
 
-    Parameters
-    ----------
-    dataset : HTRDataset
-        Items yield (img, transcription, _) triples as in HTRDataset.
-    model : torch.nn.Module
-        Network returning CTC logits ((T,B,C)).
-    batch_size : int, optional
-        Mini-batch size used during evaluation.
-    device : str or torch.device, optional
-        Compute device for the forward pass.
-    decode : {greedy, beam}, optional
-        Decoding strategy for CTC outputs.
-    beam_width : int, optional
-        Beam width when decode=beam.
-    k : int, optional
-        If given, also report CER for samples of length <= k and > k.
+    Args:
+        dataset (HTRDataset): Dataset yielding `(img, transcription, aligned)`
+            where each `img` has shape (1, H, W).
+        model (torch.nn.Module): CTC model returning logits with shape
+            (T, B, C), or a tuple whose first element has shape (T, B, C).
+        batch_size (int): Evaluation mini-batch size B.
+        device (str): Device identifier used for forward passes.
+        decode (str): Decoder type, either "greedy" or "beam".
+        beam_width (int): Beam width used when decode is "beam".
+        k (int | None): Optional split threshold for reporting by word length.
 
-    Returns
-    -------
-    float
-        Overall CER over the dataset.
+    Returns:
+        float: Dataset-level CER value.
     """
     device = torch.device(device)
     model = model.to(device).eval()
@@ -118,23 +107,17 @@ def compute_wer(
 ) -> int:
     """Return integer word error rate (%) on *dataset* using *model*.
 
-    Parameters
-    ----------
-    dataset : HTRDataset
-        Items yield (img, transcription, _) triples as in HTRDataset.
-    model : torch.nn.Module
-        Network returning CTC logits ((T,B,C)).
-    batch_size : int, optional
-        Mini-batch size used during evaluation.
-    device : str or torch.device, optional
-        Compute device for the forward pass.
-    decode : {greedy, beam}, optional
-        Decoding strategy for CTC outputs.
+    Args:
+        dataset (HTRDataset): Dataset yielding `(img, transcription, aligned)`
+            where each `img` has shape (1, H, W).
+        model (torch.nn.Module): CTC model returning logits with shape
+            (T, B, C), or a tuple whose first element has shape (T, B, C).
+        batch_size (int): Evaluation mini-batch size B.
+        device (str): Device identifier used for forward passes.
+        decode (str): Decoder type, either "greedy" or "beam".
 
-    Returns
-    -------
-    int
-        Overall WER as a percentage rounded to the nearest integer.
+    Returns:
+        int: Dataset-level WER percentage.
     """
     import editdistance  # local import to avoid touching module-level deps
 

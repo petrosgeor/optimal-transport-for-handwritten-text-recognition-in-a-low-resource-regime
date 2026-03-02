@@ -72,42 +72,93 @@ class HTRDataset(Dataset):
                 None is not supported.
             two_views (bool): Return two augmented views when True.
         """
-        if config is None:
-            raise ValueError(
-                "HTRDataset requires a configuration object with alignment "
-                "metadata (e.g., n_aligned, word_emb_dim)."
-            )
         self.basefolder = basefolder
         self.subset = subset
         self.fixed_size = fixed_size
         self.transforms = transforms
         self.character_classes = character_classes
-        self.config = config
         self.two_views = two_views
-        self.n_aligned = 0
-        self.word_prob_strategy = None
-        self.n_aligned = int(getattr(self.config, 'n_aligned', 0))
-        self.word_emb_dim = int(getattr(self.config, 'word_emb_dim', 512))
-        # word probability strategy: 'empirical' (default), 'wordfreq', or 'uniform'
-        self.word_prob_strategy = getattr(self.config, "word_prob_strategy", None)
-        # Load gt.txt from basefolder - each line contains image path and transcription
+
+        (
+            self.config,
+            self.n_aligned,
+            self.word_emb_dim,
+            self.word_prob_strategy,
+        ) = self._parse_and_store_config(config)
+        subsets = self._resolve_subsets(subset)
+        self.data = self._load_gt_data(basefolder, subsets)
+        self.transcriptions = self._init_transcriptions(self.data)
+        assert len(self.data) == len(self.transcriptions), "data/transcriptions length mismatch"
+
+        self.prior_char_probs = self.letter_priors()
+        self.character_classes = self._init_character_classes_if_needed(self.character_classes)
+        (
+            self.unique_words,
+            self.unique_word_probs,
+            self.unique_word_embeddings,
+        ) = self._init_word_stats_and_embeddings()
+        assert len(self.unique_words) == len(self.unique_word_probs), "word/probability length mismatch"
+        self.is_in_dict, self.aligned, self.n_aligned = self._init_alignment_state(
+            n_aligned=self.n_aligned
+        )
+        assert self.aligned.shape[0] == len(self.transcriptions), "aligned length mismatch"
+
+    def _parse_and_store_config(self, config) -> tuple[object, int, int, object]:
+        """Validate configuration and return derived init values.
+
+        Args:
+            config (Any): Configuration object with alignment-related metadata.
+
+        Returns:
+            tuple[object, int, int, object]:
+                ``(config, n_aligned, word_emb_dim, word_prob_strategy)``.
+        """
+        if config is None:
+            raise ValueError(
+                "HTRDataset requires a configuration object with alignment "
+                "metadata (e.g., n_aligned, word_emb_dim)."
+            )
+        n_aligned = int(getattr(config, 'n_aligned', 0))
+        word_emb_dim = int(getattr(config, 'word_emb_dim', 512))
+        word_prob_strategy = getattr(config, "word_prob_strategy", None)
+        return config, n_aligned, word_emb_dim, word_prob_strategy
+
+    def _resolve_subsets(self, subset: str) -> list[str]:
+        """Validate subset selection and return concrete split names.
+
+        Args:
+            subset (str): Requested subset selector.
+
+        Returns:
+            list[str]: Split names to load in order.
+        """
         if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
             raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
-        data = []
         if subset == 'all':
-            subsets = ['train', 'val', 'test']
-        elif subset == 'train_val':
-            subsets = ['train', 'val']
-        else:
-            subsets = [subset]
+            return ['train', 'val', 'test']
+        if subset == 'train_val':
+            return ['train', 'val']
+        return [subset]
+
+    def _load_gt_data(self, basefolder: str, subsets: list[str]) -> list[tuple[str, str]]:
+        """Read ground-truth files and return image/transcription tuples.
+
+        Args:
+            basefolder (str): Root directory containing split folders.
+            subsets (list[str]): Split names to scan for ``gt.txt`` files.
+
+        Returns:
+            list[tuple[str, str]]: Parsed ``(image_path, transcription)`` pairs.
+        """
+        data = []
         for sub in subsets:
             gt_file = os.path.join(basefolder, sub, 'gt.txt')
             if not os.path.isfile(gt_file):
                 # Allow datasets without a 'val' split (e.g., CVL) or incomplete setups.
                 # Skip missing subsets gracefully.
                 continue
-            with open(gt_file, 'r', encoding='utf-8') as f:
-                for line in f:
+            with open(gt_file, 'r', encoding='utf-8') as handle:
+                for line in handle:
                     line = line.strip()
                     if not line:
                         continue
@@ -118,47 +169,91 @@ class HTRDataset(Dataset):
                     # If the filename in gt does not include an extension (GW/IAM),
                     # default to '.png'. If it includes an extension (e.g., CVL '.tif'),
                     # preserve it as-is.
-                    name, ext = os.path.splitext(img_token)
+                    _, ext = os.path.splitext(img_token)
                     filename = img_token if ext else (img_token + '.png')
                     data.append((os.path.join(basefolder, sub, filename), transcr))
-        self.data = data
-        # Load images into memory and store transcriptions
-        # imgs = []
-        transcrs = []
-        for img_path, transcr in self.data:
-            transcrs.append(transcr)
-        self.transcriptions = transcrs
-        self.prior_char_probs = self.letter_priors()
-        if self.character_classes is None:
-            # Infer dataset name from basefolder and load the matching vocabulary
-            dataset_name = self.get_dataset_name()
-            c2i, _ = load_vocab(dataset_name)
-            self.character_classes = list(c2i.keys())
-        # Vocabulary derived from dataset transcriptions
-        self.unique_words, self.unique_word_probs = self.word_frequencies()
-        # Apply configured prior strategy for word probabilities
+        return data
+
+    def _init_transcriptions(self, data: list[tuple[str, str]]) -> list[str]:
+        """Build transcriptions from parsed data tuples.
+
+        Args:
+            data (list[tuple[str, str]]): Parsed ``(image_path, transcription)``
+                pairs.
+
+        Returns:
+            list[str]: Ordered transcriptions matching ``data``.
+        """
+        return [transcr for _, transcr in data]
+
+    def _init_character_classes_if_needed(self, character_classes: list | None) -> list[str]:
+        """Resolve character classes, inferring from dataset vocab when absent.
+
+        Args:
+            character_classes (list | None): Character classes provided by the
+                caller, or ``None`` to infer from dataset vocab.
+
+        Returns:
+            list[str]: Character classes to use for this dataset.
+        """
+        if character_classes is not None:
+            return character_classes
+        dataset_name = self.get_dataset_name()
+        c2i, _ = load_vocab(dataset_name)
+        return list(c2i.keys())
+
+    def _init_word_stats_and_embeddings(self) -> tuple[list[str], list[float], torch.Tensor]:
+        """Build unique words, priors, and embeddings for this dataset.
+
+        Args:
+            None
+
+        Returns:
+            tuple[list[str], list[float], torch.Tensor]:
+                (unique_words, unique_word_probs, unique_word_embeddings) where
+                unique_word_embeddings has shape (V, D).
+        """
+        unique_words, unique_word_probs = self.word_frequencies()
         _strategy = (self.word_prob_strategy or "empirical").lower()
         if _strategy == "wordfreq":
-            self.unique_word_probs = self._estimated_word_probs(self.unique_words)
+            unique_word_probs = self._estimated_word_probs(unique_words)
         elif _strategy == "uniform":
-            n = len(self.unique_words)
-            self.unique_word_probs = ([1.0 / n] * n) if n > 0 else []
-        self.unique_word_embeddings = self.find_word_embeddings(self.unique_words, n_components=self.word_emb_dim)
+            n_words = len(unique_words)
+            unique_word_probs = ([1.0 / n_words] * n_words) if n_words > 0 else []
+        unique_word_embeddings = self.find_word_embeddings(
+            unique_words,
+            n_components=self.word_emb_dim,
+        )
+        return unique_words, unique_word_probs, unique_word_embeddings
 
-        # All transcriptions are present in ``unique_words``
-        self.is_in_dict = torch.ones(len(self.transcriptions), dtype=torch.int32)
-        # Alignment tensor
-        self.aligned = torch.full((len(self.transcriptions),), fill_value=-1, dtype=torch.int32)
-        if self.n_aligned > 0:
+    def _init_alignment_state(self, *, n_aligned: int) -> tuple[torch.IntTensor, torch.IntTensor, int]:
+        """Build alignment tensors and seed aligned indices when requested.
+
+        Args:
+            n_aligned (int): Requested number of initially aligned samples.
+
+        Returns:
+            tuple[torch.IntTensor, torch.IntTensor, int]:
+                (is_in_dict, aligned, effective_n_aligned) where is_in_dict and
+                aligned both have shape (N,), and effective_n_aligned may be reduced when the dataset is
+                smaller than the requested seed count.
+        """
+        is_in_dict = torch.ones(len(self.transcriptions), dtype=torch.int32)
+        aligned = torch.full((len(self.transcriptions),), fill_value=-1, dtype=torch.int32)
+        if n_aligned > 0:
             total = len(self.transcriptions)
-            if total < self.n_aligned:
-                print(f'Warning: reducing n_aligned from {self.n_aligned} to {total}')
-                self.n_aligned = total
-            if self.n_aligned > 0:
-                chosen = torch.tensor(self._select_seed_indices(), dtype=torch.long)
+            if total < n_aligned:
+                print(f'Warning: reducing n_aligned from {n_aligned} to {total}')
+                n_aligned = total
+            if n_aligned > 0:
+                chosen = torch.tensor(
+                    self._select_seed_indices(n_aligned=n_aligned),
+                    dtype=torch.long,
+                )
                 for idx in chosen.tolist():
                     word = self.transcriptions[idx]
-                    self.aligned[idx] = self.unique_words.index(word)
+                    aligned[idx] = self.unique_words.index(word)
+        return is_in_dict, aligned, n_aligned
     def __getitem__(self, index):
         """Return one or two processed image tensors and its transcription.
 
@@ -170,15 +265,23 @@ class HTRDataset(Dataset):
             when two_views is enabled.
 
         Notes:
-            The transcription is wrapped with leading and trailing spaces to
-            preserve the convention used by downstream alignment code.
+            Transcriptions are returned in canonical form with boundary
+            whitespace removed.
         """
         img_path = self.data[index][0]
-        transcr1 = " " + self.data[index][1] + " "
+        transcr1 = str(self.data[index][1]).strip()
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
         def build_view(im):
-            if self.subset in {'train', 'all', 'train_val'}:
+            """Build one processed tensor view from a grayscale image.
+
+            Args:
+                im (np.ndarray): Input image array with shape (H, W).
+
+            Returns:
+                torch.Tensor: Processed image tensor with shape (1, fheight, fwidth).
+            """
+            if self.transforms is not None:
                 nwidth = int(np.random.uniform(.75, 1.25) * im.shape[1])
                 nheight = int((np.random.uniform(.9, 1.1) * im.shape[0] / im.shape[1]) * nwidth)
                 im = resize(image=im, output_shape=(nheight, nwidth)).astype(np.float32)
@@ -186,6 +289,7 @@ class HTRDataset(Dataset):
             if self.transforms is not None:
                 im = self.transforms(image=im)['image']
             return torch.Tensor(im).float().unsqueeze(0)
+        
         if self.two_views:
             img1 = build_view(img.copy())
             img2 = build_view(img.copy())
@@ -194,7 +298,11 @@ class HTRDataset(Dataset):
             img_tensor = build_view(img)
             return img_tensor, transcr1, self.aligned[index]
     def __len__(self):
-        """Return the number of items in the dataset."""
+        """Return the number of items in the dataset.
+
+        Returns:
+            int: Number of dataset samples.
+        """
         return len(self.data)
 
     def get_dataset_name(self) -> str:
@@ -239,8 +347,8 @@ class HTRDataset(Dataset):
             None
 
         Returns:
-            torch.Tensor: 1‑D tensor with the positions of all test items
-            within the concatenated dataset order.
+            torch.Tensor: 1‑D tensor with shape (K,) containing positions of
+            test items in the concatenated dataset order.
 
         Raises:
             RuntimeError: If the dataset was not built with subset=all.
@@ -256,31 +364,33 @@ class HTRDataset(Dataset):
         indices = [i for i, (p, _) in enumerate(self.data) if str(p).startswith(test_prefix)]
         return torch.tensor(indices, dtype=torch.long)
 
-    def _select_seed_indices(self) -> List[int]:
-        """Select random **image indices** to seed the alignment.
+    def _select_seed_indices(self, n_aligned: int | None = None) -> List[int]:
+        """Return distinct dataset indices used as initial alignment seeds.
 
-        Behavior
-        --------
-        - Returns up to n_aligned **distinct dataset indices** (no duplicates).
-        - For every subset except all: sample uniformly at random from the
-        items present in *this* dataset instance (e.g., train, val, test,
-        or train_val), **without replacement**.
-        - For subset == all: sample uniformly at random **only from the
-        train split**, **without replacement**. Returned indices are **global**
-        (positions in the concatenated [train, val, test] dataset order).
+        Sampling is performed at the image level (not the word level), so the
+        result may include different images sharing the same transcription, but
+        never the same image index twice.
 
-        Rationale
-        ---------
-        We sample at the *image* level (not at the *word* level). This allows the
-        selection to include multiple images that share the same word, while still
-        guaranteeing that the **same image** is never selected twice.
+        Behavior:
+        - If ``n_aligned`` is ``None``, uses ``self.n_aligned``.
+        - If the requested count is non-positive, returns an empty list.
+        - For ``subset != "all"``, samples uniformly from all indices in the
+          current dataset instance, without replacement.
+        - For ``subset == "all"``, samples uniformly from train-split indices
+          only (global positions in the concatenated train/val/test order),
+          without replacement.
+        - The output size is ``min(requested_count, number_of_candidates)``.
 
-        Returns
-        -------
-        list[int]
-            A list with up to n_aligned distinct dataset indices.
+        Args:
+            n_aligned (int | None): Number of indices to sample.
+
+        Returns:
+            list[int]: Distinct sampled indices. Returns an empty list when no
+            candidates are available or the requested count is non-positive.
         """
-        if self.n_aligned <= 0:
+        if n_aligned is None:
+            n_aligned = self.n_aligned
+        if n_aligned <= 0:
             return []
 
         # Build the candidate pool of indices to sample from.
@@ -300,7 +410,7 @@ class HTRDataset(Dataset):
             return []
 
         # Sample *indices* uniformly and WITHOUT replacement (no duplicate images).
-        k = min(self.n_aligned, len(candidates))
+        k = min(n_aligned, len(candidates))
         return random.sample(candidates, k=k)
 
 
@@ -311,6 +421,14 @@ class HTRDataset(Dataset):
         If transcriptions is None the distribution is computed from the
         n_words most common English words provided by wordfreq.
         Otherwise transcriptions are used directly.
+
+        Args:
+            transcriptions (List[str] | None): Optional corpus words used to
+                estimate priors. If None, wordfreq top-n words are used.
+            n_words (int): Number of wordfreq words used when transcriptions is None.
+
+        Returns:
+            dict[str, float]: Prior probabilities for alphanumeric characters.
         """
 
         letters = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -410,7 +528,14 @@ class HTRDataset(Dataset):
         return torch.from_numpy(X.astype(_np.float32))
 
     def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
-        """Save the preprocessed image at *index* to *out_dir* and return its path."""
+        """Save the preprocessed image at index to disk.
+
+        Args:
+            index (int): Dataset index to export.
+            out_dir (str): Output directory where the image is written.
+            filename (str | None): Optional output filename. If None, derives
+                filename from the source image path.
+        """
         img_path = self.data[index][0]
         img = load_image(img_path)
         img = preprocess(img, (self.fixed_size[0], self.fixed_size[1]))
@@ -437,17 +562,12 @@ class HTRDataset(Dataset):
         exactly match each word in unique_words and save it under
         *tests/figures/* by default.
 
-        Parameters
-        ----------
-        save_dir : str | Path, default tests/figures
-            Directory where the PNG will be written.  Created if missing.
-        filename : str, default external_word_hist.png
-            Name of the output file inside *save_dir*.
-        dpi : int, default 200
-            Resolution of the saved figure.
+        Args:
+            save_dir (str): Directory where the PNG is written.
+            filename (str): Name of the output image file.
+            dpi (int): Output figure DPI.
 
-        Notes
-        -----
+        Notes:
         • The method **returns nothing**; its side-effect is a saved PNG.
         • An exception is raised if the dataset contains no unique_words.
         """
@@ -584,7 +704,14 @@ class PretrainingHTRDataset(Dataset):
             rel_paths = [line.strip() for line in f if line.strip()]
 
         def _valid(p: str) -> bool:
-            """Return True if the filename-based descriptor passes the heuristic filter."""
+            """Return whether a relative path passes filename heuristics.
+
+            Args:
+                p (str): Relative path candidate from list_file.
+
+            Returns:
+                bool: True when the encoded descriptor token is accepted.
+            """
             try:
                 desc = os.path.basename(p).split('_')[1]
             except Exception:
@@ -604,6 +731,14 @@ class PretrainingHTRDataset(Dataset):
 
         # Helper to convert one relative path to absolute path and label
         def _to_abs_and_label(rel: str) -> tuple[str, str]:
+            """Convert a relative dataset path to absolute path and label.
+
+            Args:
+                rel (str): Relative path from list_file.
+
+            Returns:
+                tuple[str, str]: Absolute path and lowercase label string.
+            """
             abs_path = os.path.normpath(os.path.join(self.base_path, rel.lstrip('./')))
             desc = os.path.basename(rel).split('_')[1].lower()
             return abs_path, desc
@@ -638,6 +773,15 @@ class PretrainingHTRDataset(Dataset):
             remaining_iter = (rel for rel in filtered if os.path.normpath(os.path.join(self.base_path, rel.lstrip('./'))) not in kept_set)
 
             def _next_replacement():
+                """Return next valid replacement image candidate.
+
+                Args:
+                    None
+
+                Returns:
+                    tuple[str, str, np.ndarray] | None: Absolute path, label, and
+                        loaded image array with shape (H, W), or None if exhausted.
+                """
                 for rel in remaining_iter:
                     abs_path, label = _to_abs_and_label(rel)
                     if os.path.isfile(abs_path):
@@ -696,11 +840,23 @@ class PretrainingHTRDataset(Dataset):
         return full_paths, descriptions
 
     def __len__(self):
-        """Dataset length."""
+        """Return the number of selected pretraining images.
+
+        Returns:
+            int: Number of entries in img_paths.
+        """
         return len(self.img_paths)
 
     def __getitem__(self, index):
-        """Return a preprocessed image tensor and its transcription."""
+        """Return one preprocessed pretraining sample.
+
+        Args:
+            index (int): Sample index in [0, len(self) - 1].
+
+        Returns:
+            tuple[torch.Tensor, str]: Image tensor with shape (1, fH, fW) and
+                the corresponding transcription string.
+        """
         if hasattr(self, 'images'):
             img = self.images[index]
         else:
@@ -717,12 +873,21 @@ class PretrainingHTRDataset(Dataset):
             img = self.transforms(image=img)['image']
 
         img_tensor = torch.Tensor(img).float().unsqueeze(0)
-        trans = f" {self.transcriptions[index]} "
-        # trans = self.transcriptions[index]
+        trans = str(self.transcriptions[index]).strip()
         return img_tensor, trans
 
     def save_image(self, index: int, out_dir: str, filename: str = None) -> str:
-        """Save the preprocessed image at *index* to *out_dir* and return its path."""
+        """Save one preprocessed pretraining image to disk.
+
+        Args:
+            index (int): Dataset index to export.
+            out_dir (str): Output directory where the image is written.
+            filename (str | None): Optional output filename. If None, derives
+                filename from the source path.
+
+        Returns:
+            str: Path to the saved PNG image.
+        """
 
         img_path = self.img_paths[index]
         img = load_image(img_path)
@@ -743,10 +908,11 @@ class PretrainingHTRDataset(Dataset):
     def loaded_image_shapes(self) -> List[tuple]:
         """Return the shapes of all preloaded images.
 
-        Raises
-        ------
-        RuntimeError
-            If preload_images was False when the dataset was built.
+        Returns:
+            List[tuple]: Shape list where each element is (H, W).
+
+        Raises:
+            RuntimeError: If preload_images was False when the dataset was built.
         """
 
         if not hasattr(self, "images"):

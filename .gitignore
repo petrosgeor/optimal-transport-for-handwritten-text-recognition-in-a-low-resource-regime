@@ -30,5 +30,6 @@ toys/
 # Markdown files (except specific ones)
 *.md
 !/README.md
+!/AGENTS.md
 .venv/
 DATASETS/

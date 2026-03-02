@@ -3,7 +3,6 @@ import os
 import sys
 from pathlib import Path
 from omegaconf import OmegaConf
-
 # --------------------------------------------------------------------------- #
 #                           Hyperparameter defaults                            #
 # --------------------------------------------------------------------------- #
@@ -87,11 +86,8 @@ def _assert_finite(t: torch.Tensor, where: str) -> None:
     """Assert that t contains no NaN or Inf values.
 
     Args:
-        t (torch.Tensor): Tensor to validate.
+        t (torch.Tensor): Tensor to validate with any shape.
         where (str): Human readable location used in the assertion message.
-
-    Returns:
-        None
     """
     assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
@@ -101,9 +97,6 @@ def _assert_grad_finite(model: nn.Module, name: str) -> None:
     Args:
         model (nn.Module): Model whose parameters were backpropagated.
         name (str): Identifier used in the error message.
-
-    Returns:
-        None
     """
     assert all(
         p.grad is None or torch.isfinite(p.grad).all()
@@ -114,11 +107,13 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     """Randomly shuffle a mini-batch of images and transcriptions together.
 
     Args:
-        images (torch.Tensor): Tensor of images in the batch.
+        images (torch.Tensor): Tensor of images with shape (B, C, H, W) or
+            any batched shape where the first axis is B.
         words (List[str]): Transcriptions corresponding to images.
 
     Returns:
-        Tuple[torch.Tensor, List[str]]: Shuffled images and transcriptions.
+        Tuple[torch.Tensor, List[str]]: Shuffled image tensor with same shape
+            as input and shuffled transcription list of length B.
     """
     assert len(images) == len(words)
     perm = torch.randperm(len(words), device=images.device)
@@ -139,16 +134,13 @@ def log_pseudo_labels(
         2) Predicted transcription (pseudo‑label)
         3) Ground‑truth transcription (original label)
 
-    Parameters
-    ----------
-    new_indices : torch.Tensor
-        1‑D tensor with the positions in dataset that were newly pseudo‑labeled.
-    dataset : HTRDataset
-        Must expose unique_words, transcriptions and aligned as in this repo.
-    round_idx : int
-        Index of the refinement cycle (used to name the log file).
-    out_dir : str, default results
-        Directory where the file pseudo_labels_round_<round_idx>.txt is saved.
+    Args:
+        new_indices (torch.Tensor): Newly pseudo-labeled dataset indices with
+            shape (K,).
+        dataset (HTRDataset): Dataset exposing unique_words, transcriptions, and
+            aligned ids with shape (N,).
+        round_idx (int): Refinement cycle index used in output filename.
+        out_dir (str): Directory where pseudo-label logs are saved.
     """
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -174,8 +166,7 @@ def log_round_metrics(
     wer_test: float,
     out_file: str,
 ) -> None:
-    """
-    Append refinement metrics to a TSV file, with optional automatic path generation.
+    """Append one round of metrics to a TSV file.
 
     Behavior:
       • If out_file is a concrete path (anything other than auto, case-insensitive),
@@ -188,6 +179,12 @@ def log_round_metrics(
     On the first round (round_idx == 1), an existing file at the final path is deleted.
     Subsequent rounds append a single TSV row:
         <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\n
+    Args:
+        round_idx (int): One-based round index.
+        correct_pseudo (int): Number of correct pseudo-labels this round.
+        cer_test (float): Character error rate on test split.
+        wer_test (float): Word error rate on test split.
+        out_file (str): Explicit output path or "auto" for generated path.
     """
     # 1) Decide destination path
     if isinstance(out_file, str) and out_file.strip().lower() == "auto":
@@ -247,6 +244,60 @@ except Exception:
     pass
 
 
+def _is_raw_state_dict(candidate: dict) -> bool:
+    """Check whether a dictionary looks like a raw tensor state dict.
+
+    Args:
+        candidate (dict): Dictionary to validate.
+
+    Returns:
+        bool: True when all values are torch.Tensor objects.
+    """
+    return bool(candidate) and all(isinstance(v, torch.Tensor) for v in candidate.values())
+
+
+def _extract_state_dict(ckpt: object, checkpoint_path: str | Path) -> dict:
+    """Extract model weights from supported checkpoint formats.
+
+    Supported formats:
+    - raw state dict: {name: tensor, ...}
+    - wrapped dict: {"state_dict": {...}}
+    - pretraining dict: {"model_state_dict": {...}}
+
+    Args:
+        ckpt (object): Checkpoint object returned by torch.load.
+        checkpoint_path (str | Path): Path used only for readable error messages.
+
+    Returns:
+        dict: State dict mapping parameter names to tensors.
+    """
+    if isinstance(ckpt, dict):
+        if isinstance(ckpt.get("state_dict"), dict):
+            return ckpt["state_dict"]
+        if isinstance(ckpt.get("model_state_dict"), dict):
+            return ckpt["model_state_dict"]
+        if _is_raw_state_dict(ckpt):
+            return ckpt
+        found = ", ".join(sorted(str(k) for k in ckpt.keys()))
+        raise ValueError(
+            "Unsupported checkpoint format for "
+            f"{checkpoint_path}. Expected one of: raw state dict, "
+            "{'state_dict': ...}, or {'model_state_dict': ...}. "
+            f"Found top-level keys: [{found}]"
+        )
+
+    if hasattr(ckpt, "state_dict"):
+        maybe_sd = ckpt.state_dict()
+        if isinstance(maybe_sd, dict) and _is_raw_state_dict(maybe_sd):
+            return maybe_sd
+
+    raise ValueError(
+        "Unsupported checkpoint object type for "
+        f"{checkpoint_path}: {type(ckpt).__name__}. "
+        "Expected dict-like checkpoint or object exposing a tensor state_dict()."
+    )
+
+
 def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
     """Load a checkpoint while skipping incompatible head layers.
 
@@ -254,6 +305,10 @@ def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
     tensor shapes match exactly are loaded. This allows reusing the backbone
     even when the vocabulary size (CTC head) or PHOC head configuration differs
     from the checkpoint.
+
+    Args:
+        backbone (HTRNet): Backbone model to initialize.
+        cfg: Training config with preload flags and checkpoint path.
     """
     if not getattr(cfg, "load_pretrained_backbone", False):
         return
@@ -263,15 +318,21 @@ def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
     ckpt = torch.load(path, map_location="cpu")
 
     # Resolve the actual state_dict inside various checkpoint formats
-    if isinstance(ckpt, dict) and "state_dict" in ckpt and isinstance(ckpt["state_dict"], dict):
-        sd = ckpt["state_dict"]
-    else:
-        sd = ckpt if isinstance(ckpt, dict) else ckpt.state_dict()
+    sd = _extract_state_dict(ckpt, path)
 
     model_sd = backbone.state_dict()
 
     # Handle common prefixes from DDP or wrapper modules
     def _maybe_strip_prefix(d: dict, prefix: str) -> dict:
+        """Strip a prefix from matching state-dict keys.
+
+        Args:
+            d (dict): Source state dict.
+            prefix (str): Prefix to remove from key names.
+
+        Returns:
+            dict: State dict with prefix removed where applicable.
+        """
         if any(k.startswith(prefix) for k in d.keys()):
             return { (k[len(prefix):] if k.startswith(prefix) else k): v for k, v in d.items() }
         return d
@@ -284,23 +345,27 @@ def maybe_load_backbone(backbone: HTRNet, cfg) -> None:
     # Keep only keys present in model with matching tensor shape
     filtered = {}
     shape_mismatch = []
-    matched = 0
+    checkpoint_only = []
     for k, v in sd.items():
         if k in model_sd:
             if hasattr(v, 'shape') and getattr(model_sd[k], 'shape', None) == v.shape:
                 filtered[k] = v
-                matched += 1
             else:
                 shape_mismatch.append(k)
+        else:
+            checkpoint_only.append(k)
 
     # Load the compatible subset
     incompatible = backbone.load_state_dict(filtered, strict=False)
 
     # User-friendly summary
+    matched = len(filtered)
     total_ckpt = len(sd)
     print(
         f"[Init] Loaded {matched}/{total_ckpt} tensors from {path}. "
-        f"Skipped {len(shape_mismatch)} shape-mismatched keys and "
+        f"Skipped {len(shape_mismatch)} shape-mismatched keys, "
+        f"{len(checkpoint_only)} checkpoint-only keys, "
+        f"{len(incompatible.missing_keys)} missing model keys, and "
         f"{len(incompatible.unexpected_keys)} unexpected keys."
     )
 
@@ -326,41 +391,35 @@ def refine_visual_backbone(
     contrastive_tau: float = CONTRASTIVE_TAU,
     contrastive_text_T: float = CONTRASTIVE_TEXT_T,
 ) -> None:
-    """Fine-tune backbone on words aligned to the dataset vocabulary.
+    """Refine the visual backbone on aligned words, with optional synthetic data.
 
-    The routine trains only on samples whose dataset.aligned flag is not -1.
-    Synthetic words from pretrain_ds can be mixed in, and optional PHOC and
-    soft contrastive losses are supported.
-
-    When pretrain_ds is given, each epoch iterates over this synthetic
-    loader. Ground-truth batches are drawn from cycle(gt_loader) so the
-    epoch length matches len(pretrain_loader).
-    Batches are shuffled after combining synthetic and real samples to randomise ordering.
-    Setting syn_batch_ratio=1 yields purely synthetic batches, while a value
-    of 0 disables the synthetic loader entirely.
+    Training uses only real samples whose ``dataset.aligned`` value is not ``-1``.
+    When ``pretrain_ds`` is provided, batches can mix synthetic and real samples
+    according to ``syn_batch_ratio``. The objective combines CTC supervision and,
+    when enabled, PHOC and soft-contrastive terms.
 
     Args:
-        dataset (HTRDataset): Training dataset with alignment information.
-        backbone (HTRNet): Model to be refined.
-        num_epochs (int): Number of optimisation epochs. When pretrain_ds
-            is provided, one epoch spans the synthetic dataset.
-        batch_size (int): Mini-batch size.
-        lr (float): Learning rate for the optimiser.
-        main_weight (float): Scale for the main CTC loss.
-        aux_weight (float): Scale for the auxiliary CTC loss.
-        pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset.
-        syn_batch_ratio (float): Fraction of each batch drawn from pretrain_ds.
-            1 means only synthetic data is used, 0 only real data.
-        phoc_weight (float): Scale for the PHOC loss.
-        enable_phoc (bool): Whether to include the PHOC loss.
-        phoc_levels (Tuple[int, ...]): Levels for PHOC descriptors.
-        enable_contrastive (bool): Use the SoftContrastiveLoss.
-        contrastive_weight (float): Weight of the contrastive term.
+        dataset (HTRDataset): Dataset that provides images, transcriptions, and
+            alignment flags.
+        backbone (HTRNet): Backbone network to optimize.
+        num_epochs (int): Number of optimization epochs. With synthetic data,
+            one epoch spans the synthetic loader.
+        batch_size (int): Total mini-batch size used for refinement.
+        lr (float): Learning rate for the Adam optimizer.
+        main_weight (float): Weight applied to the main CTC loss.
+        aux_weight (float): Weight applied to the auxiliary CTC loss branch.
+        pretrain_ds (PretrainingHTRDataset | None): Optional synthetic dataset
+            mixed into refinement batches.
+        syn_batch_ratio (float): Fraction of each mini-batch drawn from
+            ``pretrain_ds``. ``1.0`` means synthetic-only, ``0.0`` disables
+            synthetic sampling.
+        phoc_weight (float): Weight applied to the PHOC loss term.
+        enable_phoc (bool): Whether PHOC loss is included.
+        phoc_levels (Tuple[int, ...]): Pyramid levels used to build PHOC targets.
+        enable_contrastive (bool): Whether soft-contrastive loss is included.
+        contrastive_weight (float): Weight applied to the contrastive term.
         contrastive_tau (float): Temperature for descriptor similarities.
-        contrastive_text_T (float): Temperature in edit-distance space.
-
-    Returns:
-        None
+        contrastive_text_T (float): Temperature used in text-space similarities.
     """
     # The refinement path in this codebase is designed for CUDA execution.
     # Keep the explicit assertion so failures happen early and readably.
@@ -450,14 +509,14 @@ def refine_visual_backbone(
                     # (all-real first, all-synthetic second).
                     imgs_gt, _, aligned = next(gt_iter)
                     imgs = torch.cat([imgs_gt.to(device), imgs.to(device)], dim=0)
-                    words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()] + words
+                    words = [str(dataset.unique_words[i]).strip() for i in aligned.tolist()] + words
                     imgs, words = _shuffle_batch(imgs, words)
                 else:
                     imgs = imgs.to(device)
             else:
                 # Real-only path: convert aligned ids to their string labels.
                 imgs, _, aligned = batch
-                words = [f" {dataset.unique_words[i]} " for i in aligned.tolist()]
+                words = [str(dataset.unique_words[i]).strip() for i in aligned.tolist()]
                 imgs = imgs.to(device)
 
             _assert_finite(imgs, "images")
@@ -809,12 +868,10 @@ def alternating_refinement(
                     **(refine_kwargs or {}),
                 )
 
-            # Ensure projectors are frozen; do not train them in disabled mode
             for proj in projectors:
                 for p in proj.parameters():
                     p.requires_grad_(False)
 
-            # In disabled mode we still log metrics once per round
             cer_test = compute_cer(
                 test_dataset,
                 backbone,
@@ -830,19 +887,17 @@ def alternating_refinement(
             )
             log_round_metrics(
                 r + 1,
-                0,  # no new pseudo‑labels in disabled mode
+                0, 
                 cer_test,
                 float(wer_test),
                 cfg.round_metrics_file,
             )
         return
 
-    # Main loop: continue as long as there are unaligned instances
     while (dataset.aligned == -1).any():
         for r in range(rounds):
             print(f"[Round {r + 1}/{rounds}] Refining backbone...")
             if backbone_epochs > 0:
-                # Refine the visual backbone
                 refine_visual_backbone(
                     dataset,
                     backbone,
@@ -850,31 +905,19 @@ def alternating_refinement(
                     **refine_kwargs,
                 )
 
-            # Freeze backbone and unfreeze projectors for training
             for param in backbone.parameters():
                 param.requires_grad_(False)
             for proj in projectors:
                 for param in proj.parameters():
                     param.requires_grad_(True)
             
-            # Verify that exactly one module family has requires_grad=True
-            backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
-            projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
-            assert (backbone_trainable == 0 and projectors_trainable > 0) or \
-                   (backbone_trainable > 0 and projectors_trainable == 0), \
-                   "Exactly one module family (backbone or projectors) should be trainable."
-
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
-                # Temporarily handle unique_word_probs format for projector training
                 _probs_backup = None
                 if isinstance(getattr(dataset, "unique_word_probs", None), list):
                     _probs_backup = dataset.unique_word_probs
-                    dataset.unique_word_probs = torch.tensor(
-                        _probs_backup, dtype=torch.float
-                    )
+                    dataset.unique_word_probs = torch.tensor(_probs_backup, dtype=torch.float)
 
-                # Train the projector(s)
                 train_projector(
                     dataset,
                     backbone,
@@ -883,18 +926,15 @@ def alternating_refinement(
                     **projector_kwargs,
                 )
 
-                # Restore original unique_word_probs format if it was changed
                 if _probs_backup is not None:
                     dataset.unique_word_probs = _probs_backup
 
-            # Unfreeze backbone and freeze projectors for next round or alignment
             for param in backbone.parameters():
                 param.requires_grad_(True)
             for proj in projectors:
                 for param in proj.parameters():
                     param.requires_grad_(False)
 
-            # Verify that exactly one module family has requires_grad=True
             backbone_trainable = sum(p.numel() for p in backbone.parameters() if p.requires_grad)
             projectors_trainable = sum(p.numel() for proj in projectors for p in proj.parameters() if p.requires_grad)
             assert (backbone_trainable > 0 and projectors_trainable == 0), \

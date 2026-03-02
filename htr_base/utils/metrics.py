@@ -14,13 +14,22 @@ class CER:
         self.total_len = 0
         
     def update(self, prediction: str, target: str) -> None:
-        """Accumulate edit distance for one prediction/target pair."""
+        """Accumulate edit distance for one prediction/target pair.
+
+        Args:
+            prediction (str): Predicted text.
+            target (str): Ground-truth text.
+        """
         dist = float(editdistance.eval(prediction, target))
         self.total_dist += dist
         self.total_len += len(target)
 
     def score(self) -> float:
-        """Return the current CER value."""
+        """Return the current CER value.
+
+        Returns:
+            float: Character error rate accumulated so far.
+        """
         return self.total_dist / self.total_len
 
     def reset(self) -> None:
@@ -48,7 +57,12 @@ class WER:
         self.mode = mode
     
     def update(self, prediction: str, target: str) -> None:
-        """Update WER statistics with a new prediction."""
+        """Update WER statistics with a new prediction.
+
+        Args:
+            prediction (str): Predicted text.
+            target (str): Ground-truth text.
+        """
         if self.mode == 'tokenizer':
             target = word_tokenize(target)
             prediction = word_tokenize(prediction)
@@ -61,12 +75,15 @@ class WER:
         self.total_len += len(target)
         
     def score(self) -> float:
-        """Return the current WER value."""
+        """Return the current WER value.
+
+        Returns:
+            float: Word error rate accumulated so far.
+        """
         return self.total_dist / self.total_len
 
     def reset(self) -> None:
         """Reset the internal counters."""
         self.total_dist = 0
         self.total_len = 0
-
 

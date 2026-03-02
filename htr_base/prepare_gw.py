@@ -277,6 +277,13 @@ def prepare(args):
     - args (argparse.Namespace): Parsed CLI args with `dataset_folder`,
       `output_path`, and `level`.
 
+    Notes:
+    - Samples whose decoded transcription is empty are skipped entirely (no image
+      file is written and no `gt.txt` line is created). Empty labels can occur
+      when the WashingtonDB tokenized transcription contains only punctuation or
+      unsupported tokens, which would otherwise cause downstream CTC target
+      encoding to raise on zero-length strings.
+
     """
 
     # use official folds
@@ -284,6 +291,7 @@ def prepare(args):
     unknown_token_counter = Counter()
     empty_decoded_labels = 0
     is_washington_word_mode = False
+    skipped_empty_by_split = {name: 0 for name in folds}
 
     if args.level == 'word':
         loader = lambda root, allowed: load_word_data(
@@ -309,12 +317,18 @@ def prepare(args):
         for i, sample in enumerate(tqdm(dataset, desc=f'Writing {name}')):
             if args.level == 'word' and len(sample) == 3:
                 src_img_path, txt, word_id = sample
+                if not txt:
+                    empty_decoded_labels += 1
+                    skipped_empty_by_split[name] += 1
+                    continue
                 shutil.copy2(src_img_path, os.path.join(outd, f'{word_id}.png'))
                 gt_lines.append(f'{word_id} {txt}\n')
-                if txt == '':
-                    empty_decoded_labels += 1
             else:
                 img, txt = sample
+                txt = str(txt).strip()
+                if not txt:
+                    skipped_empty_by_split[name] += 1
+                    continue
                 fn_base = f'{name}_{i:06d}'
                 fn = f'{fn_base}.png'
                 Image.fromarray(img).save(os.path.join(outd, fn))
@@ -322,7 +336,10 @@ def prepare(args):
             written_count += 1
         with open(os.path.join(outd, 'gt.txt'), 'w', encoding='utf-8') as f:
             f.writelines(gt_lines)
-        print(f'[{name}] wrote {written_count} samples')
+        print(
+            f'[{name}] wrote {written_count} samples '
+            f'(skipped {skipped_empty_by_split[name]} empty labels)'
+        )
 
     if args.level == 'word' and is_washington_word_mode:
         print(f'Empty decoded labels: {empty_decoded_labels}')

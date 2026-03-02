@@ -1,6 +1,7 @@
 # Copyright
 from __future__ import annotations
 import os, sys, random, pickle
+import json
 import re
 import math
 import subprocess
@@ -19,11 +20,8 @@ def _assert_finite(t: torch.Tensor, name: str) -> None:
     """Check t for NaN or Inf values.
 
     Args:
-        t (torch.Tensor): Tensor produced during training.
+        t (torch.Tensor): Tensor produced during training, with any shape.
         name (str): Label used in the raised assertion message.
-
-    Returns:
-        None
     """
     assert torch.isfinite(t).all(), f"{name} contains NaN/Inf"
 
@@ -32,9 +30,6 @@ def _check_grad_finite(model: torch.nn.Module) -> None:
 
     Args:
         model (torch.nn.Module): Model to validate after backward.
-
-    Returns:
-        None
     """
     for n, p in model.named_parameters():
         if p.grad is not None:
@@ -80,7 +75,17 @@ HPARAMS_FILENAME = "hparams.yaml"
 
 
 def _resolve_path(value, *, required: bool = False, must_exist: bool = False) -> Path | None:
-    """Resolve config paths relative to the repository root."""
+    """Resolve configuration paths relative to repository root.
+
+    Args:
+        value: Raw configuration value, usually str or Path.
+        required (bool): Raise ValueError if value is empty.
+        must_exist (bool): Raise FileNotFoundError if resolved path is missing.
+
+    Returns:
+        Path | None: Absolute resolved path, or None when value is empty and
+            required=False.
+    """
     if value in (None, ""):
         if required:
             raise ValueError(
@@ -287,6 +292,10 @@ PRETRAINING_CONFIG = {
     ),
     "checkpoint_every": int(CFG.get("checkpoint_every", 10)),
     "save_backbone": bool(CFG.get("save_backbone", True)),
+    "debug_nonfinite_probe": bool(CFG.get("debug_nonfinite_probe", False)),
+    "debug_nonfinite_dump": bool(CFG.get("debug_nonfinite_dump", True)),
+    "debug_nonfinite_dump_file": str(CFG.get("debug_nonfinite_dump_file", "nonfinite_report.json")),
+    "debug_nonfinite_max_batches": CFG.get("debug_nonfinite_max_batches", None),
 }
 # Architecture configuration for the pretraining backbone
 # Loaded from alignment/alignment_configs/pretraining_config.yaml to stay consistent with other scripts
@@ -323,6 +332,10 @@ class PretrainingRunner:
         self.aux_weight: float | None = None
         self.save_backbone: bool | None = None
         self.checkpoint_every: int | None = None
+        self.debug_nonfinite_probe: bool = False
+        self.debug_nonfinite_dump: bool = True
+        self.debug_nonfinite_dump_file: str = "nonfinite_report.json"
+        self.debug_nonfinite_max_batches: int | None = None
 
         self.train_set = None
         self.test_set = None
@@ -340,6 +353,8 @@ class PretrainingRunner:
 
         self.start_epoch = 0
         self.best_cer = float("inf")
+        self._global_step = 0
+        self._probe_stopped_early = False
 
     def run(self) -> Path:
         """Execute the full pretraining workflow.
@@ -372,6 +387,12 @@ class PretrainingRunner:
 
         for epoch in range(self.start_epoch, self.num_epochs):
             metrics = self._train_one_epoch(epoch)
+            if self._probe_stopped_early:
+                print(
+                    "[Pretraining][Debug] Stopping early after "
+                    f"{self.debug_nonfinite_max_batches} batches due to debug_nonfinite_max_batches."
+                )
+                break
             should_eval = ((epoch + 1) % 3 == 0) or (epoch == self.num_epochs - 1)
             if should_eval:
                 lr_val = self.opt.param_groups[0]["lr"]
@@ -419,12 +440,19 @@ class PretrainingRunner:
         """
         assert self.hparams_path is not None
         assert self.run_name is not None
+        debug_keys = {
+            "debug_nonfinite_probe",
+            "debug_nonfinite_dump",
+            "debug_nonfinite_dump_file",
+            "debug_nonfinite_max_batches",
+        }
         if self.hparams_path.is_file():
             saved_hparams = _load_hparams_yaml(self.hparams_path)
             saved_effective = saved_hparams.get("effective_config", {})
             if saved_effective:
+                allowed_runtime_keys = {"device", "gpu_id", *debug_keys}
                 ignored = [
-                    key for key in self.runtime_overrides.keys() if key not in {"device", "gpu_id"}
+                    key for key in self.runtime_overrides.keys() if key not in allowed_runtime_keys
                 ]
                 if ignored:
                     print(
@@ -432,6 +460,11 @@ class PretrainingRunner:
                         + ", ".join(sorted(ignored))
                     )
                 self.config = dict(saved_effective)
+                for key in debug_keys:
+                    if key in self.runtime_overrides:
+                        self.config[key] = self.runtime_overrides[key]
+                    else:
+                        self.config[key] = PRETRAINING_CONFIG[key]
             self.saved_architecture = saved_hparams.get("architecture")
         else:
             self.saved_architecture = None
@@ -463,6 +496,13 @@ class PretrainingRunner:
         self.main_weight = self.config.get("main_loss_weight", 1.0)
         self.aux_weight = self.config.get("aux_loss_weight", 0.1)
         self.save_backbone = self.config.get("save_backbone", False)
+        self.debug_nonfinite_probe = bool(self.config.get("debug_nonfinite_probe", False))
+        self.debug_nonfinite_dump = bool(self.config.get("debug_nonfinite_dump", True))
+        self.debug_nonfinite_dump_file = str(self.config.get("debug_nonfinite_dump_file", "nonfinite_report.json"))
+        max_batches_cfg = self.config.get("debug_nonfinite_max_batches", None)
+        self.debug_nonfinite_max_batches = None if max_batches_cfg in (None, "") else int(max_batches_cfg)
+        if self.debug_nonfinite_max_batches is not None and self.debug_nonfinite_max_batches < 1:
+            raise ValueError("debug_nonfinite_max_batches must be >= 1 when set")
         print(f"[Pretraining] Starting with config:")
         print(f"  list_file: {self.list_file}")
         print(f"  train_set_size: {self.n_random}")
@@ -476,6 +516,10 @@ class PretrainingRunner:
         print(f"  run_dir: {self.run_dir}")
         print(f"  checkpoint_every: {self.checkpoint_every}")
         print(f"  gpu_id: {GPU_ID if GPU_ID is not None else 'CPU'}")
+        print(f"  debug_nonfinite_probe: {self.debug_nonfinite_probe}")
+        print(f"  debug_nonfinite_dump: {self.debug_nonfinite_dump}")
+        print(f"  debug_nonfinite_dump_file: {self.debug_nonfinite_dump_file}")
+        print(f"  debug_nonfinite_max_batches: {self.debug_nonfinite_max_batches}")
         if base_path_cfg is None:
             self.base_path = str(list_file_path.parent)
         else:
@@ -533,8 +577,8 @@ class PretrainingRunner:
         self.net = HTRNet(self.arch, nclasses=self.nclasses).to(self.device).train()
         n_params = sum(p.numel() for p in self.net.parameters() if p.requires_grad)
         print(f"[Pretraining] Network parameters: {n_params:,}")
-        n_workers_train = 2
-        n_workers_test = 2
+        n_workers_train = 3
+        n_workers_test = 3
         self.train_loader = DataLoader(
             self.train_set,
             batch_size=self.batch_size,
@@ -598,6 +642,10 @@ class PretrainingRunner:
             "aux_loss_weight": self.aux_weight,
             "save_backbone": self.save_backbone,
             "checkpoint_every": self.checkpoint_every,
+            "debug_nonfinite_probe": self.debug_nonfinite_probe,
+            "debug_nonfinite_dump": self.debug_nonfinite_dump,
+            "debug_nonfinite_dump_file": self.debug_nonfinite_dump_file,
+            "debug_nonfinite_max_batches": self.debug_nonfinite_max_batches,
         }
         if not self.hparams_path.exists():
             written_hparams = _write_hparams_yaml(
@@ -609,6 +657,263 @@ class PretrainingRunner:
             )
             print(f"[Pretraining] Wrote run metadata to: {written_hparams}")
 
+    def _tensor_stats(self, tensor: torch.Tensor | None) -> dict:
+        """Return compact numerical diagnostics for a tensor.
+
+        Args:
+            tensor (torch.Tensor | None): Tensor to summarize, with any shape.
+
+        Returns:
+            dict: Shape/dtype/device and finite-aware scalar stats.
+        """
+        if tensor is None:
+            return {"present": False}
+
+        detached = tensor.detach()
+        numel = int(detached.numel())
+        stats = {
+            "present": True,
+            "shape": list(detached.shape),
+            "dtype": str(detached.dtype),
+            "device": str(detached.device),
+            "numel": numel,
+        }
+        if numel == 0:
+            stats.update(
+                {
+                    "isfinite_all": True,
+                    "finite_count": 0,
+                    "finite_ratio": 1.0,
+                    "min": None,
+                    "max": None,
+                    "mean": None,
+                    "std": None,
+                }
+            )
+            return stats
+
+        numeric = detached.to(torch.float32)
+        finite_mask = torch.isfinite(numeric)
+        finite_count = int(finite_mask.sum().item())
+        finite_ratio = float(finite_count) / float(numel)
+        stats.update(
+            {
+                "isfinite_all": finite_count == numel,
+                "finite_count": finite_count,
+                "finite_ratio": finite_ratio,
+            }
+        )
+        if finite_count == 0:
+            stats.update({"min": None, "max": None, "mean": None, "std": None})
+            return stats
+
+        finite_vals = numeric[finite_mask]
+        stats.update(
+            {
+                "min": float(finite_vals.min().item()),
+                "max": float(finite_vals.max().item()),
+                "mean": float(finite_vals.mean().item()),
+                "std": float(finite_vals.std(unbiased=False).item()),
+            }
+        )
+        return stats
+
+    def _loss_scalar(self, value: torch.Tensor | float | None) -> float | None:
+        """Convert a scalar-like value to a Python float when possible.
+
+        Args:
+            value (torch.Tensor | float | None): Scalar tensor with shape ()
+                or shape (1), Python float, or None.
+
+        Returns:
+            float | None: Scalar value or None when unavailable.
+        """
+        if value is None:
+            return None
+        if torch.is_tensor(value):
+            if value.numel() != 1:
+                return None
+            return float(value.detach().item())
+        return float(value)
+
+    def _build_nonfinite_report(
+        self,
+        *,
+        offending_component: str,
+        epoch: int,
+        batch_idx: int,
+        txts: list[str],
+        inp_lens: torch.Tensor | None,
+        lengths: torch.Tensor | None,
+        targets: torch.Tensor | None,
+        main_logits: torch.Tensor | None,
+        aux_logits: torch.Tensor | None,
+        features: torch.Tensor | None,
+        phoc_logits: torch.Tensor | None,
+        loss_main: torch.Tensor | None,
+        loss_aux: torch.Tensor | None,
+        loss_phoc: torch.Tensor | None,
+        loss_contr: torch.Tensor | None,
+        total_loss: torch.Tensor | None,
+    ) -> dict:
+        """Build a JSON-serializable non-finite diagnostics payload.
+
+        Args:
+            offending_component (str): Name of the first non-finite component.
+            epoch (int): Zero-based epoch index.
+            batch_idx (int): Zero-based batch index within the epoch.
+            txts (list[str]): Raw transcriptions in the mini-batch.
+            inp_lens (torch.Tensor | None): CTC input lengths with shape (B,).
+            lengths (torch.Tensor | None): CTC target lengths with shape (B,).
+            targets (torch.Tensor | None): Flattened CTC targets with shape (sum(L),).
+            main_logits (torch.Tensor | None): Main logits with shape (T, B, C).
+            aux_logits (torch.Tensor | None): Auxiliary logits with shape (T, B, C).
+            features (torch.Tensor | None): Feature matrix with shape (B, D).
+            phoc_logits (torch.Tensor | None): PHOC logits with shape (B, P).
+            loss_main (torch.Tensor | None): Scalar loss tensor with shape ().
+            loss_aux (torch.Tensor | None): Scalar loss tensor with shape ().
+            loss_phoc (torch.Tensor | None): Scalar loss tensor with shape ().
+            loss_contr (torch.Tensor | None): Scalar loss tensor with shape ().
+            total_loss (torch.Tensor | None): Scalar total loss with shape ().
+
+        Returns:
+            dict: Structured diagnostics report for logging and debugging.
+        """
+        target_lengths = lengths.detach().cpu().tolist() if lengths is not None else []
+        input_lengths = inp_lens.detach().cpu().tolist() if inp_lens is not None else []
+        long_targets = 0
+        if target_lengths and input_lengths:
+            if len(input_lengths) == len(target_lengths):
+                long_targets = sum(
+                    1 for tgt_len, inp_len in zip(target_lengths, input_lengths) if tgt_len > inp_len
+                )
+            else:
+                max_input = max(input_lengths)
+                long_targets = sum(1 for tgt_len in target_lengths if tgt_len > max_input)
+
+        report = {
+            "offending_component": offending_component,
+            "run_name": self.run_name,
+            "global_step": self._global_step,
+            "epoch_zero_based": int(epoch),
+            "epoch_one_based": int(epoch) + 1,
+            "batch_idx": int(batch_idx),
+            "device": self.device,
+            "gpu_id": GPU_ID,
+            "batch_size": len(txts),
+            "transcriptions_head": [str(t) for t in txts[:8]],
+            "transcription_lengths_head": [len(str(t)) for t in txts[:8]],
+            "ctc": {
+                "input_length_head": input_lengths[:8],
+                "target_length_head": target_lengths[:8],
+                "num_targets_longer_than_input": int(long_targets),
+                "targets_numel": None if targets is None else int(targets.numel()),
+            },
+            "losses": {
+                "loss_main": self._loss_scalar(loss_main),
+                "loss_aux": self._loss_scalar(loss_aux),
+                "loss_phoc": self._loss_scalar(loss_phoc),
+                "loss_contr": self._loss_scalar(loss_contr),
+                "total_loss": self._loss_scalar(total_loss),
+            },
+            "tensor_stats": {
+                "main_logits": self._tensor_stats(main_logits),
+                "aux_logits": self._tensor_stats(aux_logits),
+                "features": self._tensor_stats(features),
+                "phoc_logits": self._tensor_stats(phoc_logits),
+                "loss_main": self._tensor_stats(loss_main),
+                "loss_aux": self._tensor_stats(loss_aux),
+                "loss_phoc": self._tensor_stats(loss_phoc),
+                "loss_contr": self._tensor_stats(loss_contr),
+                "total_loss": self._tensor_stats(total_loss),
+            },
+        }
+        return report
+
+    def _persist_nonfinite_report(self, report: dict) -> Path:
+        """Persist diagnostics as JSON under the current run directory.
+
+        Args:
+            report (dict): Report produced by _build_nonfinite_report.
+
+        Returns:
+            Path: Output JSON path.
+        """
+        assert self.run_dir is not None
+        out_path = self.run_dir / self.debug_nonfinite_dump_file
+        with open(out_path, "w", encoding="utf-8") as handle:
+            json.dump(report, handle, indent=2, ensure_ascii=True)
+        return out_path
+
+    def _raise_nonfinite(
+        self,
+        *,
+        offending_component: str,
+        epoch: int,
+        batch_idx: int,
+        txts: list[str],
+        inp_lens: torch.Tensor | None = None,
+        lengths: torch.Tensor | None = None,
+        targets: torch.Tensor | None = None,
+        main_logits: torch.Tensor | None = None,
+        aux_logits: torch.Tensor | None = None,
+        features: torch.Tensor | None = None,
+        phoc_logits: torch.Tensor | None = None,
+        loss_main: torch.Tensor | None = None,
+        loss_aux: torch.Tensor | None = None,
+        loss_phoc: torch.Tensor | None = None,
+        loss_contr: torch.Tensor | None = None,
+        total_loss: torch.Tensor | None = None,
+    ) -> None:
+        """Raise a detailed runtime error for the first non-finite component.
+
+        Args:
+            offending_component (str): Name of the first non-finite component.
+            epoch (int): Zero-based epoch index.
+            batch_idx (int): Zero-based batch index.
+            txts (list[str]): Batch transcriptions.
+            inp_lens (torch.Tensor | None): CTC input lengths with shape (B,).
+            lengths (torch.Tensor | None): CTC target lengths with shape (B,).
+            targets (torch.Tensor | None): Flattened CTC targets with shape (sum(L),).
+            main_logits (torch.Tensor | None): Main CTC logits with shape (T, B, C).
+            aux_logits (torch.Tensor | None): Auxiliary CTC logits with shape (T, B, C).
+            features (torch.Tensor | None): Feature matrix with shape (B, D).
+            phoc_logits (torch.Tensor | None): PHOC logits with shape (B, P).
+            loss_main (torch.Tensor | None): Scalar main loss with shape ().
+            loss_aux (torch.Tensor | None): Scalar auxiliary loss with shape ().
+            loss_phoc (torch.Tensor | None): Scalar PHOC loss with shape ().
+            loss_contr (torch.Tensor | None): Scalar contrastive loss with shape ().
+            total_loss (torch.Tensor | None): Scalar weighted total loss with shape ().
+        """
+        report = self._build_nonfinite_report(
+            offending_component=offending_component,
+            epoch=epoch,
+            batch_idx=batch_idx,
+            txts=txts,
+            inp_lens=inp_lens,
+            lengths=lengths,
+            targets=targets,
+            main_logits=main_logits,
+            aux_logits=aux_logits,
+            features=features,
+            phoc_logits=phoc_logits,
+            loss_main=loss_main,
+            loss_aux=loss_aux,
+            loss_phoc=loss_phoc,
+            loss_contr=loss_contr,
+            total_loss=total_loss,
+        )
+        dump_msg = ""
+        if self.debug_nonfinite_dump:
+            report_path = self._persist_nonfinite_report(report)
+            dump_msg = f" Report written to: {report_path}."
+
+        raise RuntimeError(
+            "[Pretraining] Non-finite detected in "
+            f"'{offending_component}' at epoch={epoch + 1}, batch_idx={batch_idx}, "
+            f"global_step={self._global_step}.{dump_msg}"
+        )
+
     def _train_one_epoch(self, epoch: int) -> dict[str, float]:
         """Train on one epoch and return aggregated scalar metrics.
 
@@ -618,18 +923,35 @@ class PretrainingRunner:
         Returns:
             dict[str, float]: Averaged train losses for this epoch.
         """
-        del epoch
         epoch_loss = 0.0
         num_batches = 0
         phoc_epoch_loss = 0.0
         running_contr = 0.0
-        for imgs, txts in self.train_loader:
+        for batch_idx, (imgs, txts) in enumerate(self.train_loader):
+            if (
+                self.debug_nonfinite_probe
+                and self.debug_nonfinite_max_batches is not None
+                and batch_idx >= self.debug_nonfinite_max_batches
+            ):
+                self._probe_stopped_early = True
+                break
+
+            self._global_step += 1
             imgs = imgs.to(self.device)
             out = self.net(imgs)
             main_logits, aux_logits, features = out[:3]
             assert features.dim() == 2 and features.size(1) == self.arch.feat_dim, "features tensor has wrong dimensions or feature size"
             for name, tens in {"main_logits": main_logits, "aux_logits": aux_logits, "features": features}.items():
-                _assert_finite(tens, name)
+                if not torch.isfinite(tens).all():
+                    self._raise_nonfinite(
+                        offending_component=name,
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        txts=list(txts),
+                        main_logits=main_logits,
+                        aux_logits=aux_logits,
+                        features=features,
+                    )
 
             targets, lengths = encode_for_ctc(list(txts), self.c2i, device=imgs.device)
             assert targets.max() < self.nclasses, "target contains index out of nclasses range"
@@ -647,10 +969,66 @@ class PretrainingRunner:
                 phoc_logits = out[-1]
                 phoc_targets = build_phoc_description(list(txts), self.c2i, levels=PHOC_LEVELS).float().to(self.device)
                 assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
+                if not torch.isfinite(phoc_logits).all():
+                    self._raise_nonfinite(
+                        offending_component="phoc_logits",
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        txts=list(txts),
+                        inp_lens=inp_lens,
+                        lengths=lengths,
+                        targets=targets,
+                        main_logits=main_logits,
+                        aux_logits=aux_logits,
+                        features=features,
+                        phoc_logits=phoc_logits,
+                    )
                 loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
-                assert not torch.isnan(loss_phoc), "PHOC loss is NaN"
+                if not torch.isfinite(loss_phoc).all():
+                    self._raise_nonfinite(
+                        offending_component="loss_phoc",
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        txts=list(txts),
+                        inp_lens=inp_lens,
+                        lengths=lengths,
+                        targets=targets,
+                        main_logits=main_logits,
+                        aux_logits=aux_logits,
+                        features=features,
+                        phoc_logits=phoc_logits,
+                        loss_main=loss_main,
+                        loss_aux=loss_aux,
+                        loss_phoc=loss_phoc,
+                        loss_contr=loss_contr,
+                    )
             else:
+                phoc_logits = None
                 loss_phoc = torch.tensor(0.0, device=self.device)
+
+            for component_name, component_value in (
+                ("loss_main", loss_main),
+                ("loss_aux", loss_aux),
+                ("loss_contr", loss_contr),
+            ):
+                if not torch.isfinite(component_value).all():
+                    self._raise_nonfinite(
+                        offending_component=component_name,
+                        epoch=epoch,
+                        batch_idx=batch_idx,
+                        txts=list(txts),
+                        inp_lens=inp_lens,
+                        lengths=lengths,
+                        targets=targets,
+                        main_logits=main_logits,
+                        aux_logits=aux_logits,
+                        features=features,
+                        phoc_logits=phoc_logits,
+                        loss_main=loss_main,
+                        loss_aux=loss_aux,
+                        loss_phoc=loss_phoc,
+                        loss_contr=loss_contr,
+                    )
 
             total_loss = (
                 self.main_weight * loss_main
@@ -658,7 +1036,25 @@ class PretrainingRunner:
                 + PHOC_W * loss_phoc
                 + CONTR_W * loss_contr
             )
-            _assert_finite(total_loss, "total_loss")
+            if not torch.isfinite(total_loss).all():
+                self._raise_nonfinite(
+                    offending_component="total_loss",
+                    epoch=epoch,
+                    batch_idx=batch_idx,
+                    txts=list(txts),
+                    inp_lens=inp_lens,
+                    lengths=lengths,
+                    targets=targets,
+                    main_logits=main_logits,
+                    aux_logits=aux_logits,
+                    features=features,
+                    phoc_logits=phoc_logits,
+                    loss_main=loss_main,
+                    loss_aux=loss_aux,
+                    loss_phoc=loss_phoc,
+                    loss_contr=loss_contr,
+                    total_loss=total_loss,
+                )
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), 5.0)
             _check_grad_finite(self.net)

@@ -18,6 +18,13 @@ class Projector(nn.Module):
     """
 
     def __init__(self, input_dim: int, output_dim: int, dropout: float = 0.2) -> None:
+        """Initialize the projector MLP.
+
+        Args:
+        - input_dim (int): Feature size of each input vector.
+        - output_dim (int): Feature size of each projected vector.
+        - dropout (float): Dropout probability applied between linear layers.
+        """
         super(Projector, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -33,6 +40,14 @@ class Projector(nn.Module):
         )
 
     def forward(self, x):
+        """Project descriptor vectors to the target embedding space.
+
+        Args:
+        - x (torch.Tensor): Input descriptors with shape (N, input_dim).
+
+        Returns:
+        - (torch.Tensor): Projected descriptors with shape (N, output_dim).
+        """
         return self.sequential(x)
 
 
@@ -54,6 +69,13 @@ class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1):
+        """Initialize the residual block.
+
+        Args:
+        - in_planes (int): Number of input channels.
+        - planes (int): Number of output channels.
+        - stride (int): Stride used by the first convolution.
+        """
         super().__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, 3, stride, 1, bias=False)
         self.bn1   = nn.BatchNorm2d(planes)
@@ -65,6 +87,14 @@ class BasicBlock(nn.Module):
                                 nn.Conv2d(in_planes, planes, 1, stride, bias=False),
                                 nn.BatchNorm2d(planes)))
     def forward(self, x):
+        """Apply residual convolutional transformation.
+
+        Args:
+        - x (torch.Tensor): Input feature map with shape (B, in_planes, H, W).
+
+        Returns:
+        - (torch.Tensor): Output feature map with shape (B, planes, H', W').
+        """
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
@@ -88,6 +118,12 @@ class CNN(nn.Module):
     """
 
     def __init__(self, cnn_cfg, flattening='maxpool'):
+        """Build the CNN trunk from configuration tokens.
+
+        Args:
+        - cnn_cfg (list): Convolution/pooling layout definition.
+        - flattening (str): Flattening mode, one of maxpool, concat or avgpool.
+        """
         super().__init__()
         self.k = 1
         self.flattening = flattening
@@ -106,6 +142,17 @@ class CNN(nn.Module):
                     in_channels = int(ch)
                     blk_cnt += 1
     def forward(self, x):
+        """Run the CNN trunk and apply flattening strategy.
+
+        Args:
+        - x (torch.Tensor): Input images with shape (B, 1, H, W).
+
+        Returns:
+        - (torch.Tensor): Feature map after flattening.
+          maxpool returns shape (B, C_out, 1, W').
+          concat returns shape (B, C_out * H', 1, W').
+          avgpool returns shape (B, C_out, H', W').
+        """
         y = x
         for m in self.features:
             y = m(y)
@@ -121,11 +168,25 @@ class AttentivePool(nn.Module):
     """Collapses a feature map via learnable attention weights."""
 
     def __init__(self, ch: int, dim_out: int) -> None:
+        """Initialize attentive pooling layers.
+
+        Args:
+        - ch (int): Number of channels in the input feature map.
+        - dim_out (int): Size of the pooled output descriptor.
+        """
         super().__init__()
         self.attn = nn.Conv2d(ch, 1, 1)
         self.proj = nn.Linear(ch, dim_out)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Pool a feature map into one descriptor per sample.
+
+        Args:
+        - x (torch.Tensor): Input feature map with shape (B, C, H, W).
+
+        Returns:
+        - (torch.Tensor): Pooled descriptor tensor with shape (B, dim_out).
+        """
         b, c, h, w = x.shape
         a = self.attn(x).flatten(2)
         a = F.softmax(a, dim=2)
@@ -153,10 +214,25 @@ class CTCtopC(nn.Module):
     """
 
     def __init__(self, input_size, nclasses, dropout=0.0):
+        """Initialize the convolutional CTC head.
+
+        Args:
+        - input_size (int): Number of input channels from the CNN trunk.
+        - nclasses (int): Number of CTC classes including blank.
+        - dropout (float): Dropout probability before the classifier layer.
+        """
         super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.cnn_top = nn.Conv2d(input_size, nclasses, (1,3), 1, (0,1))
     def forward(self, x):
+        """Convert CNN features to CTC logits.
+
+        Args:
+        - x (torch.Tensor): Feature map with shape (B, C_in, 1, W').
+
+        Returns:
+        - (torch.Tensor): CTC logits with shape (T, B, nclasses).
+        """
         x = self.dropout(x)
         y = self.cnn_top(x)
         return y.permute(2,3,0,1)[0]
@@ -175,6 +251,14 @@ class CTCtopR(nn.Module):
     """
 
     def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
+        """Initialize the recurrent CTC head.
+
+        Args:
+        - input_size (int): Number of input channels from the CNN trunk.
+        - rnn_cfg (tuple[int, int]): Recurrent config as (hidden_size, num_layers).
+        - nclasses (int): Number of CTC classes including blank.
+        - rnn_type (str): Recurrent backend, gru or lstm.
+        """
         super().__init__()
         hidden, num_layers = rnn_cfg
         if rnn_type == 'gru':
@@ -187,6 +271,14 @@ class CTCtopR(nn.Module):
             raise ValueError('Unknown rnn_type {}'.format(rnn_type))
         self.fnl = nn.Sequential(nn.Dropout(.2), nn.Linear(2*hidden, nclasses))
     def forward(self, x):
+        """Convert CNN features to recurrent CTC logits.
+
+        Args:
+        - x (torch.Tensor): Feature map with shape (B, C_in, 1, W').
+
+        Returns:
+        - (torch.Tensor): CTC logits with shape (T, B, nclasses).
+        """
         y = x.permute(2,3,0,1)[0]   # T × B × C
         y = self.rec(y)[0]
         return self.fnl(y)
@@ -205,6 +297,14 @@ class CTCtopB(nn.Module):
     """
 
     def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
+        """Initialize the dual-branch CTC head.
+
+        Args:
+        - input_size (int): Number of input channels from the CNN trunk.
+        - rnn_cfg (tuple[int, int]): Recurrent config as (hidden_size, num_layers).
+        - nclasses (int): Number of CTC classes including blank.
+        - rnn_type (str): Recurrent backend, gru or lstm.
+        """
         super().__init__()
         hidden, num_layers = rnn_cfg
         if rnn_type == 'gru':
@@ -219,6 +319,15 @@ class CTCtopB(nn.Module):
         self.cnn = nn.Sequential(nn.Dropout(.5),
                                  nn.Conv2d(input_size, nclasses, (1,3), 1, (0,1)))
     def forward(self, x):
+        """Compute main recurrent logits and auxiliary convolutional logits.
+
+        Args:
+        - x (torch.Tensor): Feature map with shape (B, C_in, 1, W').
+
+        Returns:
+        - (tuple[torch.Tensor, torch.Tensor]): Main and auxiliary logits,
+          each with shape (T, B, nclasses).
+        """
         y = x.permute(2,3,0,1)[0]
         y = self.rec(y)[0]
         y = self.fnl(y)
@@ -228,6 +337,14 @@ class CTCtopB(nn.Module):
 class CTCtopT(nn.Module):
     """Transformer-based CTC head."""
     def __init__(self, input_size, transf_cfg, nclasses):
+        """Initialize the transformer CTC head.
+
+        Args:
+        - input_size (int): Number of input channels from the CNN trunk.
+        - transf_cfg (tuple[int, int, int, int]): Transformer config as
+          (d_model, nhead, num_layers, dim_feedforward).
+        - nclasses (int): Number of CTC classes including blank.
+        """
         super().__init__()
         d_model, nhead, nlayers, dim_ff = transf_cfg
         self.proj = nn.Linear(input_size, d_model)
@@ -240,6 +357,14 @@ class CTCtopT(nn.Module):
         self.fc = nn.Linear(d_model, nclasses)
 
     def forward(self, x):
+        """Compute transformer-based CTC logits.
+
+        Args:
+        - x (torch.Tensor): Feature map with shape (B, C_in, 1, W').
+
+        Returns:
+        - (torch.Tensor): CTC logits with shape (T, B, nclasses).
+        """
         y = x.permute(2,3,0,1)[0]
         y = self.proj(y)
         y = self.encoder(y)
@@ -271,6 +396,12 @@ class HTRNet(nn.Module):
           the CNN pooling path.
     """
     def __init__(self, arch_cfg, nclasses):
+        """Initialize the full HTR network.
+
+        Args:
+        - arch_cfg (Any): Architecture configuration namespace.
+        - nclasses (int): Number of CTC classes including blank.
+        """
         super().__init__()
         self.feat_pool = getattr(arch_cfg, 'feat_pool', 'avg')
         self.feat_source = getattr(arch_cfg, 'feat_source', 'cnn')
@@ -363,8 +494,15 @@ class HTRNet(nn.Module):
             return_feats (bool): If False, only logits are returned.
 
         Returns:
-            torch.Tensor | tuple: Logits, optionally followed by feat and
-            phoc_logits if enabled.
+        - (torch.Tensor | tuple): Output depends on head type and feature flags.
+          If head_type is cnn/rnn/transf and no features are returned:
+          logits with shape (T, B, C).
+          If head_type is both and no features are returned:
+          tuple (main_logits, aux_logits), each shape (T, B, C).
+          If return_feats is True and feat_dim is enabled:
+          append feat with shape (B, D) after logits.
+          If PHOC head is enabled and feat is present:
+          append phoc_logits with shape (B, P) as the final element.
 
         Notes:
             - When a recurrent head is present and feat_source=rnn_mean, a
@@ -381,6 +519,15 @@ class HTRNet(nn.Module):
         handle = None
         if self.feat_dim and return_feats and hasattr(self.top, 'rec') and getattr(self, 'seq_feat_proj', None) is not None:
             def _hook(_, _inputs, output):
+                """Capture recurrent sequence output for mean pooling.
+
+                Args:
+                - _ (torch.nn.Module): Hooked recurrent module.
+                - _inputs (tuple[torch.Tensor, ...]): Forward inputs where the
+                  first tensor has shape (T, B, C_in).
+                - output (torch.Tensor | tuple): Recurrent output with sequence
+                  tensor shape (T, B, 2H), optionally packed in a tuple.
+                """
                 seq = output[0] if isinstance(output, tuple) else output
                 captured['seq'] = seq  # (T, B, 2H)
             handle = self.top.rec.register_forward_hook(_hook)

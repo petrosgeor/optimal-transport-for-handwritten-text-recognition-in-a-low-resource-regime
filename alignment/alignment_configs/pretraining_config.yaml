@@ -43,11 +43,11 @@ pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
 device: cuda           # target device
 gpu_id: 0              # CUDA device index
 list_file: "htr_base/data/mnt/ramdisk/max/90kDICT32px/imlist.txt"
-train_set_size: 500000  # number of random training images
+train_set_size: 100000  # number of random training images
 test_set_size: 10000   # number of random test images
 min_length: 0   # keep training images whose label length \u2208 [min_length, max_length]
 max_length: 100
-batch_size: 256
+batch_size: 512
 num_epochs: 10000
 learning_rate: 1e-3
 fixed_size: [64, 256]
@@ -55,7 +55,15 @@ base_path: null        # defaults to list_file directory if null
 use_augmentations: true
 main_loss_weight: 1.0
 aux_loss_weight: 0.1
-save_path: "default_run"
+save_path: "100k-samples"
 checkpoint_every: 10
 save_backbone: true
 results_file: false
+
+# ----------------------------------------------------------------------
+# Non-finite diagnostics
+# ----------------------------------------------------------------------
+debug_nonfinite_probe: false       # enable detailed per-batch diagnostics for NaN/Inf
+debug_nonfinite_dump: true         # persist a JSON report on first non-finite failure
+debug_nonfinite_dump_file: "nonfinite_report.json"
+debug_nonfinite_max_batches: null  # optional cap for probe runs (null = full epoch)

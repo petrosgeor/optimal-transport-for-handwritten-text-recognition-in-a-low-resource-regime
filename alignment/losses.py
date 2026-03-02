@@ -57,8 +57,6 @@ class ProjectionLoss(torch.nn.Module):
     - supervised_weight (float): Weight applied to the supervised MSE term.
     - sinkhorn_kwargs (dict): Extra keyword args passed to GeomLoss SamplesLoss.
 
-    Returns:
-    - (None): Module constructor does not return a value.
     """
     def __init__(
         self,
@@ -77,9 +75,6 @@ class ProjectionLoss(torch.nn.Module):
         - reg_m (float): Unbalanced mass regularization parameter.
         - supervised_weight (float): Weight for supervised MSE anchor term.
         - sinkhorn_kwargs (dict): Extra options forwarded to SamplesLoss.
-
-        Returns:
-        - (None): Constructor does not return a value.
         """
         super().__init__()
         self.reg = reg
@@ -237,8 +232,6 @@ class SoftContrastiveLoss(torch.nn.Module):
     - T_txt (float): Temperature for text-space similarities.
     - eps (float): Small constant for numerical stability.
 
-    Returns:
-    - (None): Module constructor does not return a value.
     """
     def __init__(self, tau: float = .07, T_txt: float = 1.0, eps: float = 1e-8):
         """Initialize contrastive-loss temperatures.
@@ -247,9 +240,6 @@ class SoftContrastiveLoss(torch.nn.Module):
         - tau (float): Temperature for image-space pair similarities.
         - T_txt (float): Temperature for text-space pair similarities.
         - eps (float): Numerical-stability constant for division and log.
-
-        Returns:
-        - (None): Constructor does not return a value.
         """
         super().__init__()
         self.tau   = tau

@@ -31,12 +31,10 @@ warnings.filterwarnings(
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
     """Save a figure showing three images and their augmentations side by side.
 
-    Parameters
-    ----------
-    dataset : HTRDataset
-        Dataset providing images and augmentation transforms.
-    save_path : str
-        Where to write the PNG figure.
+    Args:
+        dataset (HTRDataset): Dataset providing images where each sample image
+            tensor has shape (1, H, W).
+        save_path (str): Destination path for the PNG figure.
     """
 
     if len(dataset) < 3:
@@ -90,18 +88,14 @@ def plot_tsne_embeddings(
     aligned == 1 and black otherwise. All plotted samples are annotated
     with their ground-truth transcriptions.
 
-    Parameters
-    ----------
-    dataset : HTRDataset
-        Dataset instance providing the images.
-    backbone : HTRNet
-        The visual backbone model to extract embeddings from.
-    save_path : str
-        Path where the generated t-SNE plot (PNG image) will be saved.
-    device : torch.device | str
-        Device on which the backbone runs.
-    n_samples : int, optional
-        The number of random samples to visualise. Defaults to 1000.
+    Args:
+        dataset (HTRDataset): Dataset instance providing image tensors of
+            shape (1, H, W).
+        backbone (HTRNet): Backbone used to extract descriptors with shape
+            (N, D) over the sampled subset.
+        save_path (str): Destination path for the PNG figure.
+        device (torch.device | str): Device where the backbone runs.
+        n_samples (int): Maximum number of random dataset items to visualize.
     """
     # Determine device
     device = torch.device(device)
@@ -160,7 +154,7 @@ def plot_tsne_embeddings(
     for i, txt in enumerate(transcriptions_buf):
         ax.text(tsne_results[i, 0], tsne_results[i, 1], txt.strip(), fontsize=6)
 
-    ax.set_title("t-SNE projection of backbone embeddings")
+    ax.set_title("t-SNE of image embeddings")
     ax.set_xlabel("t-SNE dimension 1")
     ax.set_ylabel("t-SNE dimension 2")
 
@@ -179,14 +173,11 @@ def plot_projector_tsne(
 ) -> None:
     """Plot t-SNE of projector outputs and word embeddings.
 
-    Parameters
-    ----------
-    projections : torch.Tensor
-        Output of the projector with shape (N, E).
-    dataset : HTRDataset
-        Provides unique_word_embeddings of shape (V, E).
-    save_path : str
-        Destination path for the PNG figure.
+    Args:
+        projections (torch.Tensor): Projector outputs with shape (N, E).
+        dataset (HTRDataset): Dataset carrying unique_word_embeddings with
+            shape (V, E).
+        save_path (str): Destination path for the PNG figure.
     """
 
     word_embs = dataset.unique_word_embeddings
@@ -221,14 +212,11 @@ def plot_projector_tsne(
 def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path: str) -> None:
     """Plot t-SNE embeddings from the pretrained backbone.
 
-    Parameters
-    ----------
-    dataset : HTRDataset
-        Dataset instance providing images and alignment labels.
-    n_samples : int
-        Number of random samples to visualise.
-    save_path : str
-        Path where the PNG figure will be saved.
+    Args:
+        dataset (HTRDataset): Dataset providing image tensors with shape
+            (1, H, W) and alignment ids with shape (N,).
+        n_samples (int): Number of random samples to visualize.
+        save_path (str): Destination path for the PNG figure.
     """
     cfg = OmegaConf.load(Path(__file__).parent / "alignment_configs" / "trainer_config.yaml")
     arch_cfg = SimpleNamespace(**cfg["architecture"])

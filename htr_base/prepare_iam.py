@@ -142,8 +142,6 @@ def copy_split_files(raw_split_dir: Path, output_split_dir: Path) -> None:
     Args:
         raw_split_dir (Path): Source directory containing the canonical splits.
         output_split_dir (Path): Destination directory where the files are written.
-    Returns:
-        None
     """
     output_split_dir.mkdir(parents=True, exist_ok=True)
     for filename in ("train.uttlist", "validation.uttlist", "test.uttlist"):
@@ -167,8 +165,6 @@ def prepare_iam_dataset(
         output_root (Path): Destination directory that will contain processed_words and splits.
         max_words (int | None): Optional maximum number of words to extract per split.
         padding (int): Extra pixels to pad around each cropped word image.
-    Returns:
-        None
     """
     iam_root = iam_root.expanduser().resolve()
     output_root = output_root.expanduser().resolve()
@@ -219,8 +215,6 @@ def main() -> None:
     Purpose:
         Allow the script to be invoked from the command line.
     Args:
-        None
-    Returns:
         None
     """
     args = parse_arguments()

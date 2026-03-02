@@ -20,41 +20,49 @@ def encode_for_ctc(
     c2i: Dict[str, int],
     device: torch.device | str = None
 ) -> Tuple[torch.IntTensor, torch.IntTensor]:
-    """
-    Convert a batch of raw string transcriptions to the (targets, lengths)
-    format expected by nn.CTCLoss.
+    """Encode transcriptions into flattened CTC targets and per-sample lengths.
 
-    Parameters
-    ----------
-    transcriptions : list[str]
-        Each element is a single line/word **already wrapped with leading
-        and trailing spaces** (the dataset does that for you).
-    c2i : dict[str, int]
-        Character-to-index mapping where **index 0 is reserved for CTC blank**
-        and every real character starts at 1.
-    device : torch.device, optional
-        If given, the returned tensors are moved to this device.
+    Args:
+    - transcriptions (list[str]): Input strings for a batch of size B.
+      Boundary whitespace is stripped before encoding.
+    - c2i (dict[str, int]): Character-to-index map where index 0 is reserved
+      for the CTC blank symbol.
+    - device (torch.device | str | None): Optional destination device.
 
-    Returns
-    -------
-    targets : torch.IntTensor   # shape = (total_chars,)
-        All label indices concatenated in batch order.
-    lengths : torch.IntTensor   # shape = (batch,)
-        The original length (in characters) of every element in *transcriptions*.
+    Returns:
+    - (Tuple[torch.IntTensor, torch.IntTensor]): Encoded tensors.
+      targets has shape (sum(L),), lengths has shape (B,).
     """
+    normalized = [str(txt).strip() for txt in transcriptions]
+    for idx, txt in enumerate(normalized):
+        if txt == "":
+            raise ValueError(
+                "encode_for_ctc received an empty transcription after stripping "
+                f"at index {idx}. Original value: {transcriptions[idx]!r}"
+            )
+
     # --- build the flattened label vector ---
-    flat_labels = [c2i[ch] for txt in transcriptions for ch in txt]
+    flat_labels = [c2i[ch] for txt in normalized for ch in txt]
     targets = torch.tensor(flat_labels, dtype=torch.int32, device=device)
 
     # --- per-sample lengths (needed by CTCLoss) ---
-    lengths = torch.tensor([len(txt) for txt in transcriptions],
+    lengths = torch.tensor([len(txt) for txt in normalized],
                            dtype=torch.int32, device=device)
 
     return targets, lengths
 
 
 def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[list[int]]:
-    """Convert flattened CTC targets to a list of lists."""
+    """Convert flattened CTC targets back to per-sample index sequences.
+
+    Args:
+    - targets (torch.Tensor): Flattened target indices with shape (sum(L),).
+    - lengths (torch.Tensor): Per-sample target lengths with shape (B,).
+
+    Returns:
+    - (list[list[int]]): Decoded index lists of length B where each element has
+      length given by the corresponding entry in lengths.
+    """
     out = []
     i = 0
     for length in lengths:
@@ -71,30 +79,18 @@ def greedy_ctc_decode(
     blank_id: int = 0,
     time_first: bool = True,
 ) -> List[str]:
-    """
-    Greedy-decode a batch of CTC network outputs.
+    """Greedy-decode a batch of CTC logits.
 
-    Parameters
-    ----------
-    logits : torch.Tensor
-        Tensor shaped either (T, B, C) if *time_first* is True
-        **or** (B, T, C) if *time_first* is False, where  
-        *T = time steps*, *B = batch size*, *C = n_classes*.
-        It can contain raw scores, logits, or probabilities –
-        only the arg-max along *C* is used.
-    i2c : dict[int, str]
-        Index-to-character mapping that complements the *c2i*
-        used during encoding. It must **not** contain the blank id.
-    blank_id : int, optional
-        Integer assigned to the CTC blank (defaults to 0).
-    time_first : bool, optional
-        Set **True** if logits are (T, B, C); otherwise set False
-        for (B, T, C).
+    Args:
+    - logits (torch.Tensor): Network scores with shape (T, B, C) when
+      time_first=True, otherwise shape (B, T, C).
+    - i2c (dict[int, str]): Index-to-character map excluding the blank id.
+    - blank_id (int): Index used for the CTC blank symbol.
+    - time_first (bool): Layout flag indicating whether logits are time-major.
 
-    Returns
-    -------
-    List[str]
-        One decoded string per element in the mini-batch.
+    Returns:
+    - (List[str]): Decoded strings of length B after repeat-collapsing, blank
+      removal, and boundary whitespace stripping.
     """
     # ---- bring tensor to (B, T) of arg-max indices ----
     if time_first:
@@ -118,7 +114,7 @@ def greedy_ctc_decode(
                 continue
             # 3) map index → character
             chars.append(i2c[idx])
-        decoded.append("".join(chars))
+        decoded.append("".join(chars).strip())
 
     return decoded
 
@@ -139,26 +135,19 @@ def beam_search_ctc_decode(
     blank_id: int = 0,
     time_first: bool = True,
 ) -> List[str]:
-    """
-    Beam-search decoding for CTC outputs using pyctcdecode.
+    """Beam-search decode a batch of CTC logits with pyctcdecode.
 
-    Parameters
-    ----------
-    logits : torch.Tensor
-        Network output – either (T, B, C) if *time_first* or (B, T, C).
-    i2c : dict[int, str]
-        Index-to-character map **excluding** the blank id.
-    beam_width : int, optional
-        Number of prefixes kept after every time-step.
-    blank_id : int, optional
-        Integer assigned to the CTC blank (defaults to 0).
-    time_first : bool, optional
-        True if *logits* are (T, B, C), else False for (B, T, C).
+    Args:
+    - logits (torch.Tensor): Network scores with shape (T, B, C) when
+      time_first=True, otherwise shape (B, T, C).
+    - i2c (dict[int, str]): Index-to-character map excluding the blank id.
+    - beam_width (int): Number of kept prefixes per time step.
+    - blank_id (int): Index used for the CTC blank symbol.
+    - time_first (bool): Layout flag indicating whether logits are time-major.
 
-    Returns
-    -------
-    list[str]
-        Best-scoring transcription for every element in the mini-batch.
+    Returns:
+    - (List[str]): Best-scoring decoded strings of length B with boundary
+      whitespace stripped.
     """
     if not time_first:
         logits = logits.transpose(0, 1)
@@ -195,7 +184,7 @@ def beam_search_ctc_decode(
         else:
             # pyctcdecode expects a 2D array (time_steps, num_classes) for a single sample
             decoded_text = decoder.decode(log_probs[:, b, :], beam_width=beam_width)
-        results.append(decoded_text)
+        results.append(decoded_text.strip())
 
     return results
 
@@ -207,27 +196,18 @@ def ctc_target_probability(
     *,
     blank_id: int = 0,
 ) -> float:
-    """Return the probability of *target* under the CTC model.
+    """Compute the CTC path probability of one target string.
 
-    Parameters
-    ----------
-    logits : torch.Tensor
-        Two-dimensional tensor (T, C) containing raw network scores for
-        a **single** sample. T is the time dimension and C includes
-        the blank class.
-    target : str
-        Decoded transcription consisting of characters present in c2i.
-    c2i : dict[str, int]
-        Mapping from characters to label indices. The blank id is **not**
-        expected to be present.
-    blank_id : int, optional
-        Integer assigned to the CTC blank (defaults to 0).
+    Args:
+    - logits (torch.Tensor): Single-sample logits with shape (T, C), where C
+      includes the blank class.
+    - target (str): Target transcription composed of characters from c2i.
+    - c2i (dict[str, int]): Character-to-index map for non-blank symbols.
+    - blank_id (int): Index used for the CTC blank symbol.
 
-    Returns
-    -------
-    float
-        Probability that logits collapse to target according to the
-        CTC formulation.
+    Returns:
+    - (float): Probability that logits collapse to target under the CTC
+      forward algorithm.
     """
 
     log_probs = logits.log_softmax(dim=1)
@@ -263,4 +243,3 @@ def ctc_target_probability(
 
     log_prob = torch.logaddexp(alpha[T - 1, S - 1], alpha[T - 1, S - 2])
     return float(log_prob.exp().item())
-
