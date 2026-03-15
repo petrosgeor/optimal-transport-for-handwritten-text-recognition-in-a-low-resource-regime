@@ -23,14 +23,14 @@ We iteratively project backbone descriptors into a word-embedding space via opti
 
 
 ## Pipeline Overview
-**Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train projector(s) with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples that meet confidence and agreement thresholds. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
+**Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train one projector with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples with lowest row entropy. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
 
 ## Guardrails and Assumptions
 - **Aligned-only supervision:** `refine_visual_backbone` filters the dataset so the CTC head only observes samples with `aligned >= 0`.
 - **Unaligned-only pseudo-labelling:** `OTAligner` masks out already aligned instances before computing uncertainty scores.
 - **Leak-free evaluation:** The test split is instantiated with `n_aligned = 0` to avoid using target labels during pseudo-labelling.
 - **CUDA requirement:** Projector training asserts a CUDA-capable device; alignments are GPU-backed for performance.
-- **Variance metric:** Ensemble variance is handled inside `OTAligner`; `select_uncertain_instances` accepts `"gap"` or `"entropy"` only.
+- **Confidence metric:** Pseudo-label selection is entropy-only and ranks samples by low OT row entropy.
 
 ## Getting Started
 ### Prerequisites
@@ -100,7 +100,7 @@ saved_models/pretrained_models/default_run/
 - **Architecture:** entries under `architecture.*` choose CNN depth, head type, feature dimension, and pooling source.
 - **Projector training:** `projector_batch_size`, `projector_epochs`, `projector_lr`, `projector_weight_decay`.
 - **Alternating loop:** `alt_rounds`, `enable_pseudo_labeling`, and devices (`device`, `gpu_id`).
-- **OT alignment:** `align_k`, `metric`, `agree_threshold`, `align_reg`, `align_unbalanced`, `align_reg_m`.
+- **OT alignment:** `align_k`, `align_reg`, `align_unbalanced`, `align_reg_m`.
 - **Datasets & extras:** `dataset.basefolder`, `dataset.n_aligned`, `word_prob_strategy`, `load_pretrained_backbone`, and the optional `synthetic_dataset` block.
 
 
@@ -124,7 +124,7 @@ Use `alignment.trainer.load_backbone_for_eval` to restore the trained model, the
 ## Logging and Artifacts
 - **Metrics:** `results/metrics_round_*.tsv` (round index, CER, WER, correct pseudo labels).
 - **Pseudo-labels:** `results/pseudo_labels_round_*.tsv` (image id, new label, confidence stats).
-- **Checkpoints:** `results/checkpoints/` (backbone, projector ensemble, optimizer state).
+- **Checkpoints:** `results/checkpoints/` (backbone and projector state).
 - **Visualisations:** Optional t-SNE plots saved under `results/plots/` when enabled.
 - **Config snapshots:** Every launcher run stores the resolved config under `results/config_used.yaml` for reproducibility.
 
@@ -134,7 +134,7 @@ Use `alignment.trainer.load_backbone_for_eval` to restore the trained model, the
 | `alignment/trainer.py` | Entry point for the alternating refinement loop and evaluation helpers. |
 | `alignment/alignment_utilities.py` | Optimal transport aligner, candidate selection, pseudo-label validation. |
 | `alignment/losses.py` | ProjectionLoss (OT + supervised) and optional soft-contrastive loss. |
-| `alignment/ctc_utils.py` | CTC encoding/decoding helpers and probability utilities. |
+| `alignment/utils/ctc.py` | CTC encoding/decoding helpers and probability utilities. |
 | `htr_base/utils/htr_dataset.py` | Dataset wrappers for aligned/unaligned handling, word embeddings, priors. |
 | `htr_base/models.py` | Backbone (HTRNet), projector MLPs, and heads (CTC variants). |
 | `alignment/alignment_configs/` | YAML configuration files for training and pretraining. |
@@ -146,10 +146,9 @@ Use `alignment.trainer.load_backbone_for_eval` to restore the trained model, the
   - `refine_visual_backbone`, `train_projector`, `align_more_instances`: building blocks for bespoke training schedules.
   - `load_backbone_for_eval`: restore checkpoints for CER/WER evaluation.
 - `alignment/alignment_utilities.py`
-  - `OTAligner`: optimal-transport pseudo-labelling engine (feature harvesting, Sinkhorn, candidate selection, dataset updates).
-  - `select_uncertain_instances`: entropy/gap ranking helper for custom selection policies.
+  - `OTAligner`: optimal-transport pseudo-labelling engine (feature harvesting, Sinkhorn, entropy ranking, dataset updates).
 - `alignment/eval.py`: `compute_cer` and `compute_wer` for reporting (supports greedy or KenLM-free beam decoding).
-- `alignment/ctc_utils.py`: CTC utilities (`encode_for_ctc`, `greedy_ctc_decode`, `beam_search_ctc_decode`).
+- `alignment/utils/ctc.py`: CTC utilities (`encode_for_ctc`, `greedy_ctc_decode`, `beam_search_ctc_decode`).
 - `htr_base/utils/htr_dataset.py`
   - `HTRDataset`: core loader for the processed word crops; handles alignment metadata, word embeddings, and prior estimation.
   - `PretrainingHTRDataset`: synthetic 90k dataset wrapper for optional backbone warm-up.
@@ -160,7 +159,7 @@ Use `alignment.trainer.load_backbone_for_eval` to restore the trained model, the
 > Each module ships with detailed docstrings—use `pydoc` or open the source for full signatures.
 ## Troubleshooting
 - **`RuntimeError: expected CUDA device`:** Ensure `projector.device` and `experiment.device` point to a valid GPU and that `torch.cuda.is_available()` is `True`.
-- **Few pseudo-labels per round:** Increase `align.k`, lower `agree_threshold`, or confirm that `dataset.aligned` still contains `-1` entries.
+- **Few pseudo-labels per round:** Increase `align.k` or confirm that `dataset.aligned` still contains `-1` entries.
 - **Sinkhorn divergence:** Tune `align.reg` or provide `sinkhorn_kwargs={"max_iter": 200}`.
 - **Beam decoder missing KenLM:** The project defaults to KenLM-free decoding; warnings are suppressed. Install a KenLM language model only if required for ablations.
 

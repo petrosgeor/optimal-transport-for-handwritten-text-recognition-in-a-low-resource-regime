@@ -16,6 +16,7 @@ python prepare_gw.py \
 1) WashingtonDB root containing `data/` and `ground_truth/`, or
 2) Legacy parent containing `GeorgeWashington20/washingtondb-v1.0/`.
 """
+
 import argparse
 import io
 import os
@@ -27,6 +28,7 @@ import numpy as np
 from skimage import io as skio
 from PIL import Image
 from tqdm import tqdm
+
 
 def decide_split(page_id):
     """Map a GW page id to the official train/val/test split index.
@@ -45,7 +47,7 @@ def decide_split(page_id):
         return 2
     if 305 <= page_id <= 309:
         return 3
-    raise ValueError(f'Invalid page id: {page_id}')
+    raise ValueError(f"Invalid page id: {page_id}")
 
 
 def resolve_washingtondb_root(dataset_folder):
@@ -62,9 +64,9 @@ def resolve_washingtondb_root(dataset_folder):
     """
 
     direct_root = os.path.abspath(dataset_folder)
-    direct_word_dir = os.path.join(direct_root, 'data', 'word_images_normalized')
-    legacy_root = os.path.join(direct_root, 'GeorgeWashington20', 'washingtondb-v1.0')
-    legacy_word_dir = os.path.join(legacy_root, 'data', 'word_images_normalized')
+    direct_word_dir = os.path.join(direct_root, "data", "word_images_normalized")
+    legacy_root = os.path.join(direct_root, "GeorgeWashington20", "washingtondb-v1.0")
+    legacy_word_dir = os.path.join(legacy_root, "data", "word_images_normalized")
 
     if os.path.isdir(direct_word_dir):
         return direct_root
@@ -92,12 +94,20 @@ def decode_washington_word_label(tokenized_label, unknown_token_counter=None):
     """
 
     punctuation_tokens = {
-        's_pt', 's_cm', 's_qo', 's_qt', 's_sq', 's_mi',
-        's_sl', 's_bl', 's_br', 's_lb',
+        "s_pt",
+        "s_cm",
+        "s_qo",
+        "s_qt",
+        "s_sq",
+        "s_mi",
+        "s_sl",
+        "s_bl",
+        "s_br",
+        "s_lb",
     }
     decoded_parts = []
 
-    for token in tokenized_label.split('-'):
+    for token in tokenized_label.split("-"):
         if not token:
             continue
         if len(token) == 1 and token.isalpha():
@@ -105,18 +115,18 @@ def decode_washington_word_label(tokenized_label, unknown_token_counter=None):
             continue
         if token in punctuation_tokens:
             continue
-        if token == 's_s':
-            decoded_parts.append('s')
+        if token == "s_s":
+            decoded_parts.append("s")
             continue
-        if token == 's_et':
-            decoded_parts.append('et')
+        if token == "s_et":
+            decoded_parts.append("et")
             continue
-        if token in {'s_GW', 's_gw'}:
-            decoded_parts.append('gw')
+        if token in {"s_GW", "s_gw"}:
+            decoded_parts.append("gw")
             continue
-        if token.startswith('s_'):
+        if token.startswith("s_"):
             suffix = token[2:].lower()
-            if re.fullmatch(r'[0-9]+(?:st|nd|rd|th)?', suffix):
+            if re.fullmatch(r"[0-9]+(?:st|nd|rd|th)?", suffix):
                 decoded_parts.append(suffix)
             elif unknown_token_counter is not None:
                 unknown_token_counter[token] += 1
@@ -124,9 +134,9 @@ def decode_washington_word_label(tokenized_label, unknown_token_counter=None):
         if unknown_token_counter is not None:
             unknown_token_counter[token] += 1
 
-    decoded = ''.join(decoded_parts).lower()
-    decoded = re.sub(r'[^a-z0-9 ]+', ' ', decoded)
-    decoded = re.sub(r'\s+', ' ', decoded).strip()
+    decoded = "".join(decoded_parts).lower()
+    decoded = re.sub(r"[^a-z0-9 ]+", " ", decoded)
+    decoded = re.sub(r"\s+", " ", decoded).strip()
     return decoded
 
 
@@ -144,26 +154,26 @@ def load_washington_word_data(washington_root, allowed_folds, unknown_token_coun
       entries for samples that belong to the requested folds.
     """
 
-    img_dir = os.path.join(washington_root, 'data', 'word_images_normalized')
-    ann_f = os.path.join(washington_root, 'ground_truth', 'word_labels.txt')
+    img_dir = os.path.join(washington_root, "data", "word_images_normalized")
+    ann_f = os.path.join(washington_root, "ground_truth", "word_labels.txt")
     if not os.path.isfile(ann_f):
-        raise FileNotFoundError(f'Word labels file not found: {ann_f}')
+        raise FileNotFoundError(f"Word labels file not found: {ann_f}")
 
     data = []
-    for ln in io.open(ann_f, encoding='utf-8-sig'):
+    for ln in io.open(ann_f, encoding="utf-8-sig"):
         parts = ln.strip().split(maxsplit=1)
         if len(parts) != 2:
             continue
 
         word_id, tokenized_label = parts
-        page_id = int(word_id.split('-')[0])
+        page_id = int(word_id.split("-")[0])
         split = decide_split(page_id)
         if split not in allowed_folds:
             continue
 
-        img_path = os.path.join(img_dir, f'{word_id}.png')
+        img_path = os.path.join(img_dir, f"{word_id}.png")
         if not os.path.isfile(img_path):
-            raise FileNotFoundError(f'Expected word image missing: {img_path}')
+            raise FileNotFoundError(f"Expected word image missing: {img_path}")
 
         decoded_label = decode_washington_word_label(tokenized_label, unknown_token_counter)
         data.append((img_path, decoded_label, word_id))
@@ -181,27 +191,27 @@ def load_legacy_word_data(root, allowed_folds):
     - (list[tuple[np.ndarray, str]]): `(crop_array, raw_text)` entries.
     """
 
-    gw_root = os.path.join(root, 'GeorgeWashington20')
-    pages_dir = os.path.join(gw_root, 'gw4860', 'pages')
-    gt_dir = os.path.join(gw_root, 'gw4860', 'ground_truth')
+    gw_root = os.path.join(root, "GeorgeWashington20")
+    pages_dir = os.path.join(gw_root, "gw4860", "pages")
+    gt_dir = os.path.join(gw_root, "gw4860", "ground_truth")
     data = []
     for fn in sorted(os.listdir(pages_dir)):
-        if not fn.endswith('.tif'):
+        if not fn.endswith(".tif"):
             continue
-        pid = int(fn.split('.')[0][:3])
+        pid = int(fn.split(".")[0][:3])
         split = decide_split(pid)
         if split not in allowed_folds:
             continue
         img = skio.imread(os.path.join(pages_dir, fn))
         # img = (255 - img).astype(np.uint8)  # invert to black text on white
-        ann = fn.replace('.tif', '.gtp')
-        for line in io.open(os.path.join(gt_dir, ann), 'rb'):
-            ulx, uly, lrx, lry, txt = line.split(b' ', 4)
+        ann = fn.replace(".tif", ".gtp")
+        for line in io.open(os.path.join(gt_dir, ann), "rb"):
+            ulx, uly, lrx, lry, txt = line.split(b" ", 4)
             ulx, uly, lrx, lry = map(int, (ulx, uly, lrx, lry))
             crop = img[uly:lry, ulx:lrx]
             if crop.size == 0:
                 continue
-            data.append((crop, txt.decode('utf-8').strip()))
+            data.append((crop, txt.decode("utf-8").strip()))
     return data
 
 
@@ -246,16 +256,16 @@ def load_line_data(root, allowed_folds):
     try:
         washington_root = resolve_washingtondb_root(root)
     except FileNotFoundError:
-        washington_root = os.path.join(root, 'GeorgeWashington20', 'washingtondb-v1.0')
+        washington_root = os.path.join(root, "GeorgeWashington20", "washingtondb-v1.0")
 
-    img_dir = os.path.join(washington_root, 'data', 'line_images_normalized')
-    ann_f = os.path.join(washington_root, 'ground_truth', 'transcription.txt')
+    img_dir = os.path.join(washington_root, "data", "line_images_normalized")
+    ann_f = os.path.join(washington_root, "ground_truth", "transcription.txt")
     if not os.path.isfile(ann_f):
-        raise FileNotFoundError(f'Line transcription file not found: {ann_f}')
+        raise FileNotFoundError(f"Line transcription file not found: {ann_f}")
 
     data = []
-    for ln in io.open(ann_f, encoding='utf-8-sig'):
-        fn, raw = ln.split(' ', 1)
+    for ln in io.open(ann_f, encoding="utf-8-sig"):
+        fn, raw = ln.split(" ", 1)
         pid = int(fn[:3])
         split = decide_split(pid)
         if split not in allowed_folds:
@@ -287,13 +297,13 @@ def prepare(args):
     """
 
     # use official folds
-    folds = {'train': [1], 'val': [2], 'test': [3]}
+    folds = {"train": [1], "val": [2], "test": [3]}
     unknown_token_counter = Counter()
     empty_decoded_labels = 0
     is_washington_word_mode = False
     skipped_empty_by_split = {name: 0 for name in folds}
 
-    if args.level == 'word':
+    if args.level == "word":
         loader = lambda root, allowed: load_word_data(
             root=root,
             allowed_folds=allowed,
@@ -305,7 +315,7 @@ def prepare(args):
     splits = {}
     for name, allowed in folds.items():
         splits[name] = loader(args.dataset_folder, allowed)
-        if args.level == 'word' and splits[name]:
+        if args.level == "word" and splits[name]:
             is_washington_word_mode = is_washington_word_mode or len(splits[name][0]) == 3
 
     os.makedirs(args.output_path, exist_ok=True)
@@ -314,53 +324,59 @@ def prepare(args):
         os.makedirs(outd, exist_ok=True)
         gt_lines = []
         written_count = 0
-        for i, sample in enumerate(tqdm(dataset, desc=f'Writing {name}')):
-            if args.level == 'word' and len(sample) == 3:
+        for i, sample in enumerate(tqdm(dataset, desc=f"Writing {name}")):
+            if args.level == "word" and len(sample) == 3:
                 src_img_path, txt, word_id = sample
                 if not txt:
                     empty_decoded_labels += 1
                     skipped_empty_by_split[name] += 1
                     continue
-                shutil.copy2(src_img_path, os.path.join(outd, f'{word_id}.png'))
-                gt_lines.append(f'{word_id} {txt}\n')
+                shutil.copy2(src_img_path, os.path.join(outd, f"{word_id}.png"))
+                gt_lines.append(f"{word_id} {txt}\n")
             else:
                 img, txt = sample
                 txt = str(txt).strip()
                 if not txt:
                     skipped_empty_by_split[name] += 1
                     continue
-                fn_base = f'{name}_{i:06d}'
-                fn = f'{fn_base}.png'
+                fn_base = f"{name}_{i:06d}"
+                fn = f"{fn_base}.png"
                 Image.fromarray(img).save(os.path.join(outd, fn))
-                gt_lines.append(f'{fn_base} {txt}\n')
+                gt_lines.append(f"{fn_base} {txt}\n")
             written_count += 1
-        with open(os.path.join(outd, 'gt.txt'), 'w', encoding='utf-8') as f:
+        with open(os.path.join(outd, "gt.txt"), "w", encoding="utf-8") as f:
             f.writelines(gt_lines)
         print(
-            f'[{name}] wrote {written_count} samples '
-            f'(skipped {skipped_empty_by_split[name]} empty labels)'
+            f"[{name}] wrote {written_count} samples "
+            f"(skipped {skipped_empty_by_split[name]} empty labels)"
         )
 
-    if args.level == 'word' and is_washington_word_mode:
-        print(f'Empty decoded labels: {empty_decoded_labels}')
+    if args.level == "word" and is_washington_word_mode:
+        print(f"Empty decoded labels: {empty_decoded_labels}")
         if unknown_token_counter:
-            print('Unknown decode tokens (top 15):')
+            print("Unknown decode tokens (top 15):")
             for token, count in unknown_token_counter.most_common(15):
-                print(f'  {token}: {count}')
+                print(f"  {token}: {count}")
         else:
-            print('Unknown decode tokens: none')
+            print("Unknown decode tokens: none")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument('--dataset_folder', required=True,
-                   help=(
-                       'GW dataset root. Supports either washingtondb-v1.0 '
-                       '(contains data/ and ground_truth/) or a parent '
-                       'containing GeorgeWashington20/washingtondb-v1.0/.'
-                   ))
-    p.add_argument('--output_path', required=True,
-                   help='Where to write processed/{train,val,test}/')
-    p.add_argument('--level', choices=['word', 'line'], default='word',
-                   help='Crop level: word or line')
+    p.add_argument(
+        "--dataset_folder",
+        required=True,
+        help=(
+            "GW dataset root. Supports either washingtondb-v1.0 "
+            "(contains data/ and ground_truth/) or a parent "
+            "containing GeorgeWashington20/washingtondb-v1.0/."
+        ),
+    )
+    p.add_argument(
+        "--output_path", required=True, help="Where to write processed/{train,val,test}/"
+    )
+    p.add_argument(
+        "--level", choices=["word", "line"], default="word", help="Crop level: word or line"
+    )
     args = p.parse_args()
     prepare(args)

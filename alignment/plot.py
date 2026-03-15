@@ -18,6 +18,7 @@ from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
 from alignment.alignment_utilities import harvest_backbone_features
 
+
 def _resolve_trainer_config_path() -> Path:
     """Resolve trainer config path with env override and stable fallback.
 
@@ -30,21 +31,14 @@ def _resolve_trainer_config_path() -> Path:
     env_cfg = os.environ.get("ALIGNMENT_TRAINER_CONFIG")
     if env_cfg:
         return Path(env_cfg).resolve()
-    return (
-        Path(__file__).resolve().parent
-        / "alignment_configs"
-        / "trainer_config.yaml"
-    ).resolve()
+    return (Path(__file__).resolve().parent / "alignment_configs" / "trainer_config.yaml").resolve()
 
 
 cfg = OmegaConf.load(_resolve_trainer_config_path())
 
 import warnings
-warnings.filterwarnings(
-    "ignore",
-    category=FutureWarning,
-    module="sklearn.manifold._t_sne"
-)
+
+warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.manifold._t_sne")
 
 
 def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
@@ -161,7 +155,13 @@ def plot_tsne_embeddings(
     # Ensure features are on CPU and are NumPy arrays for scikit-learn
     features_np = features.cpu().numpy()
 
-    tsne = TSNE(n_components=2, random_state=42, perplexity=min(30, len(features_np) - 1), init='pca', learning_rate='auto')
+    tsne = TSNE(
+        n_components=2,
+        random_state=42,
+        perplexity=min(30, len(features_np) - 1),
+        init="pca",
+        learning_rate="auto",
+    )
     tsne_results = tsne.fit_transform(features_np)
 
     # print("t-SNE transformation complete.")
@@ -182,14 +182,12 @@ def plot_tsne_embeddings(
     if os.path.dirname(save_path):  # Check if there is a directory part
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-    plt.savefig(save_path, bbox_inches='tight')
+    plt.savefig(save_path, bbox_inches="tight")
     plt.close(fig)
     # print("Plot saved successfully.")
 
 
-def plot_projector_tsne(
-    projections: torch.Tensor, dataset: HTRDataset, save_path: str
-) -> None:
+def plot_projector_tsne(projections: torch.Tensor, dataset: HTRDataset, save_path: str) -> None:
     """Plot t-SNE of projector outputs and word embeddings.
 
     Args:
@@ -244,16 +242,14 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
     backbone = HTRNet(arch_cfg, nclasses=len(c2i) + 1)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    state = torch.load(
-        "htr_base/saved_models/pretrained_backbone.pt", map_location=device
-    )
+    state = torch.load("htr_base/saved_models/pretrained_backbone.pt", map_location=device)
     backbone.load_state_dict(state)
     backbone.eval().to(device)
 
     indices = random.sample(range(len(dataset)), min(len(dataset), n_samples))
     orig_transforms = getattr(dataset, "transforms", None)
     dataset.transforms = None
-    
+
     subset = torch.utils.data.Subset(dataset, indices)
     loader = torch.utils.data.DataLoader(
         subset,
@@ -262,7 +258,7 @@ def plot_pretrained_backbone_tsne(dataset: HTRDataset, n_samples: int, save_path
         num_workers=0,
         pin_memory=(device.type == "cuda"),
     )
-    
+
     feats_buf: list[torch.Tensor] = []
     aligned_buf: list[torch.Tensor] = []
     transcriptions_buf: list[str] = []

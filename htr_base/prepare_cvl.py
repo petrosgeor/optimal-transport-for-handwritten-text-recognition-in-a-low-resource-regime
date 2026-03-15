@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Utility to convert the raw CVL dataset into word-level splits."""
+
 from __future__ import annotations
 
 import argparse

@@ -13,6 +13,8 @@ import editdistance
 import random
 from typing import List, Callable
 from htr_base.utils.vocab import load_vocab
+
+
 class HTRDataset(Dataset):
     """Dataset of handwritten text images with optional alignment data.
 
@@ -50,15 +52,16 @@ class HTRDataset(Dataset):
         aligned (torch.IntTensor): Alignment indices or -1 when unknown.
     """
 
-    def __init__(self,
-        basefolder: str = 'IAM/',                # Root folder
-        subset: str = 'train',                   # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
-        fixed_size: tuple =(128, None),          # Resize inputs to this size
-        transforms: Callable | None = None,      # Albumentations-style callable or None
-        character_classes: list = None,          # If None, computed automatically; else list of characters
-        config=None,                            # Configuration object with alignment parameters
-        two_views: bool = False,                # Whether to return two views of each image
-        ):
+    def __init__(
+        self,
+        basefolder: str = "IAM/",  # Root folder
+        subset: str = "train",  # Dataset subset to load ('train', 'val', 'test', 'all', 'train_val')
+        fixed_size: tuple = (128, None),  # Resize inputs to this size
+        transforms: Callable | None = None,  # Albumentations-style callable or None
+        character_classes: list = None,  # If None, computed automatically; else list of characters
+        config=None,  # Configuration object with alignment parameters
+        two_views: bool = False,  # Whether to return two views of each image
+    ):
         """Load handwritten text images and optional alignment info.
 
         Args:
@@ -98,7 +101,9 @@ class HTRDataset(Dataset):
             self.unique_word_probs,
             self.unique_word_embeddings,
         ) = self._init_word_stats_and_embeddings()
-        assert len(self.unique_words) == len(self.unique_word_probs), "word/probability length mismatch"
+        assert len(self.unique_words) == len(self.unique_word_probs), (
+            "word/probability length mismatch"
+        )
         self.is_in_dict, self.aligned, self.n_aligned = self._init_alignment_state(
             n_aligned=self.n_aligned
         )
@@ -119,8 +124,8 @@ class HTRDataset(Dataset):
                 "HTRDataset requires a configuration object with alignment "
                 "metadata (e.g., n_aligned, word_emb_dim)."
             )
-        n_aligned = int(getattr(config, 'n_aligned', 0))
-        word_emb_dim = int(getattr(config, 'word_emb_dim', 512))
+        n_aligned = int(getattr(config, "n_aligned", 0))
+        word_emb_dim = int(getattr(config, "word_emb_dim", 512))
         word_prob_strategy = getattr(config, "word_prob_strategy", None)
         return config, n_aligned, word_emb_dim, word_prob_strategy
 
@@ -133,12 +138,12 @@ class HTRDataset(Dataset):
         Returns:
             list[str]: Split names to load in order.
         """
-        if subset not in {'train', 'val', 'test', 'all', 'train_val'}:
+        if subset not in {"train", "val", "test", "all", "train_val"}:
             raise ValueError("subset must be 'train', 'val', 'test', 'all' or 'train_val'")
-        if subset == 'all':
-            return ['train', 'val', 'test']
-        if subset == 'train_val':
-            return ['train', 'val']
+        if subset == "all":
+            return ["train", "val", "test"]
+        if subset == "train_val":
+            return ["train", "val"]
         return [subset]
 
     def _load_gt_data(self, basefolder: str, subsets: list[str]) -> list[tuple[str, str]]:
@@ -153,12 +158,12 @@ class HTRDataset(Dataset):
         """
         data = []
         for sub in subsets:
-            gt_file = os.path.join(basefolder, sub, 'gt.txt')
+            gt_file = os.path.join(basefolder, sub, "gt.txt")
             if not os.path.isfile(gt_file):
                 # Allow datasets without a 'val' split (e.g., CVL) or incomplete setups.
                 # Skip missing subsets gracefully.
                 continue
-            with open(gt_file, 'r', encoding='utf-8') as handle:
+            with open(gt_file, "r", encoding="utf-8") as handle:
                 for line in handle:
                     line = line.strip()
                     if not line:
@@ -166,12 +171,12 @@ class HTRDataset(Dataset):
                     # The first token is the filename; remaining tokens form the transcription.
                     parts = line.split()
                     img_token = parts[0]
-                    transcr = ' '.join(parts[1:])
+                    transcr = " ".join(parts[1:])
                     # If the filename in gt does not include an extension (GW/IAM),
                     # default to '.png'. If it includes an extension (e.g., CVL '.tif'),
                     # preserve it as-is.
                     _, ext = os.path.splitext(img_token)
-                    filename = img_token if ext else (img_token + '.png')
+                    filename = img_token if ext else (img_token + ".png")
                     data.append((os.path.join(basefolder, sub, filename), transcr))
         return data
 
@@ -229,9 +234,7 @@ class HTRDataset(Dataset):
         if not unknown_chars:
             return
 
-        unknown_desc = ", ".join(
-            f"{repr(ch)} (U+{ord(ch):04X})" for ch in sorted(unknown_chars)
-        )
+        unknown_desc = ", ".join(f"{repr(ch)} (U+{ord(ch):04X})" for ch in sorted(unknown_chars))
         sample_desc = " | ".join(
             f"idx={idx}, text={text!r}, missing={missing}"
             for idx, text, missing in offending_samples
@@ -266,7 +269,9 @@ class HTRDataset(Dataset):
         )
         return unique_words, unique_word_probs, unique_word_embeddings
 
-    def _init_alignment_state(self, *, n_aligned: int) -> tuple[torch.IntTensor, torch.IntTensor, int]:
+    def _init_alignment_state(
+        self, *, n_aligned: int
+    ) -> tuple[torch.IntTensor, torch.IntTensor, int]:
         """Build alignment tensors and seed aligned indices when requested.
 
         Args:
@@ -283,7 +288,7 @@ class HTRDataset(Dataset):
         if n_aligned > 0:
             total = len(self.transcriptions)
             if total < n_aligned:
-                print(f'Warning: reducing n_aligned from {n_aligned} to {total}')
+                print(f"Warning: reducing n_aligned from {n_aligned} to {total}")
                 n_aligned = total
             if n_aligned > 0:
                 chosen = torch.tensor(
@@ -294,6 +299,7 @@ class HTRDataset(Dataset):
                     word = self.transcriptions[idx]
                     aligned[idx] = self.unique_words.index(word)
         return is_in_dict, aligned, n_aligned
+
     def __getitem__(self, index):
         """Return one or two processed image tensors and its transcription.
 
@@ -312,6 +318,7 @@ class HTRDataset(Dataset):
         transcr1 = str(self.data[index][1]).strip()
         fheight, fwidth = self.fixed_size[0], self.fixed_size[1]
         img = load_image(img_path)
+
         def build_view(im):
             """Build one processed tensor view from a grayscale image.
 
@@ -322,14 +329,14 @@ class HTRDataset(Dataset):
                 torch.Tensor: Processed image tensor with shape (1, fheight, fwidth).
             """
             if self.transforms is not None:
-                nwidth = int(np.random.uniform(.75, 1.25) * im.shape[1])
-                nheight = int((np.random.uniform(.9, 1.1) * im.shape[0] / im.shape[1]) * nwidth)
+                nwidth = int(np.random.uniform(0.75, 1.25) * im.shape[1])
+                nheight = int((np.random.uniform(0.9, 1.1) * im.shape[0] / im.shape[1]) * nwidth)
                 im = resize(image=im, output_shape=(nheight, nwidth)).astype(np.float32)
             im = preprocess(im, (fheight, fwidth))
             if self.transforms is not None:
-                im = self.transforms(image=im)['image']
+                im = self.transforms(image=im)["image"]
             return torch.Tensor(im).float().unsqueeze(0)
-        
+
         if self.two_views:
             img1 = build_view(img.copy())
             img2 = build_view(img.copy())
@@ -337,6 +344,7 @@ class HTRDataset(Dataset):
         else:
             img_tensor = build_view(img)
             return img_tensor, transcr1, self.aligned[index]
+
     def __len__(self):
         """Return the number of items in the dataset.
 
@@ -396,13 +404,13 @@ class HTRDataset(Dataset):
             RuntimeError: If the dataset was not built with subset=all.
         """
 
-        if getattr(self, 'subset', None) != 'all':
+        if getattr(self, "subset", None) != "all":
             raise RuntimeError(
                 f"Cannot retrieve test indices: dataset subset is '{self.subset}', "
                 "which does not include the 'test' split. Build with subset='all'."
             )
 
-        test_prefix = os.path.join(self.basefolder, 'test') + os.sep
+        test_prefix = os.path.join(self.basefolder, "test") + os.sep
         indices = [i for i, (p, _) in enumerate(self.data) if str(p).startswith(test_prefix)]
         return torch.tensor(indices, dtype=torch.long)
 
@@ -441,8 +449,7 @@ class HTRDataset(Dataset):
             # positions in the global concatenation order.
             train_prefix = os.path.join(self.basefolder, "train") + os.sep
             candidates = [
-                i for i, (path, _txt) in enumerate(self.data)
-                if str(path).startswith(train_prefix)
+                i for i, (path, _txt) in enumerate(self.data) if str(path).startswith(train_prefix)
             ]
         else:
             # Sample from whatever this dataset instance currently contains.
@@ -454,7 +461,6 @@ class HTRDataset(Dataset):
         # Sample *indices* uniformly and WITHOUT replacement (no duplicate images).
         k = min(n_aligned, len(candidates))
         return random.sample(candidates, k=k)
-
 
     @staticmethod
     def letter_priors(transcriptions: List[str] = None, *, n_words: int = 50000):
@@ -491,6 +497,7 @@ class HTRDataset(Dataset):
             return {c: 0.0 for c in letters}
 
         return {c: counts[c] / total for c in letters}
+
     def find_word_embeddings(self, word_list, n_components: int = 512):
         """Embed words using Landmark (Nyström) MDS under edit distance.
 
@@ -510,7 +517,7 @@ class HTRDataset(Dataset):
             trailing dimensions are zero-padded.
         """
         if n_components is None:
-            n_components = getattr(self, 'word_emb_dim', 512)
+            n_components = getattr(self, "word_emb_dim", 512)
         target_dim = int(n_components)
         n = len(word_list)
         if n == 0:
@@ -522,6 +529,7 @@ class HTRDataset(Dataset):
         m = min(n, 1000)
         order = sorted(range(n), key=lambda i: (-len(word_list[i]), word_list[i]))
         import numpy as _np
+
         L_idx = _np.sort(_np.array(order[:m], dtype=_np.int64))
         NL_idx = _np.setdiff1d(_np.arange(n, dtype=_np.int64), L_idx, assume_unique=True)
 
@@ -534,10 +542,11 @@ class HTRDataset(Dataset):
                 d = editdistance.eval(wi, wj)
                 D_LL[ii, jj] = D_LL[jj, ii] = float(d)
 
-        D2_LL = D_LL ** 2
+        D2_LL = D_LL**2
         J = _np.eye(m) - _np.ones((m, m), dtype=_np.float64) / m
         B = -0.5 * (J @ D2_LL @ J)
         from numpy.linalg import eigh as _eigh
+
         vals, vecs = _eigh(B)  # ascending
         p = int(min(target_dim, max(1, m - 1)))
         idx_desc = _np.argsort(vals)[::-1]
@@ -548,13 +557,13 @@ class HTRDataset(Dataset):
         X_L = vecs[:, :p] * L_sqrt[_np.newaxis, :]
 
         # Precompute means for out-of-sample embedding
-        r = D2_LL.mean(axis=1)               # (m,)
-        g = float(D2_LL.mean())              # scalar
+        r = D2_LL.mean(axis=1)  # (m,)
+        g = float(D2_LL.mean())  # scalar
         ones_m = _np.ones(m, dtype=_np.float64)
 
         X = _np.zeros((n, target_dim), dtype=_np.float64)
         X[L_idx, :p] = X_L
-        with _np.errstate(divide='ignore', invalid='ignore'):
+        with _np.errstate(divide="ignore", invalid="ignore"):
             invL = _np.zeros_like(L_sqrt)
             nz = L_sqrt > 0
             invL[nz] = 1.0 / L_sqrt[nz]
@@ -563,8 +572,10 @@ class HTRDataset(Dataset):
         # 3) out-of-sample for non-landmarks
         for i in NL_idx.tolist():
             w = word_list[int(i)]
-            d_iL = _np.array([editdistance.eval(w, word_list[int(j)]) for j in L_idx], dtype=_np.float64)
-            d2 = d_iL ** 2
+            d_iL = _np.array(
+                [editdistance.eval(w, word_list[int(j)]) for j in L_idx], dtype=_np.float64
+            )
+            d2 = d_iL**2
             mean_i = float(d2.mean())
             b = -0.5 * (d2 - mean_i * ones_m - r + g * ones_m)
             X[int(i), :p] = b @ Q_inv
@@ -593,7 +604,7 @@ class HTRDataset(Dataset):
 
         save_path = os.path.join(out_dir, filename)
         plt.imsave(save_path, img, cmap="gray")
-    
+
     def external_word_histogram(
         self,
         *,
@@ -617,17 +628,15 @@ class HTRDataset(Dataset):
         """
         # ── sanity check ────────────────────────────────────────────────
         if not getattr(self, "unique_words", None):
-            raise RuntimeError(
-                "Dataset has no unique words – nothing to plot."
-            )
+            raise RuntimeError("Dataset has no unique words – nothing to plot.")
         # ── count matches ───────────────────────────────────────────────
         from collections import Counter
         import os, matplotlib.pyplot as plt, torch
 
         hits = Counter()
-        for t in self.transcriptions:                  # list of GT strings
+        for t in self.transcriptions:  # list of GT strings
             w = t.lower()
-            if w in self.unique_words:               # dataset vocab list
+            if w in self.unique_words:  # dataset vocab list
                 hits[w] += 1
         counts = [hits.get(w, 0) for w in self.unique_words]
 
@@ -659,11 +668,12 @@ class HTRDataset(Dataset):
         """
 
         from collections import Counter
-        if self.get_dataset_name() == 'GW':        
+
+        if self.get_dataset_name() == "GW":
             words = [t.strip().lower() for t in self.transcriptions]
-        elif self.get_dataset_name() == 'IAM':
+        elif self.get_dataset_name() == "IAM":
             words = self.transcriptions
-        elif self.get_dataset_name() == 'CVL':
+        elif self.get_dataset_name() == "CVL":
             # Preserve case for CVL (charset includes mixed case and umlauts)
             words = self.transcriptions
         else:
@@ -714,9 +724,9 @@ class PretrainingHTRDataset(Dataset):
 
     def __init__(
         self,
-        list_file: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt',
+        list_file: str = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px/imlist.txt",
         fixed_size: tuple = (64, 256),
-        base_path: str = '/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px',
+        base_path: str = "/gpu-data3/pger/handwriting_rec/mnt/ramdisk/max/90kDICT32px",
         transforms: list = None,
         n_random: int = None,
         random_seed: int = 0,
@@ -744,7 +754,7 @@ class PretrainingHTRDataset(Dataset):
         self.preload_images = preload_images
 
         # 1) Build candidate list from file, preserving current validity filter
-        with open(list_file, 'r') as f:
+        with open(list_file, "r") as f:
             rel_paths = [line.strip() for line in f if line.strip()]
 
         def _valid(p: str) -> bool:
@@ -757,7 +767,7 @@ class PretrainingHTRDataset(Dataset):
                 bool: True when the encoded descriptor token is accepted.
             """
             try:
-                desc = os.path.basename(p).split('_')[1]
+                desc = os.path.basename(p).split("_")[1]
             except Exception:
                 return False
             return (not desc.isupper()) and desc.isalnum()
@@ -783,8 +793,8 @@ class PretrainingHTRDataset(Dataset):
             Returns:
                 tuple[str, str]: Absolute path and lowercase label string.
             """
-            abs_path = os.path.normpath(os.path.join(self.base_path, rel.lstrip('./')))
-            desc = os.path.basename(rel).split('_')[1].lower()
+            abs_path = os.path.normpath(os.path.join(self.base_path, rel.lstrip("./")))
+            desc = os.path.basename(rel).split("_")[1].lower()
             return abs_path, desc
 
         # Gather from shuffled candidates
@@ -814,7 +824,11 @@ class PretrainingHTRDataset(Dataset):
             self.images = []
             kept_set = set(self.img_paths)
             # Iterator over remaining candidates (beyond those already chosen)
-            remaining_iter = (rel for rel in filtered if os.path.normpath(os.path.join(self.base_path, rel.lstrip('./'))) not in kept_set)
+            remaining_iter = (
+                rel
+                for rel in filtered
+                if os.path.normpath(os.path.join(self.base_path, rel.lstrip("./"))) not in kept_set
+            )
 
             def _next_replacement():
                 """Return next valid replacement image candidate.
@@ -874,12 +888,11 @@ class PretrainingHTRDataset(Dataset):
             tuple[list[str], list[str]]: Absolute paths and lowercase labels.
         """
         full_paths = [
-            os.path.normpath(os.path.join(self.base_path, p.lstrip('./')))
-            for p in filtered_list
+            os.path.normpath(os.path.join(self.base_path, p.lstrip("./"))) for p in filtered_list
         ]
         descriptions = []
         for p in filtered_list:
-            desc = os.path.basename(p).split('_')[1]
+            desc = os.path.basename(p).split("_")[1]
             descriptions.append(desc.lower())
         return full_paths, descriptions
 
@@ -901,20 +914,20 @@ class PretrainingHTRDataset(Dataset):
             tuple[torch.Tensor, str]: Image tensor with shape (1, fH, fW) and
                 the corresponding transcription string.
         """
-        if hasattr(self, 'images'):
+        if hasattr(self, "images"):
             img = self.images[index]
         else:
             img = load_image(self.img_paths[index])
         fH, fW = self.fixed_size
         # nW = int(np.random.uniform(.75, 1.25) * img.shape[1])
         # nH = int((np.random.uniform(.9, 1.1) * img.shape[0] / img.shape[1]) * nW)
-        nW = max(1, int(np.random.uniform(.75, 1.25) * img.shape[1]))
-        nH = max(1, int((np.random.uniform(.9, 1.1) * img.shape[0] / img.shape[1]) * nW))
+        nW = max(1, int(np.random.uniform(0.75, 1.25) * img.shape[1]))
+        nH = max(1, int((np.random.uniform(0.9, 1.1) * img.shape[0] / img.shape[1]) * nW))
         img = resize(image=img, output_shape=(nH, nW)).astype(np.float32)
 
         img = preprocess(img, (fH, fW))
-        if getattr(self, 'transforms', None):
-            img = self.transforms(image=img)['image']
+        if getattr(self, "transforms", None):
+            img = self.transforms(image=img)["image"]
 
         img_tensor = torch.Tensor(img).float().unsqueeze(0)
         trans = str(self.transcriptions[index]).strip()

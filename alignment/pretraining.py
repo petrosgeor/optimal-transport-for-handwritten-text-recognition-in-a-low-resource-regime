@@ -16,24 +16,6 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(CFG.get("gpu_id", 0))
 
 import torch
 
-def _assert_finite(t: torch.Tensor, name: str) -> None:
-    """Check t for NaN or Inf values.
-
-    Args:
-        t (torch.Tensor): Tensor produced during training, with any shape.
-        name (str): Label used in the raised assertion message.
-    """
-    assert torch.isfinite(t).all(), f"{name} contains NaN/Inf"
-
-def _check_grad_finite(model: torch.nn.Module) -> None:
-    """Ensure all gradients in model are finite.
-
-    Args:
-        model (torch.nn.Module): Model to validate after backward.
-    """
-    for n, p in model.named_parameters():
-        if p.grad is not None:
-            assert torch.isfinite(p.grad).all(), f"grad NaN/Inf in {n}"
 # ------------------------------------------------------------------
 # Configuration parameters for pretraining
 # ------------------------------------------------------------------
@@ -46,12 +28,13 @@ from htr_base.models import HTRNet
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.metrics import CER
 from htr_base.utils.vocab import load_vocab
-from alignment.ctc_utils import (
+from alignment.utils.ctc import (
     encode_for_ctc,
     greedy_ctc_decode,
     beam_search_ctc_decode,
 )
-from alignment.losses import _ctc_loss_fn, SoftContrastiveLoss   # new class
+from alignment.utils.checks import _assert_grad_finite
+from alignment.losses import _ctc_loss_fn, SoftContrastiveLoss  # new class
 from htr_base.utils.phoc import build_phoc_description
 import torch
 import torch.optim as optim
@@ -63,9 +46,9 @@ ENABLE_PHOC = bool(CFG.get("enable_phoc", False))
 PHOC_LEVELS = tuple(CFG.get("phoc_levels", (1, 2, 3, 4)))
 PHOC_W = float(CFG.get("phoc_loss_weight", 0.1))
 ENABLE_CONTR = bool(CFG.get("contrastive_enable", False))
-CONTR_W      = float(CFG.get("contrastive_weight", 0.0))
-CONTR_TAU    = float(CFG.get("contrastive_tau", 0.07))
-CONTR_TTXT   = float(CFG.get("contrastive_text_T", 1.0))
+CONTR_W = float(CFG.get("contrastive_weight", 0.0))
+CONTR_TAU = float(CFG.get("contrastive_tau", 0.07))
+CONTR_TTXT = float(CFG.get("contrastive_text_T", 1.0))
 # Default pretraining configuration
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNS_ROOT = REPO_ROOT / "saved_models" / "pretrained_models"
@@ -88,15 +71,15 @@ def _resolve_path(value, *, required: bool = False, must_exist: bool = False) ->
     """
     if value in (None, ""):
         if required:
-            raise ValueError(
-                f"Configuration value is required; update {CONFIG_PATH}.")
+            raise ValueError(f"Configuration value is required; update {CONFIG_PATH}.")
         return None
     candidate = Path(value).expanduser()
     if not candidate.is_absolute():
         candidate = REPO_ROOT / candidate
     if must_exist and not candidate.exists():
         raise FileNotFoundError(
-            f"Resolved path '{candidate}' does not exist. Update {CONFIG_PATH}.")
+            f"Resolved path '{candidate}' does not exist. Update {CONFIG_PATH}."
+        )
     return candidate
 
 
@@ -113,11 +96,11 @@ def _validate_run_name(run_name: str) -> str:
     if not normalized:
         raise ValueError("save_path must be a non-empty run name.")
     if "/" in normalized or "\\" in normalized:
-        raise ValueError(
-            "save_path must be a simple run name (no path separators).")
+        raise ValueError("save_path must be a simple run name (no path separators).")
     if not re.fullmatch(r"[A-Za-z0-9._-]+", normalized):
         raise ValueError(
-            "save_path may only contain letters, numbers, dot, underscore, and hyphen.")
+            "save_path may only contain letters, numbers, dot, underscore, and hyphen."
+        )
     return normalized
 
 
@@ -250,9 +233,7 @@ def _write_hparams_yaml(
         },
         "runtime": {
             "torch_version": str(torch.__version__),
-            "torch_cuda_runtime": (
-                None if torch.version.cuda is None else str(torch.version.cuda)
-            ),
+            "torch_cuda_runtime": (None if torch.version.cuda is None else str(torch.version.cuda)),
         },
     }
     OmegaConf.save(config=OmegaConf.create(payload), f=hparams_path)
@@ -300,6 +281,7 @@ PRETRAINING_CONFIG = {
 # Architecture configuration for the pretraining backbone
 # Loaded from alignment/alignment_configs/pretraining_config.yaml to stay consistent with other scripts
 ARCHITECTURE_CONFIG = CFG["architecture"]
+
 
 class PretrainingRunner:
     """Run synthetic pretraining with explicit setup, train, eval, and save stages."""
@@ -396,8 +378,10 @@ class PretrainingRunner:
             should_eval = ((epoch + 1) % 3 == 0) or (epoch == self.num_epochs - 1)
             if should_eval:
                 lr_val = self.opt.param_groups[0]["lr"]
-                assert lr_val > 0 and math.isfinite(lr_val), "learning rate underflow or became non-finite"
-                msg = f"[Pretraining] Epoch {epoch+1:03d}/{self.num_epochs} - Loss: {metrics['avg_loss']:.4f}"
+                assert lr_val > 0 and math.isfinite(lr_val), (
+                    "learning rate underflow or became non-finite"
+                )
+                msg = f"[Pretraining] Epoch {epoch + 1:03d}/{self.num_epochs} - Loss: {metrics['avg_loss']:.4f}"
                 if ENABLE_PHOC:
                     msg += f" - PHOC: {metrics['avg_phoc_loss']:.4f}"
                 if ENABLE_CONTR:
@@ -486,21 +470,28 @@ class PretrainingRunner:
         assert self.lr > 0, "learning_rate must be positive"
         base_path_cfg = self.config.get("base_path", None)
         self.fixed_size = self.config["fixed_size"]
-        assert self.fixed_size[0] > 0 and self.fixed_size[1] > 0, "fixed_size dimensions must be positive"
+        assert self.fixed_size[0] > 0 and self.fixed_size[1] > 0, (
+            "fixed_size dimensions must be positive"
+        )
         self.device = self.config["device"]
         gpu_id = self.config.pop("gpu_id", None)
         if gpu_id is not None:
             print(
-                f"[Pretraining] 'gpu_id' in runtime overrides is ignored; configure it in {CONFIG_PATH}")
+                f"[Pretraining] 'gpu_id' in runtime overrides is ignored; configure it in {CONFIG_PATH}"
+            )
         self.use_augmentations = self.config.get("use_augmentations", True)
         self.main_weight = self.config.get("main_loss_weight", 1.0)
         self.aux_weight = self.config.get("aux_loss_weight", 0.1)
         self.save_backbone = self.config.get("save_backbone", False)
         self.debug_nonfinite_probe = bool(self.config.get("debug_nonfinite_probe", False))
         self.debug_nonfinite_dump = bool(self.config.get("debug_nonfinite_dump", True))
-        self.debug_nonfinite_dump_file = str(self.config.get("debug_nonfinite_dump_file", "nonfinite_report.json"))
+        self.debug_nonfinite_dump_file = str(
+            self.config.get("debug_nonfinite_dump_file", "nonfinite_report.json")
+        )
         max_batches_cfg = self.config.get("debug_nonfinite_max_batches", None)
-        self.debug_nonfinite_max_batches = None if max_batches_cfg in (None, "") else int(max_batches_cfg)
+        self.debug_nonfinite_max_batches = (
+            None if max_batches_cfg in (None, "") else int(max_batches_cfg)
+        )
         if self.debug_nonfinite_max_batches is not None and self.debug_nonfinite_max_batches < 1:
             raise ValueError("debug_nonfinite_max_batches must be >= 1 when set")
         print(f"[Pretraining] Starting with config:")
@@ -785,7 +776,9 @@ class PretrainingRunner:
         if target_lengths and input_lengths:
             if len(input_lengths) == len(target_lengths):
                 long_targets = sum(
-                    1 for tgt_len, inp_len in zip(target_lengths, input_lengths) if tgt_len > inp_len
+                    1
+                    for tgt_len, inp_len in zip(target_lengths, input_lengths)
+                    if tgt_len > inp_len
                 )
             else:
                 max_input = max(input_lengths)
@@ -940,8 +933,14 @@ class PretrainingRunner:
             imgs = imgs.to(self.device)
             out = self.net(imgs)
             main_logits, aux_logits, features = out[:3]
-            assert features.dim() == 2 and features.size(1) == self.arch.feat_dim, "features tensor has wrong dimensions or feature size"
-            for name, tens in {"main_logits": main_logits, "aux_logits": aux_logits, "features": features}.items():
+            assert features.dim() == 2 and features.size(1) == self.arch.feat_dim, (
+                "features tensor has wrong dimensions or feature size"
+            )
+            for name, tens in {
+                "main_logits": main_logits,
+                "aux_logits": aux_logits,
+                "features": features,
+            }.items():
                 if not torch.isfinite(tens).all():
                     self._raise_nonfinite(
                         offending_component=name,
@@ -955,7 +954,9 @@ class PretrainingRunner:
 
             targets, lengths = encode_for_ctc(list(txts), self.c2i, device=imgs.device)
             assert targets.max() < self.nclasses, "target contains index out of nclasses range"
-            inp_lens = torch.full((imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=self.device)
+            inp_lens = torch.full(
+                (imgs.size(0),), main_logits.size(0), dtype=torch.int32, device=self.device
+            )
 
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
@@ -963,11 +964,17 @@ class PretrainingRunner:
             loss_contr = torch.tensor(0.0, device=self.device)
             if ENABLE_CONTR:
                 loss_contr = self.contr_loss_fn(features, targets, lengths.cpu())
-                assert loss_contr >= 0 and torch.isfinite(loss_contr), "Contrastive loss is negative or non-finite"
+                assert loss_contr >= 0 and torch.isfinite(loss_contr), (
+                    "Contrastive loss is negative or non-finite"
+                )
 
             if ENABLE_PHOC:
                 phoc_logits = out[-1]
-                phoc_targets = build_phoc_description(list(txts), self.c2i, levels=PHOC_LEVELS).float().to(self.device)
+                phoc_targets = (
+                    build_phoc_description(list(txts), self.c2i, levels=PHOC_LEVELS)
+                    .float()
+                    .to(self.device)
+                )
                 assert phoc_logits.shape == phoc_targets.shape, "shape mismatch"
                 if not torch.isfinite(phoc_logits).all():
                     self._raise_nonfinite(
@@ -983,7 +990,9 @@ class PretrainingRunner:
                         features=features,
                         phoc_logits=phoc_logits,
                     )
-                loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
+                loss_phoc = torch.nn.functional.binary_cross_entropy_with_logits(
+                    phoc_logits, phoc_targets
+                )
                 if not torch.isfinite(loss_phoc).all():
                     self._raise_nonfinite(
                         offending_component="loss_phoc",
@@ -1057,7 +1066,7 @@ class PretrainingRunner:
                 )
             total_loss.backward()
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), 5.0)
-            _check_grad_finite(self.net)
+            _assert_grad_finite(self.net, "net", include_param_names=True)
             self.opt.step()
             self.opt.zero_grad(set_to_none=True)
             epoch_loss += total_loss.item()
@@ -1147,5 +1156,7 @@ def main(config: dict | None = None) -> Path:
     """
     runner = PretrainingRunner(config=config)
     return runner.run()
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     main()

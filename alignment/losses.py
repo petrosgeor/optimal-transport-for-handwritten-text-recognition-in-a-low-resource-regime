@@ -58,6 +58,7 @@ class ProjectionLoss(torch.nn.Module):
     - sinkhorn_kwargs (dict): Extra keyword args passed to GeomLoss SamplesLoss.
 
     """
+
     def __init__(
         self,
         reg: float = 0.1,
@@ -85,7 +86,12 @@ class ProjectionLoss(torch.nn.Module):
 
         if self.unbalanced:
             self.unbalanced_ot_loss = SamplesLoss(
-                loss="sinkhorn", p=2, blur=self.reg, reach=self.reg_m, debias=True, **self.sinkhorn_kwargs
+                loss="sinkhorn",
+                p=2,
+                blur=self.reg,
+                reach=self.reg_m,
+                debias=True,
+                **self.sinkhorn_kwargs,
             )
         else:
             self.balanced_ot_loss = SamplesLoss(
@@ -138,9 +144,7 @@ class ProjectionLoss(torch.nn.Module):
             )
 
         if aligned.dtype not in (torch.int32, torch.int64):
-            raise ValueError(
-                f"aligned must be int32 or int64; got aligned.dtype={aligned.dtype}"
-            )
+            raise ValueError(f"aligned must be int32 or int64; got aligned.dtype={aligned.dtype}")
         if not tgt_probs.dtype.is_floating_point:
             raise ValueError(
                 f"tgt_probs must be a floating-point tensor; got tgt_probs.dtype={tgt_probs.dtype}"
@@ -217,7 +221,7 @@ class ProjectionLoss(torch.nn.Module):
 # ------------------------------------------------------------------
 # Soft Contrastive / InfoNCE with continuous positives (Euclidean)
 # ------------------------------------------------------------------
-from .ctc_utils import _unflatten_targets
+from .utils.ctc import _unflatten_targets
 
 
 class SoftContrastiveLoss(torch.nn.Module):
@@ -233,7 +237,8 @@ class SoftContrastiveLoss(torch.nn.Module):
     - eps (float): Small constant for numerical stability.
 
     """
-    def __init__(self, tau: float = .07, T_txt: float = 1.0, eps: float = 1e-8):
+
+    def __init__(self, tau: float = 0.07, T_txt: float = 1.0, eps: float = 1e-8):
         """Initialize contrastive-loss temperatures.
 
         Args:
@@ -242,11 +247,13 @@ class SoftContrastiveLoss(torch.nn.Module):
         - eps (float): Numerical-stability constant for division and log.
         """
         super().__init__()
-        self.tau   = tau
+        self.tau = tau
         self.T_txt = T_txt
-        self.eps   = eps
+        self.eps = eps
 
-    def forward(self, feats: torch.Tensor, targets: torch.Tensor, lengths: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, feats: torch.Tensor, targets: torch.Tensor, lengths: torch.Tensor
+    ) -> torch.Tensor:
         """Compute soft contrastive loss for one minibatch.
 
         Args:
@@ -262,8 +269,8 @@ class SoftContrastiveLoss(torch.nn.Module):
             return torch.tensor(0.0, device=feats.device, dtype=feats.dtype)
 
         # ---- 1. pairwise Euclidean distances in descriptor space ----
-        dists = torch.cdist(feats, feats, p=2)        # (B, B)
-        sim_img = torch.exp(-dists / self.tau)        # convert to similarity
+        dists = torch.cdist(feats, feats, p=2)  # (B, B)
+        sim_img = torch.exp(-dists / self.tau)  # convert to similarity
 
         # ---- 2. edit-distance matrix (vectorized) --------------------
         with torch.no_grad():
@@ -271,11 +278,13 @@ class SoftContrastiveLoss(torch.nn.Module):
             unflattened_targets = _unflatten_targets(targets, lengths)
             # Use rapidfuzz for fast, parallelized pairwise edit distance.
             edit_np = process.cdist(
-                unflattened_targets, unflattened_targets,
-                scorer=distance.Levenshtein.distance, workers=-1
+                unflattened_targets,
+                unflattened_targets,
+                scorer=distance.Levenshtein.distance,
+                workers=-1,
             ).astype(np.float32)
             edit = torch.from_numpy(edit_np).to(device=feats.device)
-        sim_txt = torch.exp(-edit / self.T_txt)       # soft positives
+        sim_txt = torch.exp(-edit / self.T_txt)  # soft positives
 
         # ---- 3. InfoNCE objective ------------------------------------
         # exclude diagonal (self‑similarity) from both sums
@@ -283,7 +292,7 @@ class SoftContrastiveLoss(torch.nn.Module):
         sim_img = sim_img * (1 - eye)
         sim_txt = sim_txt * (1 - eye)
 
-        numerator   = (sim_txt * sim_img).sum(dim=1)          # (B,)
-        denominator = sim_img.sum(dim=1) + self.eps           # (B,)
+        numerator = (sim_txt * sim_img).sum(dim=1)  # (B,)
+        denominator = sim_img.sum(dim=1) + self.eps  # (B,)
         loss = -torch.log((numerator + self.eps) / denominator).mean()
         return loss

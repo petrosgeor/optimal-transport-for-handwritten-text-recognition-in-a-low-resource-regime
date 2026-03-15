@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Utility to convert the raw IAM dataset into word-level splits."""
+
 from __future__ import annotations
 
 import argparse
@@ -196,7 +197,9 @@ def prepare_iam_dataset(
                     raise FileNotFoundError(f"Missing annotation XML: {xml_path}")
                 with Image.open(image_path) as page_image:
                     grayscale = page_image.convert("L")
-                    for crop, transcription in extract_word_images(xml_path, grayscale, padding=padding):
+                    for crop, transcription in extract_word_images(
+                        xml_path, grayscale, padding=padding
+                    ):
                         sample_id = f"{split_name}_{words_written:06d}"
                         crop.save(split_dir_out / f"{sample_id}.png")
                         gt_file.write(f"{sample_id} {transcription}\n")

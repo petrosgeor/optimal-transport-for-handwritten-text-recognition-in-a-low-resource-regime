@@ -5,10 +5,13 @@ from skimage.transform import resize
 import numpy as np
 from PIL import Image
 
-def load_image(path: str,
-               *,                  # all args after this are keyword‑only
-               ensure_black_bg: bool = True,
-               bg_thresh: float = .55) -> np.ndarray:
+
+def load_image(
+    path: str,
+    *,  # all args after this are keyword‑only
+    ensure_black_bg: bool = True,
+    bg_thresh: float = 0.55,
+) -> np.ndarray:
     """Load one image as a grayscale float array in [0, 1].
 
     Args:
@@ -30,9 +33,9 @@ def load_image(path: str,
 
     if ensure_black_bg:
         bg_est = np.median(img)
-        if bg_est > bg_thresh:                      # bright paper → invert
+        if bg_est > bg_thresh:  # bright paper → invert
             img = 1.0 - img
-    else:                                           # legacy behaviour
+    else:  # legacy behaviour
         img = 1.0 - img
     return img
 
@@ -65,7 +68,7 @@ def preprocess(img, input_size, border_size=8):
     bottom = border_size + pad_v_extra - pad_v_extra // 2
     left = border_size + pad_h_extra // 2
     right = border_size + pad_h_extra - pad_h_extra // 2
-    img = np.pad(img, ((top, bottom), (left, right)), mode='median')
+    img = np.pad(img, ((top, bottom), (left, right)), mode="median")
 
     return img
 

@@ -5,6 +5,7 @@ This script scans PAGE XML annotations under a Bessarion root, extracts word-lev
 bounding boxes and transcriptions, crops word images, and writes a processed layout
 compatible with the repository's `HTRDataset` loader.
 """
+
 from __future__ import annotations
 
 import argparse

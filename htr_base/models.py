@@ -4,7 +4,6 @@ import torch.nn.functional as F
 from types import SimpleNamespace
 
 
-
 class Projector(nn.Module):
     """Map CNN descriptors to an embedding space using a small MLP.
 
@@ -36,7 +35,7 @@ class Projector(nn.Module):
             nn.Linear(self.input_dim, self.input_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Linear(self.input_dim, self.output_dim)
+            nn.Linear(self.input_dim, self.output_dim),
         )
 
     def forward(self, x):
@@ -78,14 +77,17 @@ class BasicBlock(nn.Module):
         """
         super().__init__()
         self.conv1 = nn.Conv2d(in_planes, planes, 3, stride, 1, bias=False)
-        self.bn1   = nn.BatchNorm2d(planes)
+        self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(planes, planes, 3, 1, 1, bias=False)
-        self.bn2   = nn.BatchNorm2d(planes)
-        self.shortcut = (nn.Sequential()
-                         if stride == 1 and in_planes == planes
-                         else nn.Sequential(
-                                nn.Conv2d(in_planes, planes, 1, stride, bias=False),
-                                nn.BatchNorm2d(planes)))
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.shortcut = (
+            nn.Sequential()
+            if stride == 1 and in_planes == planes
+            else nn.Sequential(
+                nn.Conv2d(in_planes, planes, 1, stride, bias=False), nn.BatchNorm2d(planes)
+            )
+        )
+
     def forward(self, x):
         """Apply residual convolutional transformation.
 
@@ -99,6 +101,7 @@ class BasicBlock(nn.Module):
         out = self.bn2(self.conv2(out))
         out += self.shortcut(x)
         return F.relu(out)
+
 
 class CNN(nn.Module):
     """Configurable convolutional feature extractor for handwriting images.
@@ -117,7 +120,7 @@ class CNN(nn.Module):
         torch.Tensor: Feature map after the requested flattening step.
     """
 
-    def __init__(self, cnn_cfg, flattening='maxpool'):
+    def __init__(self, cnn_cfg, flattening="maxpool"):
         """Build the CNN trunk from configuration tokens.
 
         Args:
@@ -127,20 +130,20 @@ class CNN(nn.Module):
         super().__init__()
         self.k = 1
         self.flattening = flattening
-        self.features = nn.ModuleList([nn.Conv2d(1, 32, 7, (4,2), 3), nn.ReLU()])
+        self.features = nn.ModuleList([nn.Conv2d(1, 32, 7, (4, 2), 3), nn.ReLU()])
         in_channels = 32
         pool_cnt, blk_cnt = 0, 1
         for m in cnn_cfg:
-            if m == 'M':
-                self.features.add_module(f'mxp{pool_cnt}', nn.MaxPool2d(2,2))
+            if m == "M":
+                self.features.add_module(f"mxp{pool_cnt}", nn.MaxPool2d(2, 2))
                 pool_cnt += 1
             else:
                 reps, ch = m
                 for _ in range(int(reps)):
-                    self.features.add_module(f'blk{blk_cnt}',
-                                             BasicBlock(in_channels, int(ch)))
+                    self.features.add_module(f"blk{blk_cnt}", BasicBlock(in_channels, int(ch)))
                     in_channels = int(ch)
                     blk_cnt += 1
+
     def forward(self, x):
         """Run the CNN trunk and apply flattening strategy.
 
@@ -156,13 +159,14 @@ class CNN(nn.Module):
         y = x
         for m in self.features:
             y = m(y)
-        if self.flattening == 'maxpool':
-            y = F.max_pool2d(y, [y.size(2), self.k],
-                             stride=[y.size(2), 1],
-                             padding=[0, self.k // 2])
-        elif self.flattening == 'concat':
+        if self.flattening == "maxpool":
+            y = F.max_pool2d(
+                y, [y.size(2), self.k], stride=[y.size(2), 1], padding=[0, self.k // 2]
+            )
+        elif self.flattening == "concat":
             y = y.view(y.size(0), -1, 1, y.size(3))
         return y
+
 
 class AttentivePool(nn.Module):
     """Collapses a feature map via learnable attention weights."""
@@ -194,6 +198,7 @@ class AttentivePool(nn.Module):
         pooled = torch.bmm(a, x_flat).squeeze(1)
         return self.proj(pooled)
 
+
 ###############################################################################
 #                    ─────  CTC recognition heads  ─────               #
 ###############################################################################
@@ -223,7 +228,8 @@ class CTCtopC(nn.Module):
         """
         super().__init__()
         self.dropout = nn.Dropout(dropout)
-        self.cnn_top = nn.Conv2d(input_size, nclasses, (1,3), 1, (0,1))
+        self.cnn_top = nn.Conv2d(input_size, nclasses, (1, 3), 1, (0, 1))
+
     def forward(self, x):
         """Convert CNN features to CTC logits.
 
@@ -235,7 +241,8 @@ class CTCtopC(nn.Module):
         """
         x = self.dropout(x)
         y = self.cnn_top(x)
-        return y.permute(2,3,0,1)[0]
+        return y.permute(2, 3, 0, 1)[0]
+
 
 class CTCtopR(nn.Module):
     """Recurrent CTC head using GRU or LSTM layers.
@@ -250,7 +257,7 @@ class CTCtopR(nn.Module):
         torch.Tensor: Sequence logits of shape (T, B, nclasses).
     """
 
-    def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
+    def __init__(self, input_size, rnn_cfg, nclasses, rnn_type="gru"):
         """Initialize the recurrent CTC head.
 
         Args:
@@ -261,15 +268,18 @@ class CTCtopR(nn.Module):
         """
         super().__init__()
         hidden, num_layers = rnn_cfg
-        if rnn_type == 'gru':
-            self.rec = nn.GRU(input_size, hidden, num_layers=num_layers,
-                              bidirectional=True, dropout=.2)
-        elif rnn_type == 'lstm':
-            self.rec = nn.LSTM(input_size, hidden, num_layers=num_layers,
-                               bidirectional=True, dropout=.2)
+        if rnn_type == "gru":
+            self.rec = nn.GRU(
+                input_size, hidden, num_layers=num_layers, bidirectional=True, dropout=0.2
+            )
+        elif rnn_type == "lstm":
+            self.rec = nn.LSTM(
+                input_size, hidden, num_layers=num_layers, bidirectional=True, dropout=0.2
+            )
         else:
-            raise ValueError('Unknown rnn_type {}'.format(rnn_type))
-        self.fnl = nn.Sequential(nn.Dropout(.2), nn.Linear(2*hidden, nclasses))
+            raise ValueError("Unknown rnn_type {}".format(rnn_type))
+        self.fnl = nn.Sequential(nn.Dropout(0.2), nn.Linear(2 * hidden, nclasses))
+
     def forward(self, x):
         """Convert CNN features to recurrent CTC logits.
 
@@ -279,9 +289,10 @@ class CTCtopR(nn.Module):
         Returns:
         - (torch.Tensor): CTC logits with shape (T, B, nclasses).
         """
-        y = x.permute(2,3,0,1)[0]   # T × B × C
+        y = x.permute(2, 3, 0, 1)[0]  # T × B × C
         y = self.rec(y)[0]
         return self.fnl(y)
+
 
 class CTCtopB(nn.Module):
     """CTC head with both recurrent and convolutional branches.
@@ -296,7 +307,7 @@ class CTCtopB(nn.Module):
         Tuple[torch.Tensor, torch.Tensor]: Main and auxiliary logits.
     """
 
-    def __init__(self, input_size, rnn_cfg, nclasses, rnn_type='gru'):
+    def __init__(self, input_size, rnn_cfg, nclasses, rnn_type="gru"):
         """Initialize the dual-branch CTC head.
 
         Args:
@@ -307,17 +318,21 @@ class CTCtopB(nn.Module):
         """
         super().__init__()
         hidden, num_layers = rnn_cfg
-        if rnn_type == 'gru':
-            self.rec = nn.GRU(input_size, hidden, num_layers=num_layers,
-                              bidirectional=True, dropout=.2)
-        elif rnn_type == 'lstm':
-            self.rec = nn.LSTM(input_size, hidden, num_layers=num_layers,
-                               bidirectional=True, dropout=.2)
+        if rnn_type == "gru":
+            self.rec = nn.GRU(
+                input_size, hidden, num_layers=num_layers, bidirectional=True, dropout=0.2
+            )
+        elif rnn_type == "lstm":
+            self.rec = nn.LSTM(
+                input_size, hidden, num_layers=num_layers, bidirectional=True, dropout=0.2
+            )
         else:
-            raise ValueError('Unknown rnn_type {}'.format(rnn_type))
-        self.fnl = nn.Sequential(nn.Dropout(.5), nn.Linear(2*hidden, nclasses))
-        self.cnn = nn.Sequential(nn.Dropout(.5),
-                                 nn.Conv2d(input_size, nclasses, (1,3), 1, (0,1)))
+            raise ValueError("Unknown rnn_type {}".format(rnn_type))
+        self.fnl = nn.Sequential(nn.Dropout(0.5), nn.Linear(2 * hidden, nclasses))
+        self.cnn = nn.Sequential(
+            nn.Dropout(0.5), nn.Conv2d(input_size, nclasses, (1, 3), 1, (0, 1))
+        )
+
     def forward(self, x):
         """Compute main recurrent logits and auxiliary convolutional logits.
 
@@ -328,14 +343,16 @@ class CTCtopB(nn.Module):
         - (tuple[torch.Tensor, torch.Tensor]): Main and auxiliary logits,
           each with shape (T, B, nclasses).
         """
-        y = x.permute(2,3,0,1)[0]
+        y = x.permute(2, 3, 0, 1)[0]
         y = self.rec(y)[0]
         y = self.fnl(y)
-        aux = self.cnn(x).permute(2,3,0,1)[0]
+        aux = self.cnn(x).permute(2, 3, 0, 1)[0]
         return y, aux
+
 
 class CTCtopT(nn.Module):
     """Transformer-based CTC head."""
+
     def __init__(self, input_size, transf_cfg, nclasses):
         """Initialize the transformer CTC head.
 
@@ -349,9 +366,7 @@ class CTCtopT(nn.Module):
         d_model, nhead, nlayers, dim_ff = transf_cfg
         self.proj = nn.Linear(input_size, d_model)
         enc_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, nhead=nhead,
-            dim_feedforward=dim_ff, dropout=0.2,
-            batch_first=False
+            d_model=d_model, nhead=nhead, dim_feedforward=dim_ff, dropout=0.2, batch_first=False
         )
         self.encoder = nn.TransformerEncoder(enc_layer, num_layers=nlayers)
         self.fc = nn.Linear(d_model, nclasses)
@@ -365,10 +380,11 @@ class CTCtopT(nn.Module):
         Returns:
         - (torch.Tensor): CTC logits with shape (T, B, nclasses).
         """
-        y = x.permute(2,3,0,1)[0]
+        y = x.permute(2, 3, 0, 1)[0]
         y = self.proj(y)
         y = self.encoder(y)
         return self.fc(y)
+
 
 ###############################################################################
 #                 ─────  HTRNet with optional feat head  ─────                #
@@ -395,6 +411,7 @@ class HTRNet(nn.Module):
           averaged. Heads without a rec attribute automatically fall back to
           the CNN pooling path.
     """
+
     def __init__(self, arch_cfg, nclasses):
         """Initialize the full HTR network.
 
@@ -403,79 +420,82 @@ class HTRNet(nn.Module):
         - nclasses (int): Number of CTC classes including blank.
         """
         super().__init__()
-        self.feat_pool = getattr(arch_cfg, 'feat_pool', 'avg')
-        self.feat_source = getattr(arch_cfg, 'feat_source', 'cnn')
-        if getattr(arch_cfg, 'stn', False):
-            raise NotImplementedError('STN not implemented in this repo.')
+        self.feat_pool = getattr(arch_cfg, "feat_pool", "avg")
+        self.feat_source = getattr(arch_cfg, "feat_source", "cnn")
+        if getattr(arch_cfg, "stn", False):
+            raise NotImplementedError("STN not implemented in this repo.")
 
         self.features = CNN(arch_cfg.cnn_cfg, flattening=arch_cfg.flattening)
 
         # output channels after CNN
-        if arch_cfg.flattening in ('maxpool', 'avgpool'):
+        if arch_cfg.flattening in ("maxpool", "avgpool"):
             cnn_out_ch = arch_cfg.cnn_cfg[-1][-1]
-        elif arch_cfg.flattening == 'concat':
+        elif arch_cfg.flattening == "concat":
             cnn_out_ch = 2 * 8 * arch_cfg.cnn_cfg[-1][-1]
         else:
-            raise ValueError(f'Unknown flattening: {arch_cfg.flattening}')
+            raise ValueError(f"Unknown flattening: {arch_cfg.flattening}")
 
         # choose CTC head
         head = arch_cfg.head_type
-        if head == 'cnn':
+        if head == "cnn":
             self.top = CTCtopC(cnn_out_ch, nclasses)
-        elif head == 'rnn':
-            self.top = CTCtopR(cnn_out_ch,
-                               (arch_cfg.rnn_hidden_size,
-                                arch_cfg.rnn_layers),
-                               nclasses,
-                               arch_cfg.rnn_type)
-        elif head == 'both':
-            self.top = CTCtopB(cnn_out_ch,
-                               (arch_cfg.rnn_hidden_size,
-                                arch_cfg.rnn_layers),
-                               nclasses,
-                               arch_cfg.rnn_type)
-        elif head == 'transf':
-            self.top = CTCtopT(cnn_out_ch,
-                               (arch_cfg.transf_d_model,
-                                arch_cfg.transf_nhead,
-                                arch_cfg.transf_layers,
-                                arch_cfg.transf_dim_ff),
-                               nclasses)
+        elif head == "rnn":
+            self.top = CTCtopR(
+                cnn_out_ch,
+                (arch_cfg.rnn_hidden_size, arch_cfg.rnn_layers),
+                nclasses,
+                arch_cfg.rnn_type,
+            )
+        elif head == "both":
+            self.top = CTCtopB(
+                cnn_out_ch,
+                (arch_cfg.rnn_hidden_size, arch_cfg.rnn_layers),
+                nclasses,
+                arch_cfg.rnn_type,
+            )
+        elif head == "transf":
+            self.top = CTCtopT(
+                cnn_out_ch,
+                (
+                    arch_cfg.transf_d_model,
+                    arch_cfg.transf_nhead,
+                    arch_cfg.transf_layers,
+                    arch_cfg.transf_dim_ff,
+                ),
+                nclasses,
+            )
         else:
-            raise ValueError(f'Unknown head_type: {head}')
+            raise ValueError(f"Unknown head_type: {head}")
 
         # optional per-image feature vector
-        self.feat_dim = getattr(arch_cfg, 'feat_dim', None)
+        self.feat_dim = getattr(arch_cfg, "feat_dim", None)
         if self.feat_dim:
-            if self.feat_pool == 'attn':
+            if self.feat_pool == "attn":
                 self.feat_head = AttentivePool(cnn_out_ch, self.feat_dim)
-            elif self.feat_pool == 'avg':
+            elif self.feat_pool == "avg":
                 self.feat_head = nn.Sequential(
-                    nn.AdaptiveAvgPool2d((1,1)),
+                    nn.AdaptiveAvgPool2d((1, 1)),
                     nn.Flatten(1),
                     nn.Linear(cnn_out_ch, self.feat_dim),
                     nn.ReLU(inplace=True),
-                    nn.Linear(self.feat_dim, self.feat_dim)
+                    nn.Linear(self.feat_dim, self.feat_dim),
                 )
             else:
-                raise ValueError(
-                    f"Unknown feat_pool '{self.feat_pool}'. Supported: 'avg', 'attn'"
-                )
+                raise ValueError(f"Unknown feat_pool '{self.feat_pool}'. Supported: 'avg', 'attn'")
             # Optional projection for RNN-based holistic feature when requested.
             # Create only when the head is RNN-based to avoid relying on missing dims.
             head = arch_cfg.head_type
-            if self.feat_source == 'rnn_mean' and head in {'rnn', 'both'}:
-                rnn_hidden = int(getattr(arch_cfg, 'rnn_hidden_size'))
+            if self.feat_source == "rnn_mean" and head in {"rnn", "both"}:
+                rnn_hidden = int(getattr(arch_cfg, "rnn_hidden_size"))
                 self.seq_feat_proj = nn.Linear(2 * rnn_hidden, self.feat_dim)
             else:
                 self.seq_feat_proj = None
-        
-        self.phoc_levels = getattr(arch_cfg, 'phoc_levels', None)
+
+        self.phoc_levels = getattr(arch_cfg, "phoc_levels", None)
         if self.feat_dim and self.phoc_levels:
             phoc_dim = (nclasses - 1) * sum(self.phoc_levels)
             self.phoc_head = nn.Sequential(
-                nn.ReLU(inplace=True),
-                nn.Linear(self.feat_dim, phoc_dim)
+                nn.ReLU(inplace=True), nn.Linear(self.feat_dim, phoc_dim)
             )
         else:
             self.phoc_head = None
@@ -517,7 +537,13 @@ class HTRNet(nn.Module):
         # Capture RNN sequence outputs via a temporary hook when building features.
         captured = {}
         handle = None
-        if self.feat_dim and return_feats and hasattr(self.top, 'rec') and getattr(self, 'seq_feat_proj', None) is not None:
+        if (
+            self.feat_dim
+            and return_feats
+            and hasattr(self.top, "rec")
+            and getattr(self, "seq_feat_proj", None) is not None
+        ):
+
             def _hook(_, _inputs, output):
                 """Capture recurrent sequence output for mean pooling.
 
@@ -529,7 +555,8 @@ class HTRNet(nn.Module):
                   tensor shape (T, B, 2H), optionally packed in a tuple.
                 """
                 seq = output[0] if isinstance(output, tuple) else output
-                captured['seq'] = seq  # (T, B, 2H)
+                captured["seq"] = seq  # (T, B, 2H)
+
             handle = self.top.rec.register_forward_hook(_hook)
 
         logits = self.top(y)
@@ -539,8 +566,8 @@ class HTRNet(nn.Module):
 
         feat = None
         if self.feat_dim and return_feats:
-            if 'seq' in captured:
-                seq_mean = captured['seq'].mean(dim=0)  # (T,B,2H) -> (B,2H)
+            if "seq" in captured:
+                seq_mean = captured["seq"].mean(dim=0)  # (T,B,2H) -> (B,2H)
                 feat = self.seq_feat_proj(seq_mean)
             else:
                 feat = self.feat_head(y)
@@ -556,4 +583,3 @@ class HTRNet(nn.Module):
         if phoc_logits is not None:
             out = (*out, phoc_logits)
         return out
-    

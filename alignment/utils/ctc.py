@@ -2,10 +2,7 @@ from __future__ import annotations
 import warnings
 import logging
 
-warnings.filterwarnings(
-    "ignore",
-    message="kenlm python bindings are not installed.*"
-)
+warnings.filterwarnings("ignore", message="kenlm python bindings are not installed.*")
 # Suppress pyctcdecode warnings about missing kenlm bindings
 logging.getLogger("pyctcdecode.decoder").setLevel(logging.ERROR)
 
@@ -16,9 +13,7 @@ from pyctcdecode import build_ctcdecoder
 
 
 def encode_for_ctc(
-    transcriptions: List[str],
-    c2i: Dict[str, int],
-    device: torch.device | str = None
+    transcriptions: List[str], c2i: Dict[str, int], device: torch.device | str = None
 ) -> Tuple[torch.IntTensor, torch.IntTensor]:
     """Encode transcriptions into flattened CTC targets and per-sample lengths.
 
@@ -46,8 +41,7 @@ def encode_for_ctc(
     targets = torch.tensor(flat_labels, dtype=torch.int32, device=device)
 
     # --- per-sample lengths (needed by CTCLoss) ---
-    lengths = torch.tensor([len(txt) for txt in normalized],
-                           dtype=torch.int32, device=device)
+    lengths = torch.tensor([len(txt) for txt in normalized], dtype=torch.int32, device=device)
 
     return targets, lengths
 
@@ -69,8 +63,6 @@ def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[lis
         out.append(targets[i : i + length].tolist())
         i += length
     return out
-
-
 
 
 def greedy_ctc_decode(
@@ -95,13 +87,13 @@ def greedy_ctc_decode(
     # ---- bring tensor to (B, T) of arg-max indices ----
     if time_first:
         # logits: (T, B, C) → (T, B)
-        argmax = logits.argmax(dim=2).transpose(0, 1)   # → (B, T)
+        argmax = logits.argmax(dim=2).transpose(0, 1)  # → (B, T)
     else:
         # logits: (B, T, C) → (B, T)
         argmax = logits.argmax(dim=2)
 
     decoded: List[str] = []
-    for seq in argmax:                    # iterate over the batch
+    for seq in argmax:  # iterate over the batch
         prev = None
         chars: List[str] = []
         for idx in seq.tolist():
@@ -119,13 +111,12 @@ def greedy_ctc_decode(
     return decoded
 
 
-
-
 from pyctcdecode import build_ctcdecoder
 
 # --------------------------------------------------------------------------- #
 #                           Beam-search CTC decoding                          #
 # --------------------------------------------------------------------------- #
+
 
 def beam_search_ctc_decode(
     logits: torch.Tensor,
@@ -160,7 +151,7 @@ def beam_search_ctc_decode(
     # Create a list for the vocabulary, initialized with a placeholder for the blank token.
     # The actual string for the blank token doesn't matter for pyctcdecode, as long as its index is correct.
     # We'll use a special string '<blank>' for clarity, though an empty string also works.
-    vocab_list = [""] * num_classes # Initialize with empty strings
+    vocab_list = [""] * num_classes  # Initialize with empty strings
 
     # Populate the vocabulary list with characters from i2c
     for idx, char in i2c.items():
@@ -169,7 +160,9 @@ def beam_search_ctc_decode(
 
     # Set the blank token at its designated ID.
     # pyctcdecode expects the blank token to be at the blank_id index in the labels list.
-    vocab_list[blank_id] = "" # An empty string is a common convention for the blank token in pyctcdecode.
+    vocab_list[blank_id] = (
+        ""  # An empty string is a common convention for the blank token in pyctcdecode.
+    )
 
     decoder = build_ctcdecoder(labels=vocab_list)
 
@@ -177,7 +170,7 @@ def beam_search_ctc_decode(
     log_probs = logits.log_softmax(dim=2).cpu().numpy()
 
     results: List[str] = []
-    for b in range(log_probs.shape[1]): # Iterate over batch size
+    for b in range(log_probs.shape[1]):  # Iterate over batch size
         # Check if the blank token is consistently the most probable
         if (log_probs[:, b, :].argmax(axis=1) == blank_id).all():
             decoded_text = ""
@@ -233,11 +226,7 @@ def ctc_target_probability(
             prev = alpha[t - 1, s]
             if s > 0:
                 prev = torch.logaddexp(prev, alpha[t - 1, s - 1])
-            if (
-                s > 1
-                and ext_labels[s] != blank_id
-                and ext_labels[s] != ext_labels[s - 2]
-            ):
+            if s > 1 and ext_labels[s] != blank_id and ext_labels[s] != ext_labels[s - 2]:
                 prev = torch.logaddexp(prev, alpha[t - 1, s - 2])
             alpha[t, s] = prev + log_probs[t, ext_labels[s]]
 

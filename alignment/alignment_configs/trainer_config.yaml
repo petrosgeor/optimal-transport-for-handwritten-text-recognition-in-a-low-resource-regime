@@ -66,8 +66,7 @@ align_device: cuda           # device used during alignment post-processing
 align_reg: 0.1              # entropic regularisation for Sinkhorn algorithm
 align_unbalanced: false     # use unbalanced Optimal Transport (OT) formulation
 align_reg_m: 0.1            # mass regularisation when unbalanced OT is used
-align_k: 200                  # pseudo-label this many least-moved descriptors
-metric: entropy          # use projection-variance agreement ('gap', 'variance', 'entropy')
+align_k: 200                  # pseudo-label this many high-confidence samples (low entropy)
 eval_batch_size: 64         # mini-batch size during CER evaluation
 round_metrics_file: results/GW/phoc/gw_10samples_phoc.txt  # path to TSV log for refinement rounds
 
@@ -86,8 +85,6 @@ dataset:
   #   - uniform:   assign 1/|V| to each unique word
   word_prob_strategy: empirical
   two_views: false          # Enable or disable two-view training
-ensemble_size: 1            # Size of the projector ensemble
-agree_threshold: 1          # Minimum number of projectors that must agree for pseudo-labeling
 supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------

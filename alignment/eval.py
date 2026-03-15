@@ -5,18 +5,9 @@ from torch.utils.data import DataLoader
 
 from htr_base.utils.metrics import CER
 from htr_base.utils.vocab import load_vocab
-from .ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
+from .utils.ctc import greedy_ctc_decode, beam_search_ctc_decode
+from .utils.checks import _assert_finite
 from htr_base.utils.htr_dataset import HTRDataset
-
-
-def _assert_finite(t: torch.Tensor, where: str) -> None:
-    """Raise an error if t contains NaN or Inf values.
-
-    Args:
-        t (torch.Tensor): Tensor to check for numeric stability, with any shape.
-        where (str): Description of the tensors origin used in the message.
-    """
-    assert torch.isfinite(t).all(), f"Non-finite values in {where}"
 
 
 def compute_cer(
@@ -58,8 +49,10 @@ def compute_cer(
     c2i, i2c = load_vocab(base_ds.get_dataset_name())
 
     total = CER()
-    le = CER(); gt = CER()
-    n_le = 0; n_gt = 0
+    le = CER()
+    gt = CER()
+    n_le = 0
+    n_gt = 0
     with torch.no_grad():
         for imgs, txts, _ in loader:
             imgs = imgs.to(device)
@@ -73,14 +66,17 @@ def compute_cer(
             else:
                 preds = greedy_ctc_decode(logits, i2c)
             for p, t in zip(preds, txts):
-                gt_txt = t.strip(); pr_txt = p.strip()
+                gt_txt = t.strip()
+                pr_txt = p.strip()
                 total.update(pr_txt, gt_txt)
                 if k is not None:
                     L = len(gt_txt.replace(" ", ""))
                     if L <= k:
-                        le.update(pr_txt, gt_txt); n_le += 1
+                        le.update(pr_txt, gt_txt)
+                        n_le += 1
                     else:
-                        gt.update(pr_txt, gt_txt); n_gt += 1
+                        gt.update(pr_txt, gt_txt)
+                        n_gt += 1
 
     if hasattr(dataset, "transforms"):
         dataset.transforms = orig_tf
@@ -94,7 +90,6 @@ def compute_cer(
             msg += f"  >{k}: {gt.score():.4f} (n={n_gt})"
     print(msg)
     return total.score()
-
 
 
 def compute_wer(

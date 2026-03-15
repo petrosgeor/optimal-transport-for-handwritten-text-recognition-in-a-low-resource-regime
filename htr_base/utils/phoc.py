@@ -2,10 +2,9 @@ import torch
 from typing import Dict, List, Sequence
 
 
-def build_phoc_description(words: List[str],
-                           c2i: Dict[str, int],
-                           *,
-                           levels: Sequence[int] = (1, 2, 3, 4)) -> torch.Tensor:
+def build_phoc_description(
+    words: List[str], c2i: Dict[str, int], *, levels: Sequence[int] = (1, 2, 3, 4)
+) -> torch.Tensor:
     """Convert words into binary PHOC descriptors (case-preserving).
 
     Args:
