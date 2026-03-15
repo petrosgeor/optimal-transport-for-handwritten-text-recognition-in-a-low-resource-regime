@@ -92,6 +92,7 @@ class HTRDataset(Dataset):
 
         self.prior_char_probs = self.letter_priors()
         self.character_classes = self._init_character_classes_if_needed(self.character_classes)
+        self._validate_charset_coverage(self.character_classes)
         (
             self.unique_words,
             self.unique_word_probs,
@@ -201,6 +202,45 @@ class HTRDataset(Dataset):
         dataset_name = self.get_dataset_name()
         c2i, _ = load_vocab(dataset_name)
         return list(c2i.keys())
+
+    def _validate_charset_coverage(self, character_classes: list[str]) -> None:
+        """Fail fast when dataset transcriptions contain characters outside the active charset.
+
+        Args:
+            character_classes (list[str]): Active charset used to encode dataset
+                transcriptions.
+
+        Raises:
+            ValueError: If one or more transcriptions contain out-of-charset
+                symbols.
+        """
+        allowed = set(character_classes)
+        unknown_chars: set[str] = set()
+        offending_samples: list[tuple[int, str, list[str]]] = []
+
+        for idx, transcr in enumerate(self.transcriptions):
+            missing = sorted({ch for ch in str(transcr) if ch not in allowed})
+            if not missing:
+                continue
+            unknown_chars.update(missing)
+            if len(offending_samples) < 5:
+                offending_samples.append((idx, transcr, missing))
+
+        if not unknown_chars:
+            return
+
+        unknown_desc = ", ".join(
+            f"{repr(ch)} (U+{ord(ch):04X})" for ch in sorted(unknown_chars)
+        )
+        sample_desc = " | ".join(
+            f"idx={idx}, text={text!r}, missing={missing}"
+            for idx, text, missing in offending_samples
+        )
+        raise ValueError(
+            "Dataset transcriptions contain symbols not present in the active charset. "
+            f"Missing symbols: {unknown_desc}. "
+            f"Sample offending items: {sample_desc}"
+        )
 
     def _init_word_stats_and_embeddings(self) -> tuple[list[str], list[float], torch.Tensor]:
         """Build unique words, priors, and embeddings for this dataset.
@@ -312,14 +352,14 @@ class HTRDataset(Dataset):
             None
 
         Returns:
-            str: The dataset name, one of IAM, GW or CVL.
+            str: The dataset name, one of IAM, GW, CVL or BESSARION.
 
         Raises:
             ValueError: If the path in self.basefolder does not contain a
             recognizable dataset token.
 
         Notes:
-            This mapping is intentionally hard-coded to the three supported
+            This mapping is intentionally hard-coded to the supported
             datasets and should remain as such unless the rest of the pipeline
             grows support for additional corpora.
         """
@@ -331,9 +371,11 @@ class HTRDataset(Dataset):
             return "GW"
         if "cvl" in low:
             return "CVL"
+        if "bessarion" in low:
+            return "BESSARION"
         raise ValueError(
             f"Cannot infer dataset name from basefolder={self.basefolder!r}. "
-            "Expected the path to include 'IAM', 'GW' or 'CVL'."
+            "Expected the path to include 'IAM', 'GW', 'CVL' or 'BESSARION'."
         )
 
     def get_test_indices(self) -> torch.Tensor:
@@ -463,16 +505,18 @@ class HTRDataset(Dataset):
                 uses self.word_emb_dim.
 
         Returns:
-            torch.FloatTensor: Embeddings of shape (n_words, p) with
-            p = min(n_components, m - 1).
+            torch.FloatTensor: Embeddings of shape (n_words, n_components).
+            When the landmark MDS rank is smaller than n_components, the
+            trailing dimensions are zero-padded.
         """
         if n_components is None:
             n_components = getattr(self, 'word_emb_dim', 512)
+        target_dim = int(n_components)
         n = len(word_list)
         if n == 0:
-            return torch.empty((0, int(n_components)))
+            return torch.empty((0, target_dim))
         if n == 1:
-            return torch.zeros((1, int(n_components)), dtype=torch.float32)
+            return torch.zeros((1, target_dim), dtype=torch.float32)
 
         # 1) choose landmarks: longest words first for stability
         m = min(n, 1000)
@@ -495,7 +539,7 @@ class HTRDataset(Dataset):
         B = -0.5 * (J @ D2_LL @ J)
         from numpy.linalg import eigh as _eigh
         vals, vecs = _eigh(B)  # ascending
-        p = int(min(n_components, max(1, m - 1)))
+        p = int(min(target_dim, max(1, m - 1)))
         idx_desc = _np.argsort(vals)[::-1]
         vals = vals[idx_desc]
         vecs = vecs[:, idx_desc]
@@ -508,8 +552,8 @@ class HTRDataset(Dataset):
         g = float(D2_LL.mean())              # scalar
         ones_m = _np.ones(m, dtype=_np.float64)
 
-        X = _np.zeros((n, p), dtype=_np.float64)
-        X[L_idx] = X_L
+        X = _np.zeros((n, target_dim), dtype=_np.float64)
+        X[L_idx, :p] = X_L
         with _np.errstate(divide='ignore', invalid='ignore'):
             invL = _np.zeros_like(L_sqrt)
             nz = L_sqrt > 0
@@ -523,7 +567,7 @@ class HTRDataset(Dataset):
             d2 = d_iL ** 2
             mean_i = float(d2.mean())
             b = -0.5 * (d2 - mean_i * ones_m - r + g * ones_m)
-            X[int(i)] = b @ Q_inv
+            X[int(i), :p] = b @ Q_inv
 
         return torch.from_numpy(X.astype(_np.float32))
 

@@ -298,9 +298,6 @@ def prepare_bessarion_dataset(
     - max_pages (int | None): Optional limit on processed PAGE XML pages.
     - max_words (int | None): Optional global limit on saved word samples.
     - skip_backup_xml (bool): Whether to skip XML files containing ``~``.
-
-    Returns:
-    - None
     """
     if max_pages is not None and max_pages < 0:
         raise ValueError("max_pages must be non-negative")
@@ -438,14 +435,7 @@ def prepare_bessarion_dataset(
 
 
 def main() -> None:
-    """Run Bessarion preprocessing using CLI arguments.
-
-    Args:
-    - None: Inputs are collected from CLI args.
-
-    Returns:
-    - None
-    """
+    """Run Bessarion preprocessing using CLI arguments."""
     args = parse_arguments()
     prepare_bessarion_dataset(
         bessarion_root=Path(args.bessarion_root),

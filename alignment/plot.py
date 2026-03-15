@@ -18,7 +18,26 @@ from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
 from alignment.alignment_utilities import harvest_backbone_features
 
-cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
+def _resolve_trainer_config_path() -> Path:
+    """Resolve trainer config path with env override and stable fallback.
+
+    Args:
+        None
+
+    Returns:
+        Path: Absolute path to trainer YAML used by plotting utilities.
+    """
+    env_cfg = os.environ.get("ALIGNMENT_TRAINER_CONFIG")
+    if env_cfg:
+        return Path(env_cfg).resolve()
+    return (
+        Path(__file__).resolve().parent
+        / "alignment_configs"
+        / "trainer_config.yaml"
+    ).resolve()
+
+
+cfg = OmegaConf.load(_resolve_trainer_config_path())
 
 import warnings
 warnings.filterwarnings(

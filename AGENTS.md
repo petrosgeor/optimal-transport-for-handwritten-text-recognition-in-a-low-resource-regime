@@ -38,10 +38,10 @@ Note: These rules bias toward caution over speed. For trivial tasks, use judgmen
 - If imports fail unexpectedly, first confirm you are using the venv Python and that dependencies are installed.
 
 # Coding Style: Docstrings
-- Every function and method (including helpers/private `_...`) must have a docstring.
-- Required sections: `Args`, `Returns`.
+- Every function and method (including helpers/private `_...`) must have a docstring, following the Google style docstrings.
+- Required sections: `Args`, `Returns`. 
 - For methods, do not list `self`/`cls` unless it carries non-obvious meaning.
-- If the function does not return anything, avoid the Returns section.
+- If the function does not return anything, avoid the `Returns` section completely.
 - For generators/iterators, document the yielded type and meaning in `Returns`.
 
 Example:
@@ -50,18 +50,19 @@ def clamp(value: float, low: float, high: float) -> float:
     """Clamp a value into the inclusive [low, high] range.
 
     Args:
-    - value (float): Input value to clamp.
-    - low (float): Minimum allowed value.
-    - high (float): Maximum allowed value.
+        value (float): Input value to clamp.
+        low (float): Minimum allowed value.
+        high (float): Maximum allowed value.
 
     Returns
-    - (float): The clamped value in the range [low, high].
+        (float): The clamped value in the range [low, high].
     """
     
     if low > high:
         raise ValueError("low must be <= high")
     return max(low, min(high, value))
 ```
+
 
 # Agent workflow checklist
 - Confirm the sandbox/approval mode and avoid destructive commands; do not reset user changes.

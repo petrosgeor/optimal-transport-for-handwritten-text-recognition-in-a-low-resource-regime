@@ -17,8 +17,6 @@ htr_base/saved_models/
 htr_base/saved_models/pretrained_backbone.pt
 saved_models/
 
-# Test-related ignores
-tests/
 
 # Project-specific directories
 google_drive_upload/

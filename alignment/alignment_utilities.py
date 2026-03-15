@@ -17,7 +17,26 @@ import editdistance
 from torch.utils.data import DataLoader, Subset
 from alignment.ctc_utils import greedy_ctc_decode, beam_search_ctc_decode
 
-cfg = OmegaConf.load("alignment/alignment_configs/trainer_config.yaml")
+def _resolve_trainer_config_path() -> Path:
+    """Resolve trainer config path with env override and stable fallback.
+
+    Args:
+        None
+
+    Returns:
+        Path: Absolute path to trainer YAML used by alignment utilities.
+    """
+    env_cfg = os.environ.get("ALIGNMENT_TRAINER_CONFIG")
+    if env_cfg:
+        return Path(env_cfg).resolve()
+    return (
+        Path(__file__).resolve().parent
+        / "alignment_configs"
+        / "trainer_config.yaml"
+    ).resolve()
+
+
+cfg = OmegaConf.load(_resolve_trainer_config_path())
 
 # count calls to :func:`align_more_instances`
 _ALIGN_CALL_COUNT = 0

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -8,9 +9,41 @@ from omegaconf import OmegaConf
 # --------------------------------------------------------------------------- #
 # Functions read defaults from the YAML configuration loaded at import time.
 
-cfg_file = Path(__file__).parent / "alignment_configs" / "trainer_config.yaml"
+def _resolve_trainer_config_path() -> Path:
+    """Resolve the trainer config path from CLI or default.
+
+    Args:
+        None
+
+    Returns:
+        Path: Absolute path to the selected trainer YAML configuration.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    default_cfg = repo_root / "alignment" / "alignment_configs" / "trainer_config.yaml"
+
+    cfg_candidate = default_cfg
+    if __name__ == "__main__":
+        parser = argparse.ArgumentParser(add_help=True)
+        parser.add_argument(
+            "--config",
+            type=str,
+            default=None,
+            help="Path to trainer YAML. Relative paths resolve from repo root.",
+        )
+        args, _ = parser.parse_known_args()
+        if args.config:
+            user_cfg = Path(args.config)
+            cfg_candidate = user_cfg if user_cfg.is_absolute() else (repo_root / user_cfg)
+
+    return cfg_candidate.resolve()
+
+
+cfg_file = _resolve_trainer_config_path()
 cfg = OmegaConf.load(cfg_file)
+os.environ["ALIGNMENT_TRAINER_CONFIG"] = str(cfg_file)
 os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
+if __name__ == "__main__":
+    print(f"[trainer] Using config: {cfg_file}")
 
 from typing import Dict, Tuple, List
 import torch
@@ -41,7 +74,6 @@ from alignment.plot import (
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
-from omegaconf import OmegaConf
 import copy
 
 import warnings
@@ -188,11 +220,11 @@ def log_round_metrics(
     """
     # 1) Decide destination path
     if isinstance(out_file, str) and out_file.strip().lower() == "auto":
-        # Infer dataset name from cfg.dataset.basefolder (supports GW/IAM/CVL)
+        # Infer dataset name from cfg.dataset.basefolder.
         base = str(getattr(cfg.dataset, "basefolder", ""))
         tokens = [p.lower() for p in Path(base).parts]
         ds_name = None
-        for candidate in ("GW", "IAM", "CVL"):
+        for candidate in ("GW", "IAM", "CVL", "BESSARION"):
             if candidate.lower() in tokens or candidate.lower() in base.lower():
                 ds_name = candidate
                 break
