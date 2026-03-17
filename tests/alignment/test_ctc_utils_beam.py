@@ -7,7 +7,7 @@ import torch
 
 pytest.importorskip("pyctcdecode")
 
-from alignment.ctc_utils import beam_search_ctc_decode, greedy_ctc_decode
+from alignment.utils.ctc import beam_search_ctc_decode, greedy_ctc_decode
 
 
 def _build_time_first_logits(

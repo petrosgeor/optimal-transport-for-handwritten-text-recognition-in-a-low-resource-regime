@@ -40,8 +40,8 @@ def test_cer_exact_value_for_single_pair() -> None:
 def test_cer_accumulates_over_multiple_updates() -> None:
     """CER should equal total edit distance divided by total target length."""
     metric = CER()
-    metric.update("ab", "ab")   # dist=0, len=2
-    metric.update("a", "ab")    # dist=1, len=2
+    metric.update("ab", "ab")  # dist=0, len=2
+    metric.update("a", "ab")  # dist=1, len=2
     expected = (0.0 + 1.0) / (2 + 2)
     assert metric.score() == pytest.approx(expected)
 
