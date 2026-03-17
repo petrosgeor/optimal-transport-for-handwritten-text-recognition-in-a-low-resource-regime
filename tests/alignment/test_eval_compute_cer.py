@@ -16,7 +16,7 @@ def _import_eval_module():
     """Import alignment.eval while stubbing nltk download side effects.
 
     Returns:
-    - (module): Imported alignment.eval module.
+        module: Imported alignment.eval module.
     """
     original_download = nltk.download
     nltk.download = lambda *args, **kwargs: True
@@ -31,7 +31,7 @@ def _get_vocab_maps():
     """Return CTC vocabulary maps for the ALL_DATASETS charset.
 
     Returns:
-    - (tuple[dict[str, int], dict[int, str]]): Character-index and inverse maps.
+        tuple[dict[str, int], dict[int, str]]: Character-index and inverse maps.
     """
     from htr_base.utils.vocab import load_vocab
 
@@ -42,12 +42,12 @@ def _text_to_argmax_indices(text: str, c2i: dict[str, int], blank_id: int = 0) -
     """Create a blank-interleaved argmax path that decodes to text.
 
     Args:
-    - text (str): Output text to represent in CTC argmax space.
-    - c2i (dict[str, int]): Character-to-index map used by the model.
-    - blank_id (int): Blank class index.
+        text (str): Output text to represent in CTC argmax space.
+        c2i (dict[str, int]): Character-to-index map used by the model.
+        blank_id (int): Blank class index.
 
     Returns:
-    - (list[int]): Time-step class ids whose greedy collapse yields text.
+        list[int]: Time-step class ids whose greedy collapse yields text.
     """
     indices = [blank_id]
     for char in text:
@@ -70,7 +70,7 @@ class ToyDataset(Dataset):
         """Store fixed transcriptions and an initial transforms sentinel.
 
         Args:
-        - transcriptions (list[str]): Ground-truth strings for each sample.
+            transcriptions (list[str]): Ground-truth strings for each sample.
         """
         self.transcriptions = transcriptions
         self.transforms = "active"
@@ -79,7 +79,7 @@ class ToyDataset(Dataset):
         """Return dataset size.
 
         Returns:
-        - (int): Number of samples.
+            int: Number of samples.
         """
         return len(self.transcriptions)
 
@@ -87,10 +87,10 @@ class ToyDataset(Dataset):
         """Return image, transcription, and sample id.
 
         Args:
-        - index (int): Sample index.
+            index (int): Sample index.
 
         Returns:
-        - (tuple[torch.Tensor, str, int]): Tiny image, transcription, and id.
+            tuple[torch.Tensor, str, int]: Tiny image, transcription, and id.
         """
         image = torch.full((1, 1, 1), float(index), dtype=torch.float32)
         return image, self.transcriptions[index], index
@@ -99,7 +99,7 @@ class ToyDataset(Dataset):
         """Return charset name expected by load_vocab in compute_cer.
 
         Returns:
-        - (str): Dataset charset name.
+            str: Dataset charset name.
         """
         return "ALL_DATASETS"
 
@@ -125,9 +125,9 @@ class ToyCTCModel(torch.nn.Module):
         """Store vocabulary and per-sample output strings.
 
         Args:
-        - c2i (dict[str, int]): Character-to-index map.
-        - predicted_texts (list[str]): Model outputs keyed by sample id.
-        - blank_id (int): Blank class index.
+            c2i (dict[str, int]): Character-to-index map.
+            predicted_texts (list[str]): Model outputs keyed by sample id.
+            blank_id (int): Blank class index.
         """
         super().__init__()
         self.c2i = c2i
@@ -141,11 +141,11 @@ class ToyCTCModel(torch.nn.Module):
         """Emit (T, B, C) logits whose greedy decode matches predicted_texts.
 
         Args:
-        - imgs (torch.Tensor): Mini-batch of tiny index-coded images.
-        - return_feats (bool): Unused flag kept for API compatibility.
+            imgs (torch.Tensor): Mini-batch of tiny index-coded images.
+            return_feats (bool): Unused flag kept for API compatibility.
 
         Returns:
-        - (torch.Tensor): Deterministic CTC logits shaped (T, B, C).
+            torch.Tensor: Deterministic CTC logits shaped (T, B, C).
         """
         del return_feats
 
@@ -174,10 +174,10 @@ def _pick_two_non_space_chars(c2i: dict[str, int]) -> tuple[str, str]:
     """Select two deterministic non-space characters from the vocabulary.
 
     Args:
-    - c2i (dict[str, int]): Character-to-index map.
+        c2i (dict[str, int]): Character-to-index map.
 
     Returns:
-    - (tuple[str, str]): Two valid non-space characters.
+        tuple[str, str]: Two valid non-space characters.
     """
     sorted_chars = [char for char, _ in sorted(c2i.items(), key=lambda item: item[1])]
     non_space_chars = [char for char in sorted_chars if char != " "]

@@ -34,11 +34,19 @@ class _DummyDataset:
         self.n_aligned = int((self.aligned != -1).sum().item())
 
     def __len__(self) -> int:
-        """Return dataset size."""
+        """Return dataset size.
+
+        Returns:
+            int: Number of samples.
+        """
         return int(self.aligned.numel())
 
     def get_dataset_name(self) -> str:
-        """Return a stable dataset token used in result paths."""
+        """Return a stable dataset token used in result paths.
+
+        Returns:
+            str: Dataset token used to form result paths.
+        """
         return "GW"
 
 
@@ -79,6 +87,10 @@ def test_alternating_refinement_runs_backbone_only_without_projector_loops(
 
     This catches regressions where trainer control flow starts assuming a
     projector list again even when pseudo-labeling is disabled.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        tmp_path: Pytest temporary directory fixture.
     """
     monkeypatch.chdir(tmp_path)
     dataset = _DummyDataset(aligned=[0, -1])
@@ -122,6 +134,10 @@ def test_alternating_refinement_calls_align_once_with_single_projector(
 
     This protects the post-ensemble control flow so alignment is driven by one
     projector path instead of reintroduced multi-projector loops.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        tmp_path: Pytest temporary directory fixture.
     """
     monkeypatch.chdir(tmp_path)
     dataset = _DummyDataset(aligned=[0, -1])
@@ -132,6 +148,17 @@ def test_alternating_refinement_calls_align_once_with_single_projector(
     state = {"align_calls": 0, "train_calls": 0}
 
     def _fake_align(ds, _backbone, proj, **_kwargs):
+        """Simulate one alignment step that promotes a single sample.
+
+        Args:
+            ds: Dataset passed by the trainer.
+            _backbone: Backbone argument ignored by this test double.
+            proj: Projector argument that should match the fixture object.
+            **_kwargs: Additional trainer arguments ignored by this test double.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Dummy plan, features, and moved distances.
+        """
         state["align_calls"] += 1
         assert proj is projector
         # Simulate one new pseudo-label so the trainer path can verify state updates.

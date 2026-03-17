@@ -107,9 +107,6 @@ def _validate_run_name(run_name: str) -> str:
 def _load_git_commit() -> str | None:
     """Return the current git commit hash if available.
 
-    Args:
-        None.
-
     Returns:
         str | None: Commit hash or None if unavailable.
     """
@@ -341,9 +338,6 @@ class PretrainingRunner:
     def run(self) -> Path:
         """Execute the full pretraining workflow.
 
-        Args:
-            None.
-
         Returns:
             Path: Path to the latest checkpoint (`last.pt`) for this run.
         """
@@ -406,9 +400,6 @@ class PretrainingRunner:
 
     def _prepare_run_paths(self) -> None:
         """Create and validate filesystem paths for this run.
-
-        Args:
-            None.
         """
         self.run_name = _validate_run_name(self.config["save_path"])
         self.run_dir = RUNS_ROOT / self.run_name
@@ -418,9 +409,6 @@ class PretrainingRunner:
 
     def _load_or_resolve_config(self) -> None:
         """Resolve final configuration, honoring resume-time drift protection.
-
-        Args:
-            None.
         """
         assert self.hparams_path is not None
         assert self.run_name is not None
@@ -518,9 +506,6 @@ class PretrainingRunner:
 
     def _build_datasets(self) -> None:
         """Create train and test datasets and corresponding stats logs.
-
-        Args:
-            None.
         """
         transforms = aug_transforms if self.use_augmentations else None
         self.train_set = PretrainingHTRDataset(
@@ -549,9 +534,6 @@ class PretrainingRunner:
 
     def _build_model_and_optimizer(self) -> None:
         """Create vocabulary, model, loaders, and optimizer objects.
-
-        Args:
-            None.
         """
         self.c2i, self.i2c = load_vocab("ALL_DATASETS")
         assert 0 not in self.c2i.values(), "blank index 0 found in c2i values"
@@ -587,9 +569,6 @@ class PretrainingRunner:
 
     def _maybe_resume(self) -> None:
         """Resume model and optimizer from the latest checkpoint when present.
-
-        Args:
-            None.
         """
         assert self.last_checkpoint_path is not None
         if self.last_checkpoint_path.is_file():
@@ -606,9 +585,6 @@ class PretrainingRunner:
 
     def _write_hparams_once(self) -> None:
         """Persist run metadata and effective hyperparameters if missing.
-
-        Args:
-            None.
         """
         effective_config = {
             "list_file": self.list_file,

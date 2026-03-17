@@ -18,15 +18,15 @@ def encode_for_ctc(
     """Encode transcriptions into flattened CTC targets and per-sample lengths.
 
     Args:
-    - transcriptions (list[str]): Input strings for a batch of size B.
-      Boundary whitespace is stripped before encoding.
-    - c2i (dict[str, int]): Character-to-index map where index 0 is reserved
-      for the CTC blank symbol.
-    - device (torch.device | str | None): Optional destination device.
+        transcriptions (List[str]): Input strings for a batch of size B.
+            Boundary whitespace is stripped before encoding.
+        c2i (Dict[str, int]): Character-to-index map where index 0 is reserved
+            for the CTC blank symbol.
+        device (torch.device | str | None): Optional destination device.
 
     Returns:
-    - (Tuple[torch.IntTensor, torch.IntTensor]): Encoded tensors.
-      targets has shape (sum(L),), lengths has shape (B,).
+        Tuple[torch.IntTensor, torch.IntTensor]: Encoded tensors where
+            `targets` has shape (sum(L),) and `lengths` has shape (B,).
     """
     normalized = [str(txt).strip() for txt in transcriptions]
     for idx, txt in enumerate(normalized):
@@ -50,12 +50,12 @@ def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[lis
     """Convert flattened CTC targets back to per-sample index sequences.
 
     Args:
-    - targets (torch.Tensor): Flattened target indices with shape (sum(L),).
-    - lengths (torch.Tensor): Per-sample target lengths with shape (B,).
+        targets (torch.Tensor): Flattened target indices with shape (sum(L),).
+        lengths (torch.Tensor): Per-sample target lengths with shape (B,).
 
     Returns:
-    - (list[list[int]]): Decoded index lists of length B where each element has
-      length given by the corresponding entry in lengths.
+        list[list[int]]: Decoded index lists of length B where each element
+            has length given by the corresponding entry in `lengths`.
     """
     out = []
     i = 0
@@ -74,15 +74,15 @@ def greedy_ctc_decode(
     """Greedy-decode a batch of CTC logits.
 
     Args:
-    - logits (torch.Tensor): Network scores with shape (T, B, C) when
-      time_first=True, otherwise shape (B, T, C).
-    - i2c (dict[int, str]): Index-to-character map excluding the blank id.
-    - blank_id (int): Index used for the CTC blank symbol.
-    - time_first (bool): Layout flag indicating whether logits are time-major.
+        logits (torch.Tensor): Network scores with shape (T, B, C) when
+            `time_first=True`, otherwise shape (B, T, C).
+        i2c (Dict[int, str]): Index-to-character map excluding the blank id.
+        blank_id (int): Index used for the CTC blank symbol.
+        time_first (bool): Layout flag indicating whether logits are time-major.
 
     Returns:
-    - (List[str]): Decoded strings of length B after repeat-collapsing, blank
-      removal, and boundary whitespace stripping.
+        List[str]: Decoded strings of length B after repeat-collapsing,
+            blank removal, and boundary whitespace stripping.
     """
     # ---- bring tensor to (B, T) of arg-max indices ----
     if time_first:
@@ -129,16 +129,16 @@ def beam_search_ctc_decode(
     """Beam-search decode a batch of CTC logits with pyctcdecode.
 
     Args:
-    - logits (torch.Tensor): Network scores with shape (T, B, C) when
-      time_first=True, otherwise shape (B, T, C).
-    - i2c (dict[int, str]): Index-to-character map excluding the blank id.
-    - beam_width (int): Number of kept prefixes per time step.
-    - blank_id (int): Index used for the CTC blank symbol.
-    - time_first (bool): Layout flag indicating whether logits are time-major.
+        logits (torch.Tensor): Network scores with shape (T, B, C) when
+            `time_first=True`, otherwise shape (B, T, C).
+        i2c (Dict[int, str]): Index-to-character map excluding the blank id.
+        beam_width (int): Number of kept prefixes per time step.
+        blank_id (int): Index used for the CTC blank symbol.
+        time_first (bool): Layout flag indicating whether logits are time-major.
 
     Returns:
-    - (List[str]): Best-scoring decoded strings of length B with boundary
-      whitespace stripped.
+        List[str]: Best-scoring decoded strings of length B with boundary
+            whitespace stripped.
     """
     if not time_first:
         logits = logits.transpose(0, 1)
@@ -192,15 +192,15 @@ def ctc_target_probability(
     """Compute the CTC path probability of one target string.
 
     Args:
-    - logits (torch.Tensor): Single-sample logits with shape (T, C), where C
-      includes the blank class.
-    - target (str): Target transcription composed of characters from c2i.
-    - c2i (dict[str, int]): Character-to-index map for non-blank symbols.
-    - blank_id (int): Index used for the CTC blank symbol.
+        logits (torch.Tensor): Single-sample logits with shape (T, C), where C
+            includes the blank class.
+        target (str): Target transcription composed of characters from `c2i`.
+        c2i (Dict[str, int]): Character-to-index map for non-blank symbols.
+        blank_id (int): Index used for the CTC blank symbol.
 
     Returns:
-    - (float): Probability that logits collapse to target under the CTC
-      forward algorithm.
+        float: Probability that logits collapse to `target` under the CTC
+            forward algorithm.
     """
 
     log_probs = logits.log_softmax(dim=1)

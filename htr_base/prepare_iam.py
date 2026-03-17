@@ -22,8 +22,6 @@ def parse_arguments() -> argparse.Namespace:
 
     Purpose:
         Collect the user-provided configuration for preparing the IAM dataset.
-    Args:
-        None: All inputs are gathered from sys.argv.
     Returns:
         argparse.Namespace: Namespace including iam_root, output_root,
             max_words and padding.
@@ -217,8 +215,6 @@ def main() -> None:
 
     Purpose:
         Allow the script to be invoked from the command line.
-    Args:
-        None
     """
     args = parse_arguments()
     prepare_iam_dataset(

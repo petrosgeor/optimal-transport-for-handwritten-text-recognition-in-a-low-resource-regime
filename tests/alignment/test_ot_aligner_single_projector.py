@@ -31,11 +31,19 @@ class _DummyDataset:
         self.transforms = None
 
     def __len__(self) -> int:
-        """Return dataset size."""
+        """Return dataset size.
+
+        Returns:
+            int: Number of samples.
+        """
         return int(self.aligned.numel())
 
     def get_dataset_name(self) -> str:
-        """Return a supported dataset token for helper code."""
+        """Return a supported dataset token for helper code.
+
+        Returns:
+            str: Dataset token used by helper code.
+        """
         return "GW"
 
 
@@ -96,6 +104,9 @@ def test_get_projector_outputs_returns_single_projector_shapes(
 
     This catches regressions where the helper quietly reintroduces ensemble
     aggregation semantics instead of returning one plan and one prediction path.
+
+    Args:
+        monkeypatch (object): Pytest monkeypatch fixture.
     """
     ds = _DummyDataset(aligned=[-1, -1])
     aligner = au.OTAligner(
@@ -110,9 +121,26 @@ def test_get_projector_outputs_returns_single_projector_shapes(
     aligned_all = torch.tensor([-1, -1], dtype=torch.int32)
 
     def _fake_harvest(*_args, **_kwargs):
+        """Return deterministic features and alignment state for testing.
+
+        Args:
+            *_args: Positional arguments ignored by the test double.
+            **_kwargs: Keyword arguments ignored by the test double.
+
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: Feature matrix and aligned ids.
+        """
         return feats_all, aligned_all
 
     def _fake_calc(_proj_feats: torch.Tensor):
+        """Return deterministic OT inputs for the patched helper.
+
+        Args:
+            _proj_feats (torch.Tensor): Projected features from the aligner path.
+
+        Returns:
+            tuple[torch.Tensor, np.ndarray]: Projected features and OT plan array.
+        """
         plan_np = np.asarray([[0.9, 0.1], [0.2, 0.8]], dtype=np.float64)
         return feats_all.clone(), plan_np
 
@@ -135,6 +163,9 @@ def test_align_more_instances_updates_only_unaligned_and_returns_tuple(
 
     This protects the alignment update contract so new pseudo-labels never
     overwrite seed labels while preserving the helper's tuple return shape.
+
+    Args:
+        monkeypatch (object): Pytest monkeypatch fixture.
     """
     ds = _DummyDataset(aligned=[0, -1, -1])
     backbone = _DummyBackbone()
@@ -161,6 +192,11 @@ def test_align_more_instances_updates_only_unaligned_and_returns_tuple(
     aligned_all = ds.aligned.clone()
 
     def _fake_get_outputs(self):
+        """Return a deterministic aligner output payload.
+
+        Returns:
+            dict[str, torch.Tensor]: Patched output map used by the helper under test.
+        """
         return {
             "plan": plan,
             "proj_feats": proj_feats,

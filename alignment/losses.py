@@ -23,13 +23,13 @@ def _ctc_loss_fn(
     """Compute CTC loss from raw logits.
 
     Args:
-    - logits (torch.Tensor): Unnormalized class scores with shape (T, B, C).
-    - targets (torch.IntTensor): Flattened encoded targets with shape (sum(L),).
-    - inp_lens (torch.IntTensor): Input sequence lengths per sample with shape (B,).
-    - tgt_lens (torch.IntTensor): Target lengths per sample with shape (B,).
+        logits (torch.Tensor): Unnormalized class scores with shape (T, B, C).
+        targets (torch.IntTensor): Flattened encoded targets with shape (sum(L),).
+        inp_lens (torch.IntTensor): Input sequence lengths per sample with shape (B,).
+        tgt_lens (torch.IntTensor): Target lengths per sample with shape (B,).
 
     Returns:
-    - (torch.Tensor): Scalar loss tensor on the same device as logits.
+        torch.Tensor: Scalar loss tensor on the same device as `logits`.
     """
     log_probs = F.log_softmax(logits, dim=2)
     loss = F.ctc_loss(
@@ -71,11 +71,11 @@ class ProjectionLoss(torch.nn.Module):
         """Initialize OT loss components.
 
         Args:
-        - reg (float): Entropic regularization for Sinkhorn.
-        - unbalanced (bool): Toggle unbalanced OT formulation.
-        - reg_m (float): Unbalanced mass regularization parameter.
-        - supervised_weight (float): Weight for supervised MSE anchor term.
-        - sinkhorn_kwargs (dict): Extra options forwarded to SamplesLoss.
+            reg (float): Entropic regularization for Sinkhorn.
+            unbalanced (bool): Toggle unbalanced OT formulation.
+            reg_m (float): Unbalanced mass regularization parameter.
+            supervised_weight (float): Weight for supervised MSE anchor term.
+            **sinkhorn_kwargs: Extra options forwarded to `SamplesLoss`.
         """
         super().__init__()
         self.reg = reg
@@ -108,16 +108,16 @@ class ProjectionLoss(torch.nn.Module):
         """Validate projection-loss inputs and return key shape dimensions.
 
         Args:
-        - descriptors (torch.Tensor): Source descriptors expected with shape (N, D).
-        - word_embeddings (torch.Tensor): Target embeddings expected with shape (M, D).
-        - aligned (torch.Tensor): Alignment indices expected with shape (N,).
-        - tgt_probs (torch.Tensor): Target marginal probabilities expected with shape (M,).
+            descriptors (torch.Tensor): Source descriptors expected with shape (N, D).
+            word_embeddings (torch.Tensor): Target embeddings expected with shape (M, D).
+            aligned (torch.Tensor): Alignment indices expected with shape (N,).
+            tgt_probs (torch.Tensor): Target marginal probabilities expected with shape (M,).
 
         Returns:
-        - (tuple[int, int, int]): The tuple (N, M, D) from validated tensor shapes.
+            tuple[int, int, int]: The tuple (N, M, D) from validated tensor shapes.
 
         Raises:
-        - ValueError: If shapes, dtypes, or finiteness checks fail.
+            ValueError: If shapes, dtypes, or finiteness checks fail.
         """
         if descriptors.ndim != 2:
             raise ValueError(
@@ -170,17 +170,17 @@ class ProjectionLoss(torch.nn.Module):
         """Compute projection loss for a batch of descriptors.
 
         Args:
-        - descriptors (torch.Tensor): Source descriptors with shape (N, D).
-        - word_embeddings (torch.Tensor): Target embeddings with shape (M, D).
-        - aligned (torch.Tensor): Alignment ids with shape (N,). Use -1 for unknown.
-        - tgt_probs (torch.Tensor): Target distribution weights with shape (M,).
+            descriptors (torch.Tensor): Source descriptors with shape (N, D).
+            word_embeddings (torch.Tensor): Target embeddings with shape (M, D).
+            aligned (torch.Tensor): Alignment ids with shape (N,). Use -1 for unknown.
+            tgt_probs (torch.Tensor): Target distribution weights with shape (M,).
 
         Returns:
-        - (torch.Tensor): Scalar loss = OT term + weighted supervised MSE term.
+            torch.Tensor: Scalar loss equal to OT term plus weighted supervised MSE term.
 
         Raises:
-        - ValueError: If inputs are invalid, if balanced-mode tgt_probs sums to
-          non-positive values, or if OT loss becomes non-finite.
+            ValueError: If inputs are invalid, if balanced-mode `tgt_probs` sums
+                to a non-positive value, or if OT loss becomes non-finite.
         """
         N, M, _ = self._validate_projection_inputs(
             descriptors=descriptors,
@@ -242,9 +242,9 @@ class SoftContrastiveLoss(torch.nn.Module):
         """Initialize contrastive-loss temperatures.
 
         Args:
-        - tau (float): Temperature for image-space pair similarities.
-        - T_txt (float): Temperature for text-space pair similarities.
-        - eps (float): Numerical-stability constant for division and log.
+            tau (float): Temperature for image-space pair similarities.
+            T_txt (float): Temperature for text-space pair similarities.
+            eps (float): Numerical-stability constant for division and log.
         """
         super().__init__()
         self.tau = tau
@@ -257,12 +257,12 @@ class SoftContrastiveLoss(torch.nn.Module):
         """Compute soft contrastive loss for one minibatch.
 
         Args:
-        - feats (torch.Tensor): Feature matrix with shape (B, D).
-        - targets (torch.Tensor): Flattened encoded CTC targets with shape (sum(L),).
-        - lengths (torch.Tensor): Target lengths with shape (B,).
+            feats (torch.Tensor): Feature matrix with shape (B, D).
+            targets (torch.Tensor): Flattened encoded CTC targets with shape (sum(L),).
+            lengths (torch.Tensor): Target lengths with shape (B,).
 
         Returns:
-        - (torch.Tensor): Scalar contrastive loss. Returns 0 when B < 2.
+            torch.Tensor: Scalar contrastive loss. Returns 0 when B < 2.
         """
         B = len(lengths)
         if B < 2:

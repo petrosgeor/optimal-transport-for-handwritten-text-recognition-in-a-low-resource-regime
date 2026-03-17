@@ -20,8 +20,6 @@ def parse_arguments() -> argparse.Namespace:
 
     Purpose:
         Collect CLI inputs describing source and destination paths.
-    Args:
-        None: Inputs are taken directly from sys.argv.
     Returns:
         argparse.Namespace: Namespace containing cvl_root, output_root
             and max_words.
@@ -204,8 +202,6 @@ def main() -> None:
 
     Purpose:
         Parse CLI arguments and launch the preprocessing routine.
-    Args:
-        None
     """
     args = parse_arguments()
     prepare_cvl_dataset(

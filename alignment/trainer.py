@@ -13,9 +13,6 @@ from omegaconf import OmegaConf
 def _resolve_trainer_config_path() -> Path:
     """Resolve the trainer config path from CLI or default.
 
-    Args:
-        None
-
     Returns:
         Path: Absolute path to the selected trainer YAML configuration.
     """
@@ -411,23 +408,23 @@ def train_projector(  # pylint: disable=too-many-arguments
     device: torch.device | str = cfg.device,
     plot_tsne: bool = cfg.plot_tsne,
 ) -> None:
-    """
-    Train a single projector network to map backbone features to embeddings.
+    """Train a single projector network to map backbone features to embeddings.
 
     This function freezes the backbone, harvests image descriptors for the entire
     dataset, and then trains the projector using a combination of an unsupervised
     Optimal Transport (OT) loss and a supervised MSE loss on pre-aligned samples.
+
     Args:
-        dataset: The HTRDataset containing the data.
-        backbone: The HTRNet model (frozen) to extract features from.
-        projector: The projector network to be trained.
-        num_epochs: The number of training epochs.
-        batch_size: The batch size for training the projector.
-        lr: The learning rate for the AdamW optimizer.
-        num_workers: The number of workers for the DataLoader.
-        weight_decay: The weight decay for the optimizer.
-        device: The device to run the training on.
-        plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.
+        dataset (HTRDataset): Dataset containing training samples and alignment metadata.
+        backbone (HTRNet): Frozen visual encoder used to extract descriptors.
+        projector (nn.Module): Projector network trained to match word embeddings.
+        num_epochs (int): Number of projector-training epochs.
+        batch_size (int): Mini-batch size used by the projector DataLoader.
+        lr (float): Learning rate for the AdamW optimizer.
+        num_workers (int): Number of DataLoader worker processes.
+        weight_decay (float): Weight-decay coefficient for AdamW.
+        device (torch.device | str): Device where projector training runs.
+        plot_tsne (bool): Whether to save diagnostic t-SNE plots.
     """
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
@@ -538,8 +535,7 @@ def alternating_refinement(
     align_kwargs: dict | None = None,
     enable_pseudo_labeling: bool = bool(getattr(cfg, "enable_pseudo_labeling", True)),
 ) -> None:
-    """
-    Perform an alternating training cycle between the backbone and projector.
+    """Perform an alternating training cycle between the backbone and projector.
 
     This function implements a semi-supervised learning strategy where the backbone
     and projector are trained in alternation. In each round, the backbone is first
@@ -550,15 +546,15 @@ def alternating_refinement(
     the training and test sets.
 
     Args:
-        dataset: The HTRDataset to be used for training.
-        backbone: The HTRNet model.
-        projector: Projector model.
-        rounds: The number of backbone/projector training cycles per alignment pass.
-        backbone_epochs: The number of epochs for each backbone refinement round.
-        projector_epochs: The number of epochs for each projector training round.
-        refine_kwargs: Additional keyword arguments for refine_visual_backbone.
-        projector_kwargs: Additional keyword arguments for train_projector.
-        align_kwargs: Additional keyword arguments for align_more_instances.
+        dataset (HTRDataset): Dataset used for alternating refinement.
+        backbone (HTRNet): Backbone model refined in each cycle.
+        projector (nn.Module): Projector model trained after backbone refinement.
+        rounds (int): Number of backbone/projector cycles per alignment pass.
+        backbone_epochs (int): Epochs for each backbone refinement round.
+        projector_epochs (int): Epochs for each projector training round.
+        refine_kwargs (dict | None): Extra keyword arguments for `refine_visual_backbone`.
+        projector_kwargs (dict | None): Extra keyword arguments for `train_projector`.
+        align_kwargs (dict | None): Extra keyword arguments for `align_more_instances`.
         enable_pseudo_labeling (bool): If False, skip calls to
             :func:align_more_instances and train only on the currently
             aligned samples. Metrics (CER/WER) are still computed and logged

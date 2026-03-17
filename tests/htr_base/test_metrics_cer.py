@@ -12,7 +12,7 @@ def _load_cer_class():
     """Import CER while preventing network download side effects in tests.
 
     Returns:
-    - (type): CER class object from htr_base.utils.metrics.
+        type: CER class object from htr_base.utils.metrics.
     """
     original_download = nltk.download
     nltk.download = lambda *args, **kwargs: True

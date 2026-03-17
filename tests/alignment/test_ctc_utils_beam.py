@@ -17,11 +17,11 @@ def _build_time_first_logits(
     """Create deterministic logits with a fixed argmax sequence.
 
     Args:
-    - argmax_indices (list[int]): Class index selected at each time step.
-    - num_classes (int): Total number of CTC classes including blank.
+        argmax_indices (list[int]): Class index selected at each time step.
+        num_classes (int): Total number of CTC classes including blank.
 
     Returns:
-    - (torch.Tensor): Logits tensor shaped (T, B, C) with B=1.
+        torch.Tensor: Logits tensor shaped (T, B, C) with B=1.
     """
     time_steps = len(argmax_indices)
     logits = torch.full((time_steps, 1, num_classes), -20.0, dtype=torch.float32)

@@ -30,6 +30,9 @@ def test_log_pseudo_labels_writes_expected_rows(tmp_path) -> None:
 
     This protects the reporting refactor so moving the helper does not change
     which rows are written or how predicted and ground-truth words are paired.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
     """
     dataset = _DummyDataset(
         aligned=torch.tensor([-1, 1, 0], dtype=torch.int64),
@@ -56,6 +59,10 @@ def test_log_round_metrics_auto_mode_overwrites_then_appends(tmp_path, monkeypat
 
     This catches regressions where the extracted helper would change the
     original round-1 reset behavior or the resolved auto output path.
+
+    Args:
+        tmp_path: Pytest temporary directory fixture.
+        monkeypatch: Pytest monkeypatch fixture.
     """
     monkeypatch.chdir(tmp_path)
     basefolder = "DATASETS/CVL/processed_words"

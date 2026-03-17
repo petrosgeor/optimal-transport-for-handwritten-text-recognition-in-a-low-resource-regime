@@ -19,9 +19,6 @@ from alignment.utils.ctc import greedy_ctc_decode, beam_search_ctc_decode
 def _resolve_trainer_config_path() -> Path:
     """Resolve trainer config path with env override and stable fallback.
 
-    Args:
-        None
-
     Returns:
         Path: Absolute path to trainer YAML used by alignment utilities.
     """

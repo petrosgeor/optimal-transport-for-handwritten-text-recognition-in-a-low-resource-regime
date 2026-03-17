@@ -31,11 +31,8 @@ WordEntry = Tuple[str, str, str]
 def parse_arguments() -> argparse.Namespace:
     """Parse command-line arguments for Bessarion preprocessing.
 
-    Args:
-    - None: Inputs are collected from ``sys.argv``.
-
     Returns:
-    - (argparse.Namespace): Parsed CLI arguments.
+        argparse.Namespace: Parsed CLI arguments.
     """
     parser = argparse.ArgumentParser(
         description="Prepare the Bessarion dataset into word-level processed splits."
@@ -82,14 +79,14 @@ def decode_xml_bytes(xml_bytes: bytes, xml_path: Path) -> str:
     """Decode XML bytes using a deterministic fallback chain.
 
     Args:
-    - xml_bytes (bytes): Raw bytes read from an XML file.
-    - xml_path (Path): Path used for descriptive error reporting.
+        xml_bytes (bytes): Raw bytes read from an XML file.
+        xml_path (Path): Path used for descriptive error reporting.
 
     Returns:
-    - (str): Decoded XML text.
+        str: Decoded XML text.
 
     Raises:
-    - UnicodeDecodeError: If all candidate decoders fail.
+        UnicodeDecodeError: If all candidate decoders fail.
     """
     decoders = ("utf-8", "cp1253", "iso-8859-7")
     last_error: UnicodeDecodeError | None = None
@@ -111,10 +108,10 @@ def parse_page_xml(xml_path: Path) -> ET.Element:
     """Parse a PAGE XML file into an ElementTree root node.
 
     Args:
-    - xml_path (Path): XML file to parse.
+        xml_path (Path): XML file to parse.
 
     Returns:
-    - (ET.Element): Root element for the parsed XML.
+        ET.Element: Root element for the parsed XML.
     """
     xml_text = decode_xml_bytes(xml_path.read_bytes(), xml_path)
     return ET.fromstring(xml_text)
@@ -124,10 +121,10 @@ def normalize_transcription(text: str) -> str:
     """Normalize a transcription while preserving Greek characters.
 
     Args:
-    - text (str): Raw text from ``Word/TextEquiv/Unicode``.
+        text (str): Raw text from ``Word/TextEquiv/Unicode``.
 
     Returns:
-    - (str): Canonical text with NFC normalization and collapsed whitespace.
+        str: Canonical text with NFC normalization and collapsed whitespace.
     """
     cleaned = text.replace("\ufeff", "")
     cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
@@ -140,10 +137,10 @@ def parse_points(points: str) -> List[Tuple[int, int]]:
     """Parse PAGE polygon points formatted as ``x,y x,y ...``.
 
     Args:
-    - points (str): PAGE coordinates string.
+        points (str): PAGE coordinates string.
 
     Returns:
-    - (list[tuple[int, int]]): Parsed integer coordinates.
+        list[tuple[int, int]]: Parsed integer coordinates.
     """
     parsed: List[Tuple[int, int]] = []
     for token in points.strip().split():
@@ -163,10 +160,10 @@ def has_non_empty_word_unicode(root: ET.Element) -> bool:
     """Return whether a PAGE XML file contains at least one labeled word.
 
     Args:
-    - root (ET.Element): Parsed PAGE XML root.
+        root (ET.Element): Parsed PAGE XML root.
 
     Returns:
-    - (bool): ``True`` when at least one ``Word`` has non-empty ``Unicode`` text.
+        bool: ``True`` when at least one ``Word`` has non-empty ``Unicode`` text.
     """
     for word in root.findall(".//pg:Word", NS):
         unicode_elem = word.find(".//pg:Unicode", NS)
@@ -184,11 +181,11 @@ def find_canonical_xml_files(
     """Find and filter PAGE XML files that contain word-level text labels.
 
     Args:
-    - image_root (Path): Root directory containing images and PAGE XML files.
-    - skip_backup_xml (bool): Whether filenames containing ``~`` should be excluded.
+        image_root (Path): Root directory containing images and PAGE XML files.
+        skip_backup_xml (bool): Whether filenames containing ``~`` should be excluded.
 
     Returns:
-    - (tuple[list[Path], dict[str, int]]): Canonical XML paths and discovery stats.
+        tuple[list[Path], dict[str, int]]: Canonical XML paths and discovery stats.
     """
     stats = {
         "xml_scanned": 0,
@@ -222,11 +219,11 @@ def resolve_image_path(xml_path: Path, page_elem: ET.Element | None) -> Path | N
     """Resolve the source image path for an XML page.
 
     Args:
-    - xml_path (Path): PAGE XML file path.
-    - page_elem (ET.Element | None): ``Page`` element from the XML, if present.
+        xml_path (Path): PAGE XML file path.
+        page_elem (ET.Element | None): ``Page`` element from the XML, if present.
 
     Returns:
-    - (Path | None): Existing image path, or ``None`` when unresolved.
+        Path | None: Existing image path, or ``None`` when unresolved.
     """
     xml_dir = xml_path.parent
 
@@ -251,10 +248,10 @@ def iter_word_entries(root: ET.Element) -> Iterator[WordEntry]:
     """Yield word ids, coordinates and normalized transcriptions from PAGE XML.
 
     Args:
-    - root (ET.Element): Parsed PAGE XML root.
+        root (ET.Element): Parsed PAGE XML root.
 
     Returns:
-    - (Iterator[tuple[str, str, str]]): Iterator yielding ``(word_id, points, text)``.
+        Iterator[tuple[str, str, str]]: Iterator yielding ``(word_id, points, text)``.
     """
     for idx, word_elem in enumerate(root.findall(".//pg:Word", NS)):
         unicode_elem = word_elem.find(".//pg:Unicode", NS)
@@ -271,10 +268,10 @@ def assign_split(page_key: str) -> str:
     """Assign train/val/test split deterministically from a page key.
 
     Args:
-    - page_key (str): Relative page identifier used as split seed.
+        page_key (str): Relative page identifier used as split seed.
 
     Returns:
-    - (str): Split label in ``{"train", "val", "test"}``.
+        str: Split label in ``{"train", "val", "test"}``.
     """
     bucket = int(hashlib.sha1(page_key.encode("utf-8")).hexdigest(), 16) % 100
     if bucket <= 79:
@@ -294,11 +291,11 @@ def prepare_bessarion_dataset(
     """Convert raw Bessarion PAGE annotations into word-level split folders.
 
     Args:
-    - bessarion_root (Path): Path to ``DATASETS/Bessarion-master``.
-    - output_root (Path): Output path for the ``processed_words`` structure.
-    - max_pages (int | None): Optional limit on processed PAGE XML pages.
-    - max_words (int | None): Optional global limit on saved word samples.
-    - skip_backup_xml (bool): Whether to skip XML files containing ``~``.
+        bessarion_root (Path): Path to ``DATASETS/Bessarion-master``.
+        output_root (Path): Output path for the ``processed_words`` structure.
+        max_pages (int | None): Optional limit on processed PAGE XML pages.
+        max_words (int | None): Optional global limit on saved word samples.
+        skip_backup_xml (bool): Whether to skip XML files containing ``~``.
     """
     if max_pages is not None and max_pages < 0:
         raise ValueError("max_pages must be non-negative")

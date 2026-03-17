@@ -248,9 +248,6 @@ class HTRDataset(Dataset):
     def _init_word_stats_and_embeddings(self) -> tuple[list[str], list[float], torch.Tensor]:
         """Build unique words, priors, and embeddings for this dataset.
 
-        Args:
-            None
-
         Returns:
             tuple[list[str], list[float], torch.Tensor]:
                 (unique_words, unique_word_probs, unique_word_embeddings) where
@@ -356,9 +353,6 @@ class HTRDataset(Dataset):
     def get_dataset_name(self) -> str:
         """Infer and return the dataset identifier from self.basefolder.
 
-        Args:
-            None
-
         Returns:
             str: The dataset name, one of IAM, GW, CVL or BESSARION.
 
@@ -392,9 +386,6 @@ class HTRDataset(Dataset):
         The dataset must have been constructed with subset=all so that
         the test split is present. Indices are returned as a 1‑D tensor
         of type torch.long and refer to positions in self.data.
-
-        Args:
-            None
 
         Returns:
             torch.Tensor: 1‑D tensor with shape (K,) containing positions of
@@ -832,9 +823,6 @@ class PretrainingHTRDataset(Dataset):
 
             def _next_replacement():
                 """Return next valid replacement image candidate.
-
-                Args:
-                    None
 
                 Returns:
                     tuple[str, str, np.ndarray] | None: Absolute path, label, and
