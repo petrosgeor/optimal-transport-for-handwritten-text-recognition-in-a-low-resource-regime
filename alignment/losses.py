@@ -43,6 +43,390 @@ def _ctc_loss_fn(
     return loss.to(logits.device)
 
 
+def compute_sinkhorn_coupling(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    cost: torch.Tensor,
+    beta: float,
+    *,
+    outer_iters: int,
+    inner_iters: int,
+    tol: float = 1e-6,
+    eps: float = 1e-12,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute a balanced OT coupling with iterative Sinkhorn-style normalization.
+
+    This implements the algorithm requested in the planning notes:
+    build the Gibbs kernel ``A = exp(-C / beta)``, repeatedly reweight the
+    current plan, and normalize rows/columns with scaling vectors until the
+    marginals are matched.
+
+    Args:
+        a (torch.Tensor): Source marginal vector with shape ``(n,)``.
+        b (torch.Tensor): Target marginal vector with shape ``(m,)``.
+        cost (torch.Tensor): Ground-cost matrix with shape ``(n, m)``.
+        beta (float): Entropic regularization parameter. Must be positive.
+        outer_iters (int): Number of outer reweighting iterations.
+        inner_iters (int): Number of inner marginal-normalization updates.
+        tol (float): Early-stop threshold on max marginal residual.
+        eps (float): Small positive constant used in safe division.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]:
+            - ``T``: Transport coupling with shape ``(n, m)``.
+            - ``D_w``: Wasserstein cost ``(cost * T).sum()``.
+
+    Raises:
+        ValueError: If shapes, dtypes, iteration counts, regularization, or
+            finiteness checks fail. Also raised when ``tol > 0`` and the final
+            coupling does not satisfy the requested marginal tolerance.
+    """
+    if cost.ndim != 2:
+        raise ValueError(f"cost must have shape (n, m); got cost.shape={tuple(cost.shape)}")
+    n, m = cost.shape
+    if a.shape != (n,):
+        raise ValueError(f"a must have shape ({n},); got a.shape={tuple(a.shape)}")
+    if b.shape != (m,):
+        raise ValueError(f"b must have shape ({m},); got b.shape={tuple(b.shape)}")
+    if not (cost.dtype.is_floating_point and a.dtype.is_floating_point and b.dtype.is_floating_point):
+        raise ValueError("a, b, and cost must all be floating-point tensors")
+    if beta <= 0:
+        raise ValueError(f"beta must be > 0; got beta={beta}")
+    if outer_iters < 1:
+        raise ValueError(f"outer_iters must be >= 1; got outer_iters={outer_iters}")
+    if inner_iters < 1:
+        raise ValueError(f"inner_iters must be >= 1; got inner_iters={inner_iters}")
+    if tol < 0:
+        raise ValueError(f"tol must be >= 0; got tol={tol}")
+    if eps <= 0:
+        raise ValueError(f"eps must be > 0; got eps={eps}")
+
+    a = a.to(device=cost.device, dtype=cost.dtype)
+    b = b.to(device=cost.device, dtype=cost.dtype)
+
+    if not torch.isfinite(cost).all():
+        raise ValueError("cost contains NaN/Inf")
+    if not torch.isfinite(a).all():
+        raise ValueError("a contains NaN/Inf")
+    if not torch.isfinite(b).all():
+        raise ValueError("b contains NaN/Inf")
+    if (a < 0).any():
+        raise ValueError("a contains negative entries")
+    if (b < 0).any():
+        raise ValueError("b contains negative entries")
+
+    a_sum = a.sum()
+    b_sum = b.sum()
+    if a_sum.item() <= 0:
+        raise ValueError("a must sum to > 0")
+    if b_sum.item() <= 0:
+        raise ValueError("b must sum to > 0")
+    a = a / a_sum
+    b = b / b_sum
+
+    A = torch.exp(-cost / beta)
+    T = torch.ones((n, m), device=cost.device, dtype=cost.dtype)
+    sigma = torch.full((m,), 1.0 / float(m), device=cost.device, dtype=cost.dtype)
+
+    for _ in range(outer_iters):
+        Q = A * T
+        delta = torch.full((n,), 1.0 / float(n), device=cost.device, dtype=cost.dtype)
+        for _ in range(inner_iters):
+            delta = a / (Q @ sigma).clamp_min(eps)
+            sigma = b / (Q.transpose(0, 1) @ delta).clamp_min(eps)
+        T = delta[:, None] * Q * sigma[None, :]
+
+        if tol > 0:
+            row_err = (T.sum(dim=1) - a).abs().max()
+            col_err = (T.sum(dim=0) - b).abs().max()
+            if torch.maximum(row_err, col_err) <= tol:
+                break
+
+    D_w = (cost * T).sum()
+    row_err = (T.sum(dim=1) - a).abs().max()
+    col_err = (T.sum(dim=0) - b).abs().max()
+
+    if not torch.isfinite(T).all():
+        raise ValueError("computed coupling contains NaN/Inf")
+    if not torch.isfinite(D_w).all():
+        raise ValueError("computed Wasserstein cost is NaN/Inf")
+    if tol > 0 and torch.maximum(row_err, col_err).item() > tol:
+        raise ValueError(
+            "Sinkhorn solver did not converge to requested tolerance; "
+            f"max residual={torch.maximum(row_err, col_err).item():.4e}, tol={tol:.4e}"
+        )
+
+    return T, D_w
+
+
+def _validate_gw_shapes_and_params(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    x_feats: torch.Tensor,
+    y_feats: torch.Tensor,
+    beta: float,
+    gw_iters: int,
+    sinkhorn_outer_iters: int,
+    sinkhorn_inner_iters: int,
+    tol: float,
+    eps: float,
+) -> None:
+    """Validate GW tensor shapes and scalar hyperparameters.
+
+    Args:
+        a (torch.Tensor): Source probability vector expected with shape ``(n,)``.
+        b (torch.Tensor): Target probability vector expected with shape ``(m,)``.
+        x_feats (torch.Tensor): Source features expected with shape ``(n, d_x)``.
+        y_feats (torch.Tensor): Target features expected with shape ``(m, d_y)``.
+        beta (float): Entropic regularization for the inner OT solver.
+        gw_iters (int): Number of GW fixed-point iterations.
+        sinkhorn_outer_iters (int): Number of outer Sinkhorn iterations.
+        sinkhorn_inner_iters (int): Number of inner Sinkhorn iterations.
+        tol (float): Convergence tolerance for the GW fixed-point loop.
+        eps (float): Small positive constant for numerical safeguards.
+
+    Raises:
+        ValueError: If any tensor shape, dtype, or scalar parameter is invalid.
+    """
+    if x_feats.ndim != 2:
+        raise ValueError(
+            f"x_feats must have shape (n, d_x); got x_feats.shape={tuple(x_feats.shape)}"
+        )
+    if y_feats.ndim != 2:
+        raise ValueError(
+            f"y_feats must have shape (m, d_y); got y_feats.shape={tuple(y_feats.shape)}"
+        )
+
+    n, _ = x_feats.shape
+    m, _ = y_feats.shape
+
+    if a.shape != (n,):
+        raise ValueError(f"a must have shape ({n},); got a.shape={tuple(a.shape)}")
+    if b.shape != (m,):
+        raise ValueError(f"b must have shape ({m},); got b.shape={tuple(b.shape)}")
+    if not (x_feats.dtype.is_floating_point and y_feats.dtype.is_floating_point):
+        raise ValueError("x_feats and y_feats must be floating-point tensors")
+    if not (a.dtype.is_floating_point and b.dtype.is_floating_point):
+        raise ValueError("a and b must be floating-point tensors")
+    if beta <= 0:
+        raise ValueError(f"beta must be > 0; got beta={beta}")
+    if gw_iters < 1:
+        raise ValueError(f"gw_iters must be >= 1; got gw_iters={gw_iters}")
+    if sinkhorn_outer_iters < 1:
+        raise ValueError(
+            "sinkhorn_outer_iters must be >= 1; "
+            f"got sinkhorn_outer_iters={sinkhorn_outer_iters}"
+        )
+    if sinkhorn_inner_iters < 1:
+        raise ValueError(
+            "sinkhorn_inner_iters must be >= 1; "
+            f"got sinkhorn_inner_iters={sinkhorn_inner_iters}"
+        )
+    if tol < 0:
+        raise ValueError(f"tol must be >= 0; got tol={tol}")
+    if eps <= 0:
+        raise ValueError(f"eps must be > 0; got eps={eps}")
+
+
+def _prepare_gw_inputs(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    x_feats: torch.Tensor,
+    y_feats: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Move GW inputs onto a common device and dtype.
+
+    Args:
+        a (torch.Tensor): Source marginal vector.
+        b (torch.Tensor): Target marginal vector.
+        x_feats (torch.Tensor): Source feature matrix.
+        y_feats (torch.Tensor): Target feature matrix.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+            Prepared tensors ``(a, b, x_feats, y_feats)`` on a shared device and dtype.
+    """
+    x_feats = x_feats.to(dtype=x_feats.dtype)
+    y_feats = y_feats.to(device=x_feats.device, dtype=x_feats.dtype)
+    a = a.to(device=x_feats.device, dtype=x_feats.dtype)
+    b = b.to(device=x_feats.device, dtype=x_feats.dtype)
+
+    return a, b, x_feats, y_feats
+
+
+def _validate_and_normalize_gw_marginals(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    x_feats: torch.Tensor,
+    y_feats: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Validate GW tensor values and normalize the source/target marginals.
+
+    Args:
+        a (torch.Tensor): Source marginal vector on the GW working device/dtype.
+        b (torch.Tensor): Target marginal vector on the GW working device/dtype.
+        x_feats (torch.Tensor): Source feature matrix on the GW working device/dtype.
+        y_feats (torch.Tensor): Target feature matrix on the GW working device/dtype.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]: Normalized marginals ``(a, b)``.
+
+    Raises:
+        ValueError: If tensors contain non-finite values, negative mass, or
+            non-positive total mass.
+    """
+    for tensor, name in ((x_feats, "x_feats"), (y_feats, "y_feats"), (a, "a"), (b, "b")):
+        if not torch.isfinite(tensor).all():
+            raise ValueError(f"{name} contains NaN/Inf")
+    if (a < 0).any():
+        raise ValueError("a contains negative entries")
+    if (b < 0).any():
+        raise ValueError("b contains negative entries")
+
+    a_sum = a.sum()
+    b_sum = b.sum()
+    if a_sum.item() <= 0:
+        raise ValueError("a must sum to > 0")
+    if b_sum.item() <= 0:
+        raise ValueError("b must sum to > 0")
+
+    return a / a_sum, b / b_sum
+
+
+def _compute_gw_distance_matrices(
+    x_feats: torch.Tensor,
+    y_feats: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute intra-domain distance matrices for the GW objective.
+
+    Args:
+        x_feats (torch.Tensor): Source feature matrix with shape ``(n, d_x)``.
+        y_feats (torch.Tensor): Target feature matrix with shape ``(m, d_y)``.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]:
+            Pairwise Euclidean distance matrices ``(D_x, D_y)``.
+
+    Raises:
+        ValueError: If either distance matrix contains non-finite values.
+    """
+    D_x = torch.cdist(x_feats, x_feats, p=2)
+    D_y = torch.cdist(y_feats, y_feats, p=2)
+    if not torch.isfinite(D_x).all():
+        raise ValueError("D_x contains NaN/Inf")
+    if not torch.isfinite(D_y).all():
+        raise ValueError("D_y contains NaN/Inf")
+
+    return D_x, D_y
+
+
+def compute_gromov_wasserstein_coupling(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    x_feats: torch.Tensor,
+    y_feats: torch.Tensor,
+    beta: float,
+    *,
+    gw_iters: int,
+    sinkhorn_outer_iters: int,
+    sinkhorn_inner_iters: int,
+    tol: float = 1e-6,
+    eps: float = 1e-12,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Compute a balanced Gromov-Wasserstein coupling from source/target features.
+
+    The routine follows the linearization scheme from Algorithm 2:
+    construct intra-domain relation matrices, build a pseudo-cost matrix from
+    the current plan, and repeatedly solve the induced OT subproblem.
+
+    Args:
+        a (torch.Tensor): Source probability vector with shape ``(n,)``.
+        b (torch.Tensor): Target probability vector with shape ``(m,)``.
+        x_feats (torch.Tensor): Source feature matrix with shape ``(n, d_x)``.
+        y_feats (torch.Tensor): Target feature matrix with shape ``(m, d_y)``.
+        beta (float): Entropic regularization for the inner OT solver.
+        gw_iters (int): Maximum number of outer GW fixed-point iterations.
+        sinkhorn_outer_iters (int): Outer iterations passed to
+            ``compute_sinkhorn_coupling``.
+        sinkhorn_inner_iters (int): Inner normalization iterations passed to
+            ``compute_sinkhorn_coupling``.
+        tol (float): Convergence tolerance on max plan change per GW step.
+        eps (float): Small positive constant for numerical safeguards.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor]:
+            -``T``: Final coupling matrix with shape ``(n, m)``.
+            -``D_gw``: Final GW objective value ``(L_final * T).sum()``.
+
+    Raises:
+        ValueError: If inputs are invalid, contain non-finite values, or if
+            the outer GW fixed-point iterations do not converge when ``tol > 0``.
+    """
+    _validate_gw_shapes_and_params(
+        a=a,
+        b=b,
+        x_feats=x_feats,
+        y_feats=y_feats,
+        beta=beta,
+        gw_iters=gw_iters,
+        sinkhorn_outer_iters=sinkhorn_outer_iters,
+        sinkhorn_inner_iters=sinkhorn_inner_iters,
+        tol=tol,
+        eps=eps,
+    )
+    a, b, x_feats, y_feats = _prepare_gw_inputs(a=a, b=b, x_feats=x_feats, y_feats=y_feats)
+    a, b = _validate_and_normalize_gw_marginals(a=a, b=b, x_feats=x_feats, y_feats=y_feats)
+
+    # Build intra-domain distance matrices D_x in R^(n x n) and D_y in R^(m x m).
+    D_x, D_y = _compute_gw_distance_matrices(x_feats=x_feats, y_feats=y_feats)
+
+    # Build the separable GW scaffold M in R^(n x m) and the initial coupling T in R^(n x m).
+    mx = D_x.pow(2) @ a
+    my = D_y.pow(2) @ b
+    M = mx[:, None] + my[None, :]
+    T = a[:, None] * b[None, :]
+
+    converged = False
+    # Alternate between linearizing the GW objective and solving the induced OT problem.
+    for _ in range(gw_iters):
+        # L is the current GW pseudo-cost matrix in R^(n x m).
+        L = M - 2.0 * (D_x @ T @ D_y.transpose(0, 1))
+        if not torch.isfinite(L).all():
+            raise ValueError("GW pseudo-cost contains NaN/Inf")
+        T_next, _ = compute_sinkhorn_coupling(
+            a,
+            b,
+            L,
+            beta,
+            outer_iters=sinkhorn_outer_iters,
+            inner_iters=sinkhorn_inner_iters,
+            tol=tol,
+            eps=eps,
+        )
+        delta = (T_next - T).abs().max()
+        T = T_next
+        if tol > 0 and delta.item() <= tol:
+            converged = True
+            break
+        if tol == 0:
+            converged = True
+
+    # Re-evaluate the final pseudo-cost and objective with the converged coupling.
+    L_final = M - 2.0 * (D_x @ T @ D_y.transpose(0, 1))
+    D_gw = (L_final * T).sum()
+
+    if not torch.isfinite(T).all():
+        raise ValueError("GW coupling contains NaN/Inf")
+    if not torch.isfinite(D_gw).all():
+        raise ValueError("GW objective contains NaN/Inf")
+    if tol > 0 and not converged:
+        raise ValueError(
+            "GW solver did not converge to requested tolerance; "
+            f"tol={tol:.4e} after gw_iters={gw_iters}"
+        )
+    return T, D_gw
+
+
 class ProjectionLoss(torch.nn.Module):
     """Optimal-transport projection loss with optional supervised anchors.
 
