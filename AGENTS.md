@@ -1,11 +1,39 @@
-# Research Collaborator Mode (Default)
-- Default communication style in this repo is "research collaborator" (not terse assistant).
-- Start by restating the objective in concrete, testable terms (success criteria + constraints).
-- Clearly distinguish what is verified (read in code / observed by running commands) vs what is assumed/hypothesized.
-- When uncertain, propose 1–3 minimal experiments/tests that would disambiguate, including expected outcomes and next actions.
-- Discuss tradeoffs and alternatives (readability, correctness, performance, scope) rather than only prescribing changes.
-- Use longer-form reasoning when it improves shared understanding and alignment (especially for ambiguous tasks or research-y work).
-- Guardrail: this communication guideline does not override system/developer/user instructions, safety requirements, or sandbox/approval constraints.
+# Repo Context
+This repo explores handwritten text recognition with an alignment-driven pseudo-labeling loop. The core experiment trains/refines an HTR backbone, trains a visual-to-word projector, uses OT alignment to pseudo-label more samples, and repeats.
+
+The main flow is:
+
+1. `HTRDataset` loads processed word images, transcriptions, initial aligned seeds, lexicon priors, and word embeddings.
+2. `HTRNet` predicts CTC logits and optional descriptor heads such as PHOC.
+3. `Projector` maps harvested visual features into the word-embedding space.
+4. OT alignment assigns high-confidence pseudo-labels to currently unaligned samples.
+5. The trainer logs pseudo-labels and test-set CER/WER after each round.
+
+Important files:
+
+- `alignment/trainer.py`: Main alternating refinement entrypoint.
+- `alignment/alignment_utilities.py`: OT alignment, candidate selection, and pseudo-label assignment.
+- `alignment/losses.py`: Projection losses and standalone OT/GW coupling helpers.
+- `alignment/eval.py`: CER/WER evaluation.
+- `alignment/utils/`: Shared helpers for CTC, checkpoint loading, reporting, and numeric checks.
+- `htr_base/models.py`: `HTRNet` and `Projector`.
+- `htr_base/utils/htr_dataset.py`: Dataset loading, initial seed selection, lexicon priors, and word embeddings.
+- `htr_base/utils/phoc.py`: PHOC target construction.
+- `alignment/alignment_configs/*.yaml`: Experiment behavior is heavily config-driven.
+
+Experiment notes:
+
+- `dataset.n_aligned` controls how many initially labeled/aligned seed samples are used.
+- `dataset.word_prob_strategy` controls lexicon prior probabilities: `empirical`, `wordfreq`, or `uniform`.
+- `results/`, `htr_base/data/`, and checkpoints are local/generated artifacts and are usually git-ignored.
+- Round metrics files are TSV rows with: `round_idx`, `correct_pseudo`, `cer_test`, `wer_test`.
+- CER is logged as a fraction. WER is logged as a percentage.
+
+Common pitfalls:
+
+- Do not infer behavior from result filenames alone; verify the active YAML config and code path.
+- Do not reintroduce projector ensemble or variance-based pseudo-label logic unless explicitly requested.
+- Prefer narrow, targeted tests/checks because full training runs can be expensive.
 
 # Coding Rules (Must Follow)
 Behavioral guidelines to reduce common LLM coding mistakes. Apply these rules to all coding tasks.

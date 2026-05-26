@@ -24,6 +24,8 @@ results/
 scripts/
 overview/
 toys/
+openspec/
+.codex/
 
 # Markdown files (except specific ones)
 *.md
