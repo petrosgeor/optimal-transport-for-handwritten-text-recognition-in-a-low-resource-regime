@@ -75,59 +75,64 @@ class HTRDataset(Dataset):
                 None is not supported.
             two_views (bool): Return two augmented views when True.
         """
-        self.basefolder = basefolder
-        self.subset = subset
-        self.fixed_size = fixed_size
-        self.transforms = transforms
-        self.character_classes = character_classes
-        self.two_views = two_views
-
-        (
-            self.config,
-            self.n_aligned,
-            self.word_emb_dim,
-            self.word_prob_strategy,
-        ) = self._parse_and_store_config(config)
-        subsets = self._resolve_subsets(subset)
-        self.data = self._load_gt_data(basefolder, subsets)
-        self.transcriptions = self._init_transcriptions(self.data)
-        assert len(self.data) == len(self.transcriptions), "data/transcriptions length mismatch"
-
-        self.prior_char_probs = self.letter_priors()
-        self.character_classes = self._init_character_classes_if_needed(self.character_classes)
-        self._validate_charset_coverage(self.character_classes)
-        (
-            self.unique_words,
-            self.unique_word_probs,
-            self.unique_word_embeddings,
-        ) = self._init_word_stats_and_embeddings()
-        assert len(self.unique_words) == len(self.unique_word_probs), (
-            "word/probability length mismatch"
-        )
-        self.is_in_dict, self.aligned, self.n_aligned = self._init_alignment_state(
-            n_aligned=self.n_aligned
-        )
-        assert self.aligned.shape[0] == len(self.transcriptions), "aligned length mismatch"
-
-    def _parse_and_store_config(self, config) -> tuple[object, int, int, object]:
-        """Validate configuration and return derived init values.
-
-        Args:
-            config (Any): Configuration object with alignment-related metadata.
-
-        Returns:
-            tuple[object, int, int, object]:
-                ``(config, n_aligned, word_emb_dim, word_prob_strategy)``.
-        """
         if config is None:
             raise ValueError(
                 "HTRDataset requires a configuration object with alignment "
                 "metadata (e.g., n_aligned, word_emb_dim)."
             )
-        n_aligned = int(getattr(config, "n_aligned", 0))
-        word_emb_dim = int(getattr(config, "word_emb_dim", 512))
-        word_prob_strategy = getattr(config, "word_prob_strategy", None)
-        return config, n_aligned, word_emb_dim, word_prob_strategy
+
+        # Store constructor-level arguments.
+        self.basefolder = basefolder
+        self.subset = subset
+        self.fixed_size = fixed_size
+        self.transforms = transforms
+        self.two_views = two_views
+
+        # Store config-derived values used across dataset setup.
+        self.config = config
+        self.n_aligned = int(getattr(config, "n_aligned", 0))
+        self.word_emb_dim = int(getattr(config, "word_emb_dim", 512))
+        self.word_prob_strategy = getattr(config, "word_prob_strategy", None)
+
+        # Resolve dataset split(s), then load image/transcription tuples.
+        subsets = self._resolve_subsets(subset)
+        self.data = self._load_gt_data(basefolder, subsets)
+        self.transcriptions = [transcr for _, transcr in self.data]
+        assert len(self.data) == len(self.transcriptions), "data/transcriptions length mismatch"
+
+        # Compute character priors before validating charset coverage.
+        self.prior_char_probs = self.letter_priors()
+
+        # Resolve and validate character classes.
+        if character_classes is not None:
+            self.character_classes = character_classes
+        else:
+            dataset_name = self.get_dataset_name()
+            c2i, _ = load_vocab(dataset_name)
+            self.character_classes = list(c2i.keys())
+        self._validate_charset_coverage(self.character_classes)
+
+        # Build word priors and embeddings.
+        self.unique_words, self.unique_word_probs = self.word_frequencies()
+        _strategy = (self.word_prob_strategy or "empirical").lower()
+        if _strategy == "wordfreq":
+            self.unique_word_probs = self._estimated_word_probs(self.unique_words)
+        elif _strategy == "uniform":
+            n_words = len(self.unique_words)
+            self.unique_word_probs = ([1.0 / n_words] * n_words) if n_words > 0 else []
+        self.unique_word_embeddings = self.find_word_embeddings(
+            self.unique_words,
+            n_components=self.word_emb_dim,
+        )
+        assert len(self.unique_words) == len(self.unique_word_probs), (
+            "word/probability length mismatch"
+        )
+
+        # Initialize alignment state after word statistics are in place.
+        self.is_in_dict, self.aligned, self.n_aligned = self._init_alignment_state(
+            n_aligned=self.n_aligned
+        )
+        assert self.aligned.shape[0] == len(self.transcriptions), "aligned length mismatch"
 
     def _resolve_subsets(self, subset: str) -> list[str]:
         """Validate subset selection and return concrete split names.
@@ -180,34 +185,6 @@ class HTRDataset(Dataset):
                     data.append((os.path.join(basefolder, sub, filename), transcr))
         return data
 
-    def _init_transcriptions(self, data: list[tuple[str, str]]) -> list[str]:
-        """Build transcriptions from parsed data tuples.
-
-        Args:
-            data (list[tuple[str, str]]): Parsed ``(image_path, transcription)``
-                pairs.
-
-        Returns:
-            list[str]: Ordered transcriptions matching ``data``.
-        """
-        return [transcr for _, transcr in data]
-
-    def _init_character_classes_if_needed(self, character_classes: list | None) -> list[str]:
-        """Resolve character classes, inferring from dataset vocab when absent.
-
-        Args:
-            character_classes (list | None): Character classes provided by the
-                caller, or ``None`` to infer from dataset vocab.
-
-        Returns:
-            list[str]: Character classes to use for this dataset.
-        """
-        if character_classes is not None:
-            return character_classes
-        dataset_name = self.get_dataset_name()
-        c2i, _ = load_vocab(dataset_name)
-        return list(c2i.keys())
-
     def _validate_charset_coverage(self, character_classes: list[str]) -> None:
         """Fail fast when dataset transcriptions contain characters outside the active charset.
 
@@ -244,30 +221,6 @@ class HTRDataset(Dataset):
             f"Missing symbols: {unknown_desc}. "
             f"Sample offending items: {sample_desc}"
         )
-
-    def _init_word_stats_and_embeddings(self) -> tuple[list[str], list[float], torch.Tensor]:
-        """Build unique words, priors, and embeddings for this dataset.
-
-        Args:
-            None
-
-        Returns:
-            tuple[list[str], list[float], torch.Tensor]:
-                (unique_words, unique_word_probs, unique_word_embeddings) where
-                unique_word_embeddings has shape (V, D).
-        """
-        unique_words, unique_word_probs = self.word_frequencies()
-        _strategy = (self.word_prob_strategy or "empirical").lower()
-        if _strategy == "wordfreq":
-            unique_word_probs = self._estimated_word_probs(unique_words)
-        elif _strategy == "uniform":
-            n_words = len(unique_words)
-            unique_word_probs = ([1.0 / n_words] * n_words) if n_words > 0 else []
-        unique_word_embeddings = self.find_word_embeddings(
-            unique_words,
-            n_components=self.word_emb_dim,
-        )
-        return unique_words, unique_word_probs, unique_word_embeddings
 
     def _init_alignment_state(
         self, *, n_aligned: int
