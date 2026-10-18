@@ -1,167 +1,57 @@
 # Optimal Transport for Handwritten Text Recognition in a Low-Resource Regime
 
-This repository accompanies the paper *"Optimal Transport for Handwritten Text Recognition in a Low-Resource Regime"*. It implements an alternating pipeline that grows supervision with minimal ground truth by combining CTC fine-tuning, optimal-transport-based projection, and pseudo-labelling.
+Petros Georgoulas Wraight, Giorgos Sfikas, Ioannis Kordonis, Petros Maragos, George Retsinas
 
-## Table of Contents
-- [Abstract](#abstract)
-- [Pipeline Overview](#pipeline-overview)
-- [Guardrails and Assumptions](#guardrails-and-assumptions)
-- [Getting Started](#getting-started)
-- [Pretraining the Backbone](#pretraining-the-backbone)
-- [Configuration at a Glance](#configuration-at-a-glance)
-- [Running the Pipeline](#running-the-pipeline)
-- [Reproducing Paper Results](#reproducing-paper-results)
-- [Evaluation and Reporting](#evaluation-and-reporting)
-- [Logging and Artifacts](#logging-and-artifacts)
-- [Project Layout](#project-layout)
-- [API Reference](#api-reference)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
+EUSIPCO 2026 · [arXiv:2509.16977](https://arxiv.org/abs/2509.16977)
 
-## Abstract
-We iteratively project backbone descriptors into a word-embedding space via optimal transport, selectively pseudo-label the most confident unlabeled images, and refine a CTC-based handwritten text recogniser. The procedure delivers competitive CER/WER in low-resource settings while never exposing the model to the ground-truth transcripts of unaligned samples.
+Code for the paper. We start from a handful of labeled word images and a lexicon with word-frequency priors. Each round, we fine-tune a CTC recognizer on the labeled words, project its features into a word-embedding space, and use optimal transport to match unlabeled images to lexicon words. The most confident matches become pseudo-labels for the next round.
 
+## Install
 
-## Pipeline Overview
-**Loop narrative:** Each round fine-tunes the backbone on the currently aligned subset, freezes it to train one projector with OT-regularised ProjectionLoss, then leverages the OT transport plan to pseudo-label a small batch of unaligned samples with lowest row entropy. CER/WER are logged on a clean test split after each cycle until no unaligned items remain or a stopping condition is met.
-
-## Guardrails and Assumptions
-- **Aligned-only supervision:** `refine_visual_backbone` filters the dataset so the CTC head only observes samples with `aligned >= 0`.
-- **Unaligned-only pseudo-labelling:** `OTAligner` masks out already aligned instances before computing uncertainty scores.
-- **Leak-free evaluation:** The test split is instantiated with `n_aligned = 0` to avoid using target labels during pseudo-labelling.
-- **CUDA requirement:** Projector training asserts a CUDA-capable device; alignments are GPU-backed for performance.
-- **Confidence metric:** Pseudo-label selection is entropy-only and ranks samples by low OT row entropy.
-
-## Getting Started
-### Prerequisites
-- Python 3.10+
-- CUDA-capable GPU (required for projector training)
-- [POT](https://pythonot.github.io/), SciPy, PyTorch, Albumentations, pyctcdecode, editdistance, OmegaConf (listed in `requirements.txt`)
-
-### Installation
 ```bash
-# clone the renamed repository
 git clone https://github.com/petrosgeor/optimal-transport-for-handwritten-text-recognition-in-a-low-resource-regime.git
 cd optimal-transport-for-handwritten-text-recognition-in-a-low-resource-regime
-
-# install python dependencies
-python -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Dataset Preparation
-1. Download IAM/GW/CVL handwritten word images following the paper protocol.
-2. Decode them into word crops and create `gt.txt` files using the provided scripts (for GW see `htr_base/prepare_gw.py`; the other corpora follow the same recipe).
-3. Place the processed data under `htr_base/data/<DATASET>/processed_words/{train,val,test}` with PNG images and matching `gt.txt` lines `<filename> <transcription>`. IAM also includes optional `.uttlist` files under `splits/`.
-4. Optional: prepare the synthetic 90k dataset (`PretrainingHTRDataset`) if you plan to mix synthetic samples during backbone refinement.
-5. Build word embeddings and priors on first run; the dataset utilities cache them on disk.
+The main training loop needs a CUDA GPU.
 
-## Pretraining the Backbone
-This repository includes a standalone pretraining script that warms up the CTC backbone on a large synthetic word list before running the alternating OT loop. The script reads all hyperparameters from `alignment/alignment_configs/pretraining_config.yaml` and saves the resulting network weights to a configurable path.
+## Data
 
-### Configure
-Edit `alignment/alignment_configs/pretraining_config.yaml` and set at minimum:
-- `list_file`: Path to the synthetic word list file (one image path per line). Relative paths are resolved from the repository root.
-- `base_path` (optional): If `null`, the script uses the directory of `list_file` as the base; otherwise resolve relative to repo root.
-- `batch_size`, `num_epochs`, `learning_rate`, `fixed_size`: Training hyperparameters used verbatim by the script.
-- `device`, `gpu_id`: `gpu_id` sets `CUDA_VISIBLE_DEVICES`. If CUDA is not available, the script runs on CPU automatically.
-- `save_path`, `checkpoint_every`, `save_backbone`: `save_path` is a run name (for example `peter`) and checkpoints are stored under `saved_models/pretrained_models/<run_name>/`. `checkpoint_every` controls how often `last.pt` is refreshed.
+Each dataset goes under `htr_base/data/<DATASET>/processed_words/{train,val,test}/`. Every split folder holds the word images and a `gt.txt` with one `<image_id> <transcription>` per line. The prep scripts build this from the raw datasets:
 
-Notes
-- The vocabulary used for pretraining is the union over all supported datasets (`ALL_DATASETS`). The CTC blank symbol is reserved at index `0`.
-- All output directories are created on demand. Paths in the YAML can be absolute or relative to the repository root.
-
-### Run
-From the repository root:
 ```bash
-python alignment/pretraining.py
-# or
+python htr_base/prepare_gw.py --dataset_folder /path/to/washingtondb-v1.0 --output_path htr_base/data/GW/processed_words
+python htr_base/prepare_iam.py --iam-root /path/to/IAM
+python htr_base/prepare_cvl.py --cvl-root /path/to/CVL
+```
+
+## Pretrain the backbone
+
+The recognizer is first pretrained on synthetic words (MJSynth, `90kDICT32px`). Set `list_file` in `alignment/alignment_configs/pretraining_config.yaml` to the dataset's `imlist.txt`, then run:
+
+```bash
 python -m alignment.pretraining
 ```
 
-### Outputs
-- Checkpoints: When `save_backbone: true`, the script creates `saved_models/pretrained_models/<run_name>/` and writes:
-  - `hparams.yaml` with resolved hyperparameters/metadata
-  - `last.pt` (latest checkpoint, overwritten each save)
-  - `best_cer.pt` (best checkpoint by CER, overwritten on improvement)
-  The script auto-resumes from `last.pt` when present.
-- Console logs: Per-epoch (or periodic) progress, CER on a held-out synthetic set, and a few decoded examples for quick sanity checks.
+Checkpoints go to `saved_models/pretrained_models/<save_path>/`.
 
-Example checkpoint layout for `save_path: default_run`:
-```
-saved_models/pretrained_models/default_run/
+## Run
+
+```bash
+python -m alignment.trainer --config alignment/alignment_configs/trainer_config.yaml
 ```
 
-## Configuration at a Glance
-`alignment/alignment_configs/trainer_config.yaml` drives the experiments. Tune these groups:
-- **Backbone refinement:** `refine_batch_size`, `refine_epochs`, `refine_lr`, `syn_batch_ratio`, plus optional PHOC/contrastive toggles.
-- **Architecture:** entries under `architecture.*` choose CNN depth, head type, feature dimension, and pooling source.
-- **Projector training:** `projector_batch_size`, `projector_epochs`, `projector_lr`, `projector_weight_decay`.
-- **Alternating loop:** `alt_rounds`, `enable_pseudo_labeling`, and devices (`device`, `gpu_id`).
-- **OT alignment:** `align_k`, `align_reg`, `align_unbalanced`, `align_reg_m`.
-- **Datasets & extras:** `dataset.basefolder`, `dataset.n_aligned`, `word_prob_strategy`, `load_pretrained_backbone`, and the optional `synthetic_dataset` block.
+The config sets the dataset (`dataset.basefolder`), the number of starting labels (`dataset.n_aligned`), and the pretrained checkpoint (`pretrained_backbone_path`). After each round the trainer adds a line to `round_metrics_file`: round, correct pseudo-labels, test CER (as a fraction), test WER (in %).
 
+## Citation
 
-
-## Running the Pipeline
-`alignment/trainer.py` is the entry point; invoke it directly (or via `python -m alignment.trainer`) after preparing the datasets.
-
-1. **Prepare data:** run your preprocessing scripts so `htr_base/data/...` matches the layout above (or call `alignment.data_entry.build_dataset_bundle` if you keep a helper script).
-2. **Launch alternating refinement:** `python -m alignment.trainer --config alignment/alignment_configs/trainer_config.yaml`.
-3. **Monitor outputs:** metrics, pseudo-label TSVs, and checkpoints land under `results/`.
-
-
-## Reproducing Paper Results
-1. Duplicate the YAML used in the paper runs (e.g., `trainer_config_paper.yaml`) and store it alongside the repo.
-2. Train with that config (`python -m alignment.trainer --config ...`) and retain the artefacts in `results/` (metrics TSVs, checkpoints, pseudo-label logs).
-3. Evaluate the final backbone with `alignment.eval.compute_cer/compute_wer` to populate the reported CER/WER tables.
-
-## Evaluation and Reporting
-Use `alignment.trainer.load_backbone_for_eval` to restore the trained model, then call `alignment.eval.compute_cer` / `compute_wer` on the test split. Both functions accept `decode="beam"` when you need the KenLM-free beam search reported in the paper.
-
-## Logging and Artifacts
-- **Metrics:** `results/metrics_round_*.tsv` (round index, CER, WER, correct pseudo labels).
-- **Pseudo-labels:** `results/pseudo_labels_round_*.tsv` (image id, new label, confidence stats).
-- **Checkpoints:** `results/checkpoints/` (backbone and projector state).
-- **Visualisations:** Optional t-SNE plots saved under `results/plots/` when enabled.
-- **Config snapshots:** Every launcher run stores the resolved config under `results/config_used.yaml` for reproducibility.
-
-## Project Layout
-| Path | Description |
-| ---- | ----------- |
-| `alignment/trainer.py` | Entry point for the alternating refinement loop and evaluation helpers. |
-| `alignment/alignment_utilities.py` | Optimal transport aligner, candidate selection, pseudo-label validation. |
-| `alignment/losses.py` | ProjectionLoss (OT + supervised) and optional soft-contrastive loss. |
-| `alignment/utils/ctc.py` | CTC encoding/decoding helpers and probability utilities. |
-| `htr_base/utils/htr_dataset.py` | Dataset wrappers for aligned/unaligned handling, word embeddings, priors. |
-| `htr_base/models.py` | Backbone (HTRNet), projector MLPs, and heads (CTC variants). |
-| `alignment/alignment_configs/` | YAML configuration files for training and pretraining. |
-| `results/` | Default output directory for metrics, pseudo-label TSVs, and checkpoints. |
-
-## API Reference (Quick Map)
-- `alignment/trainer.py`
-  - `alternating_refinement`: orchestrates the backbone/projector/OT loop.
-  - `refine_visual_backbone`, `train_projector`, `align_more_instances`: building blocks for bespoke training schedules.
-  - `load_backbone_for_eval`: restore checkpoints for CER/WER evaluation.
-- `alignment/alignment_utilities.py`
-  - `OTAligner`: optimal-transport pseudo-labelling engine (feature harvesting, Sinkhorn, entropy ranking, dataset updates).
-- `alignment/eval.py`: `compute_cer` and `compute_wer` for reporting (supports greedy or KenLM-free beam decoding).
-- `alignment/utils/ctc.py`: CTC utilities (`encode_for_ctc`, `greedy_ctc_decode`, `beam_search_ctc_decode`).
-- `htr_base/utils/htr_dataset.py`
-  - `HTRDataset`: core loader for the processed word crops; handles alignment metadata, word embeddings, and prior estimation.
-  - `PretrainingHTRDataset`: synthetic 90k dataset wrapper for optional backbone warm-up.
-- `htr_base/models.py`
-  - `HTRNet`: configurable CNN+CTC backbone with optional PHOC and descriptor heads.
-  - `Projector`: MLP that maps backbone descriptors into the word-embedding space used by OT.
-
-> Each module ships with detailed docstrings—use `pydoc` or open the source for full signatures.
-## Troubleshooting
-- **`RuntimeError: expected CUDA device`:** Ensure `projector.device` and `experiment.device` point to a valid GPU and that `torch.cuda.is_available()` is `True`.
-- **Few pseudo-labels per round:** Increase `align.k` or confirm that `dataset.aligned` still contains `-1` entries.
-- **Sinkhorn divergence:** Tune `align.reg` or provide `sinkhorn_kwargs={"max_iter": 200}`.
-- **Beam decoder missing KenLM:** The project defaults to KenLM-free decoding; warnings are suppressed. Install a KenLM language model only if required for ablations.
-
-## License
-Distributed under the MIT License. See `LICENSE` for details.
+```bibtex
+@article{georgoulaswraight2025optimal,
+  title   = {Optimal Transport for Handwritten Text Recognition in a Low-Resource Regime},
+  author  = {Georgoulas Wraight, Petros and Sfikas, Giorgos and Kordonis, Ioannis and Maragos, Petros and Retsinas, George},
+  journal = {arXiv preprint arXiv:2509.16977},
+  year    = {2025}
+}
+```
