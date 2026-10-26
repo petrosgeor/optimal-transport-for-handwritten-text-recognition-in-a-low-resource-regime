@@ -295,7 +295,7 @@ class HTRDataset(Dataset):
             None
 
         Returns:
-            str: The dataset name, one of IAM, GW, CVL or BESSARION.
+            str: The dataset name, one of IAM, GW or CVL.
 
         Raises:
             ValueError: If the path in self.basefolder does not contain a
@@ -314,11 +314,9 @@ class HTRDataset(Dataset):
             return "GW"
         if "cvl" in low:
             return "CVL"
-        if "bessarion" in low:
-            return "BESSARION"
         raise ValueError(
             f"Cannot infer dataset name from basefolder={self.basefolder!r}. "
-            "Expected the path to include 'IAM', 'GW', 'CVL' or 'BESSARION'."
+            "Expected the path to include 'IAM', 'GW' or 'CVL'."
         )
 
     def _select_seed_indices(self, n_aligned: int | None = None) -> List[int]:

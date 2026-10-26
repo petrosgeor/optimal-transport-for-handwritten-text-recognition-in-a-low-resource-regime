@@ -35,11 +35,3 @@ aux_loss_weight: 0.1
 save_path: "100k-samples"
 checkpoint_every: 10
 save_backbone: true
-
-# ----------------------------------------------------------------------
-# Non-finite diagnostics
-# ----------------------------------------------------------------------
-debug_nonfinite_probe: false       # enable detailed per-batch diagnostics for NaN/Inf
-debug_nonfinite_dump: true         # persist a JSON report on first non-finite failure
-debug_nonfinite_dump_file: "nonfinite_report.json"
-debug_nonfinite_max_batches: null  # optional cap for probe runs (null = full epoch)
