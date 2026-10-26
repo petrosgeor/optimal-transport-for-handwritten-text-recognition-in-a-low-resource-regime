@@ -71,49 +71,6 @@ class _DummyProjector(nn.Module):
         return x
 
 
-def test_alternating_refinement_runs_backbone_only_without_projector_loops(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    """Backbone-only refinement should still accept one projector argument.
-
-    This catches regressions where trainer control flow starts assuming a
-    projector list again even when pseudo-labeling is disabled.
-    """
-    monkeypatch.chdir(tmp_path)
-    dataset = _DummyDataset(aligned=[0, -1])
-    backbone = _DummyBackbone()
-    projector = _DummyProjector()
-    test_dataset = _DummyDataset(aligned=[-1, -1])
-
-    call_counter = {"metrics": 0}
-
-    monkeypatch.setattr(trainer, "maybe_load_backbone", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(trainer, "HTRDataset", lambda **_kwargs: test_dataset)
-    monkeypatch.setattr(trainer, "compute_cer", lambda *_args, **_kwargs: 0.1)
-    monkeypatch.setattr(trainer, "compute_wer", lambda *_args, **_kwargs: 0.2)
-    monkeypatch.setattr(
-        trainer,
-        "log_round_metrics",
-        lambda *_args, **_kwargs: call_counter.__setitem__("metrics", call_counter["metrics"] + 1),
-    )
-    monkeypatch.setattr(trainer.cfg, "device", "cpu", raising=False)
-    monkeypatch.setattr(trainer.cfg, "align_device", "cpu", raising=False)
-    monkeypatch.setattr(trainer.cfg, "eval_batch_size", 2, raising=False)
-
-    trainer.alternating_refinement(
-        dataset,
-        backbone,
-        projector,
-        rounds=1,
-        backbone_epochs=0,
-        projector_epochs=0,
-        enable_pseudo_labeling=False,
-    )
-
-    assert call_counter["metrics"] == 1
-
-
 def test_alternating_refinement_calls_align_once_with_single_projector(
     monkeypatch,
     tmp_path,
@@ -165,7 +122,6 @@ def test_alternating_refinement_calls_align_once_with_single_projector(
         rounds=0,
         backbone_epochs=0,
         projector_epochs=0,
-        enable_pseudo_labeling=True,
     )
 
     assert state["align_calls"] == 1

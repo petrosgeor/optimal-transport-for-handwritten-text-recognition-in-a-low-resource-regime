@@ -1,16 +1,13 @@
 """Loss functions used by the alignment and pretraining pipelines.
 
 This module contains:
-- a CTC helper wrapper used by backbone training routines,
-- an OT-based projection loss with an optional supervised anchor term, and
-- a soft contrastive loss that builds text-space similarities from edit distance.
+- a CTC helper wrapper used by backbone training routines, and
+- an OT-based projection loss with an optional supervised anchor term.
 """
 
 import torch
 import torch.nn.functional as F
 from geomloss.samples_loss import SamplesLoss
-from rapidfuzz import process, distance
-import numpy as np
 
 
 def _ctc_loss_fn(
@@ -51,8 +48,6 @@ class ProjectionLoss(torch.nn.Module):
 
     Args:
     - reg (float): Entropic regularization strength for Sinkhorn.
-    - unbalanced (bool): Whether to use unbalanced Sinkhorn with mass relaxation.
-    - reg_m (float): Mass regularization used only in unbalanced mode.
     - supervised_weight (float): Weight applied to the supervised MSE term.
     - sinkhorn_kwargs (dict): Extra keyword args passed to GeomLoss SamplesLoss.
 
@@ -62,8 +57,6 @@ class ProjectionLoss(torch.nn.Module):
         self,
         reg: float = 0.1,
         *,
-        unbalanced: bool = False,
-        reg_m: float = 1.0,
         supervised_weight: float = 1.0,
         **sinkhorn_kwargs,
     ):
@@ -71,31 +64,17 @@ class ProjectionLoss(torch.nn.Module):
 
         Args:
         - reg (float): Entropic regularization for Sinkhorn.
-        - unbalanced (bool): Toggle unbalanced OT formulation.
-        - reg_m (float): Unbalanced mass regularization parameter.
         - supervised_weight (float): Weight for supervised MSE anchor term.
         - sinkhorn_kwargs (dict): Extra options forwarded to SamplesLoss.
         """
         super().__init__()
         self.reg = reg
-        self.unbalanced = unbalanced
-        self.reg_m = reg_m
         self.supervised_weight = supervised_weight
         self.sinkhorn_kwargs = sinkhorn_kwargs
 
-        if self.unbalanced:
-            self.unbalanced_ot_loss = SamplesLoss(
-                loss="sinkhorn",
-                p=2,
-                blur=self.reg,
-                reach=self.reg_m,
-                debias=True,
-                **self.sinkhorn_kwargs,
-            )
-        else:
-            self.balanced_ot_loss = SamplesLoss(
-                loss="sinkhorn", p=2, blur=self.reg, debias=True, **self.sinkhorn_kwargs
-            )
+        self.balanced_ot_loss = SamplesLoss(
+            loss="sinkhorn", p=2, blur=self.reg, debias=True, **self.sinkhorn_kwargs
+        )
 
     def _validate_projection_inputs(
         self,
@@ -178,8 +157,8 @@ class ProjectionLoss(torch.nn.Module):
         - (torch.Tensor): Scalar loss = OT term + weighted supervised MSE term.
 
         Raises:
-        - ValueError: If inputs are invalid, if balanced-mode tgt_probs sums to
-          non-positive values, or if OT loss becomes non-finite.
+        - ValueError: If inputs are invalid, if tgt_probs sums to non-positive
+          values, or if OT loss becomes non-finite.
         """
         N, M, _ = self._validate_projection_inputs(
             descriptors=descriptors,
@@ -188,21 +167,15 @@ class ProjectionLoss(torch.nn.Module):
             tgt_probs=tgt_probs,
         )
 
-        # Build source and target marginals. Balanced mode renormalizes tgt_probs.
+        # Build source and target marginals; tgt_probs is renormalized.
         a = torch.full((N,), 1.0 / N, dtype=descriptors.dtype, device=descriptors.device)
-        if not self.unbalanced:
-            tgt_sum = tgt_probs.sum()
-            if tgt_sum.item() <= 0:
-                raise ValueError("tgt_probs must sum to > 0 in balanced mode")
-            b = tgt_probs / tgt_sum
-        else:
-            b = tgt_probs
+        tgt_sum = tgt_probs.sum()
+        if tgt_sum.item() <= 0:
+            raise ValueError("tgt_probs must sum to > 0")
+        b = tgt_probs / tgt_sum
 
         # Compute OT loss.
-        if self.unbalanced:
-            ot_loss = self.unbalanced_ot_loss(a, descriptors, b, word_embeddings)
-        else:
-            ot_loss = self.balanced_ot_loss(a, descriptors, b, word_embeddings)
+        ot_loss = self.balanced_ot_loss(a, descriptors, b, word_embeddings)
         if not torch.isfinite(ot_loss).all():
             raise ValueError("OT loss is NaN/Inf")
 
@@ -215,83 +188,3 @@ class ProjectionLoss(torch.nn.Module):
             corresp_word_embeddings = word_embeddings[aligned[aligned_indices]]
             distance_loss = F.mse_loss(aligned_descriptors, corresp_word_embeddings)
         return ot_loss + self.supervised_weight * distance_loss
-
-
-# ------------------------------------------------------------------
-# Soft Contrastive / InfoNCE with continuous positives (Euclidean)
-# ------------------------------------------------------------------
-from .utils.ctc import _unflatten_targets
-
-
-class SoftContrastiveLoss(torch.nn.Module):
-    """Soft InfoNCE-style contrastive loss using text edit distance.
-
-    The image-space similarity comes from pairwise feature distances, while
-    text-space similarity is computed from pairwise Levenshtein distances
-    between decoded target sequences.
-
-    Args:
-    - tau (float): Temperature for image-space similarities.
-    - T_txt (float): Temperature for text-space similarities.
-    - eps (float): Small constant for numerical stability.
-
-    """
-
-    def __init__(self, tau: float = 0.07, T_txt: float = 1.0, eps: float = 1e-8):
-        """Initialize contrastive-loss temperatures.
-
-        Args:
-        - tau (float): Temperature for image-space pair similarities.
-        - T_txt (float): Temperature for text-space pair similarities.
-        - eps (float): Numerical-stability constant for division and log.
-        """
-        super().__init__()
-        self.tau = tau
-        self.T_txt = T_txt
-        self.eps = eps
-
-    def forward(
-        self, feats: torch.Tensor, targets: torch.Tensor, lengths: torch.Tensor
-    ) -> torch.Tensor:
-        """Compute soft contrastive loss for one minibatch.
-
-        Args:
-        - feats (torch.Tensor): Feature matrix with shape (B, D).
-        - targets (torch.Tensor): Flattened encoded CTC targets with shape (sum(L),).
-        - lengths (torch.Tensor): Target lengths with shape (B,).
-
-        Returns:
-        - (torch.Tensor): Scalar contrastive loss. Returns 0 when B < 2.
-        """
-        B = len(lengths)
-        if B < 2:
-            return torch.tensor(0.0, device=feats.device, dtype=feats.dtype)
-
-        # ---- 1. pairwise Euclidean distances in descriptor space ----
-        dists = torch.cdist(feats, feats, p=2)  # (B, B)
-        sim_img = torch.exp(-dists / self.tau)  # convert to similarity
-
-        # ---- 2. edit-distance matrix (vectorized) --------------------
-        with torch.no_grad():
-            # Convert flattened targets to list of lists
-            unflattened_targets = _unflatten_targets(targets, lengths)
-            # Use rapidfuzz for fast, parallelized pairwise edit distance.
-            edit_np = process.cdist(
-                unflattened_targets,
-                unflattened_targets,
-                scorer=distance.Levenshtein.distance,
-                workers=-1,
-            ).astype(np.float32)
-            edit = torch.from_numpy(edit_np).to(device=feats.device)
-        sim_txt = torch.exp(-edit / self.T_txt)  # soft positives
-
-        # ---- 3. InfoNCE objective ------------------------------------
-        # exclude diagonal (self‑similarity) from both sums
-        eye = torch.eye(B, device=feats.device)
-        sim_img = sim_img * (1 - eye)
-        sim_txt = sim_txt * (1 - eye)
-
-        numerator = (sim_txt * sim_img).sum(dim=1)  # (B,)
-        denominator = sim_img.sum(dim=1) + self.eps  # (B,)
-        loss = -torch.log((numerator + self.eps) / denominator).mean()
-        return loss

@@ -11,9 +11,6 @@ import numpy as np
 import ot
 from scipy.spatial import distance
 from omegaconf import OmegaConf
-import editdistance
-from torch.utils.data import DataLoader, Subset
-from alignment.utils.ctc import greedy_ctc_decode, beam_search_ctc_decode
 
 
 def _resolve_trainer_config_path() -> Path:
@@ -33,12 +30,8 @@ def _resolve_trainer_config_path() -> Path:
 
 cfg = OmegaConf.load(_resolve_trainer_config_path())
 
-# count calls to :func:`align_more_instances`
-_ALIGN_CALL_COUNT = 0
-
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
-from htr_base.utils.vocab import load_vocab
 
 
 def harvest_backbone_features(
@@ -111,8 +104,6 @@ def calculate_ot_projections(
     Y: np.ndarray,
     reg: float = 0.1,
     *,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute OT projections of X onto Y.
@@ -123,8 +114,6 @@ def calculate_ot_projections(
         pb (np.ndarray): Target marginal with shape (M,).
         Y (np.ndarray): Target feature matrix with shape (M, D).
         reg (float): Entropic regularization coefficient.
-        unbalanced (bool): Whether to use unbalanced OT.
-        reg_m (float): Mass regularization for unbalanced OT.
         sinkhorn_kwargs (Optional[dict]): Extra keyword args for the solver.
 
     Returns:
@@ -136,10 +125,7 @@ def calculate_ot_projections(
 
     M = distance.cdist(X, Y)
 
-    if unbalanced:
-        T = ot.unbalanced.sinkhorn_unbalanced(pa, pb, M, reg, reg_m, **sinkhorn_kwargs)
-    else:
-        T = ot.sinkhorn(pa, pb, M, reg=reg, **sinkhorn_kwargs)
+    T = ot.sinkhorn(pa, pb, M, reg=reg, **sinkhorn_kwargs)
 
     row_sum = T.sum(axis=1, keepdims=True)
     inv_row_sum = np.divide(1.0, row_sum, out=np.zeros_like(row_sum), where=row_sum != 0)
@@ -160,8 +146,6 @@ class OTAligner:
         batch_size: int = 512,
         device: str = cfg.device,
         reg: float = 0.1,
-        unbalanced: bool = False,
-        reg_m: float = 1.0,
         sinkhorn_kwargs: Optional[dict] = None,
         k: int = 0,
     ) -> None:
@@ -177,8 +161,6 @@ class OTAligner:
             batch_size (int): Full-dataset batching size for descriptor harvest.
             device (str): Device identifier such as "cpu" or "cuda".
             reg (float): Entropic regularization for Sinkhorn OT.
-            unbalanced (bool): Whether to use unbalanced OT.
-            reg_m (float): Mass regularization coefficient for unbalanced OT.
             sinkhorn_kwargs (Optional[dict]): Extra keyword arguments for OT.
             k (int): Maximum number of samples to pseudo-label in one round.
         """
@@ -188,8 +170,6 @@ class OTAligner:
         self.device = torch.device(device)
         self.projector = projector.to(self.device)
         self.reg = reg
-        self.unbalanced = unbalanced
-        self.reg_m = reg_m
         self.sinkhorn_kwargs = sinkhorn_kwargs or {}
         self.k = k
 
@@ -215,8 +195,7 @@ class OTAligner:
         a = np.full((N,), 1.0 / N, dtype=np.float64)
         if getattr(self.dataset, "unique_word_probs", None):
             b = np.asarray(self.dataset.unique_word_probs, dtype=np.float64)
-            if not self.unbalanced:
-                b /= b.sum()
+            b /= b.sum()
         else:
             # uniform distribution over vocabulary
             b = np.full((V,), 1.0 / V, dtype=np.float64)
@@ -227,8 +206,6 @@ class OTAligner:
             b,
             self.word_embs.cpu().numpy(),
             self.reg,
-            unbalanced=self.unbalanced,
-            reg_m=self.reg_m,
             sinkhorn_kwargs=self.sinkhorn_kwargs,
         )
 
@@ -390,81 +367,6 @@ class OTAligner:
             )
 
     # ------------------------------------------------------------------
-    @torch.no_grad()
-    def validate_pseudo_labels(
-        self,
-        *,
-        edit_threshold: int = 3,
-        batch_size: int = 256,
-        decode_cfg: dict = None,
-        num_workers: int = 0,
-    ) -> int:
-        """Drop unreliable pseudo-labels based on the backbone output.
-
-        Counts how many removed labels differ from the dataset transcriptions.
-
-        Args:
-            edit_threshold (int): Maximum allowed edit distance between decoded
-                prediction and current pseudo-label.
-            batch_size (int): Validation mini-batch size.
-            decode_cfg (dict | None): Optional decoder settings.
-            num_workers (int): Number of DataLoader workers.
-
-        Returns:
-            int: Number of aligned samples reset back to -1.
-        """
-        self.backbone.eval()
-        device = self.device
-
-        aligned_idx = torch.nonzero(self.dataset.aligned != -1, as_tuple=True)[0]
-        if not aligned_idx.numel():
-            return 0
-
-        loader = DataLoader(
-            Subset(self.dataset, aligned_idx.tolist()),
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=True,
-        )
-
-        removed = 0
-        correct_removed = 0
-        ptr = 0
-        dataset_name = self.dataset.get_dataset_name()
-        _, i2c = load_vocab(dataset_name=dataset_name)
-        for imgs, *_ in loader:
-            imgs = imgs.to(device, non_blocking=True)
-            logits, *_ = self.backbone(imgs, return_feats=False)
-
-            if decode_cfg and decode_cfg.get("method") == "beam":
-                preds = beam_search_ctc_decode(
-                    logits.cpu(), i2c, beam_width=decode_cfg.get("beam_width", 3)
-                )
-            else:
-                preds = greedy_ctc_decode(logits.cpu(), i2c)
-
-            for i, pred in enumerate(preds):
-                idx = aligned_idx[ptr + i].item()
-                gold_word = self.dataset.unique_words[self.dataset.aligned[idx].item()]
-                pred_norm = str(pred).strip()
-                gold_norm = str(gold_word).strip()
-                if editdistance.eval(pred_norm, gold_norm) > edit_threshold:
-                    self.dataset.aligned[idx] = -1
-                    removed += 1
-                    if hasattr(self.dataset, "transcriptions") and (
-                        str(self.dataset.transcriptions[idx]).strip() != gold_norm
-                    ):
-                        correct_removed += 1
-            ptr += len(preds)
-
-        print(
-            f"[Validate] removed {removed} unreliable pseudo-labels "
-            f"(threshold = {edit_threshold}). {correct_removed} mismatched ground truth."
-        )
-        return removed
-
-    # ------------------------------------------------------------------
     def align(self) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Perform one OT pseudo-labelling iteration.
 
@@ -505,8 +407,6 @@ def align_more_instances(
     batch_size: int = 512,
     device: str = cfg.device,
     reg: float = 0.1,
-    unbalanced: bool = False,
-    reg_m: float = 1.0,
     sinkhorn_kwargs: Optional[dict] = None,
     k: int = 0,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -516,11 +416,6 @@ def align_more_instances(
     alignment round, updates ``dataset.aligned`` for the selected instances, and
     returns the transport-plan outputs required by the training loop.
 
-    The function also maintains a module-level call counter. When
-    ``cfg.pseudo_label_validation.enable`` is ``True`` and the current call count
-    reaches ``cfg.pseudo_label_validation.start_iteration``, it triggers
-    :meth:`OTAligner.validate_pseudo_labels`.
-
     Args:
         dataset (HTRDataset): Dataset containing image samples, word prototypes,
             and mutable alignment state.
@@ -528,13 +423,10 @@ def align_more_instances(
             projection and OT matching.
         projector (nn.Module): Projector module used to
             map backbone features to the word-embedding space.
-        batch_size (int): Batch size used for feature harvesting and optional
-            pseudo-label validation.
+        batch_size (int): Batch size used for feature harvesting.
         device (str): Device identifier used during alignment (for example
             ``"cpu"`` or ``"cuda"``).
         reg (float): Entropic regularization coefficient for Sinkhorn OT.
-        unbalanced (bool): If ``True``, use unbalanced Sinkhorn OT.
-        reg_m (float): Mass regularization used in unbalanced OT.
         sinkhorn_kwargs (Optional[dict]): Extra keyword arguments forwarded to
             the OT solver.
         k (int): Number of high-confidence instances to relabel in this call.
@@ -547,9 +439,6 @@ def align_more_instances(
             - ``moved``: Per-instance movement scores used for uncertainty
               ranking, shape (N,).
     """
-    global _ALIGN_CALL_COUNT
-    _ALIGN_CALL_COUNT += 1
-
     aligner = OTAligner(
         dataset,
         backbone,
@@ -557,20 +446,9 @@ def align_more_instances(
         batch_size=batch_size,
         device=device,
         reg=reg,
-        unbalanced=unbalanced,
-        reg_m=reg_m,
         sinkhorn_kwargs=sinkhorn_kwargs,
         k=k,
     )
     plan, proj_feats, moved = aligner.align()
-
-    # --- conditional pseudo-label validation ---
-    vcfg = getattr(cfg, "pseudo_label_validation", None)
-    if vcfg and vcfg.enable and _ALIGN_CALL_COUNT >= int(getattr(vcfg, "start_iteration", 0)):
-        aligner.validate_pseudo_labels(
-            edit_threshold=int(vcfg.edit_distance),
-            batch_size=batch_size,
-            decode_cfg=getattr(cfg, "decode_config", None),
-        )
 
     return plan, proj_feats, moved

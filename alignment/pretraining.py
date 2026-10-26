@@ -34,7 +34,7 @@ from alignment.utils.ctc import (
     beam_search_ctc_decode,
 )
 from alignment.utils.checks import _assert_grad_finite
-from alignment.losses import _ctc_loss_fn, SoftContrastiveLoss  # new class
+from alignment.losses import _ctc_loss_fn
 from htr_base.utils.phoc import build_phoc_description
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -44,10 +44,6 @@ GPU_ID = int(CFG.get("gpu_id", 0)) if DEVICE == "cuda" else None
 ENABLE_PHOC = bool(CFG.get("enable_phoc", False))
 PHOC_LEVELS = tuple(CFG.get("phoc_levels", (1, 2, 3, 4)))
 PHOC_W = float(CFG.get("phoc_loss_weight", 0.1))
-ENABLE_CONTR = bool(CFG.get("contrastive_enable", False))
-CONTR_W = float(CFG.get("contrastive_weight", 0.0))
-CONTR_TAU = float(CFG.get("contrastive_tau", 0.07))
-CONTR_TTXT = float(CFG.get("contrastive_text_T", 1.0))
 # Default pretraining configuration
 REPO_ROOT = Path(__file__).resolve().parents[1]
 RUNS_ROOT = REPO_ROOT / "saved_models" / "pretrained_models"
@@ -330,7 +326,6 @@ class PretrainingRunner:
         self.arch = None
         self.net = None
         self.opt = None
-        self.contr_loss_fn = None
 
         self.start_epoch = 0
         self.best_cer = float("inf")
@@ -355,7 +350,6 @@ class PretrainingRunner:
 
         print(f"[Pretraining] Starting training...")
         print(f"[Pretraining] PHOC loss enabled: {ENABLE_PHOC}")
-        print(f"[Pretraining] Contrastive loss enabled: {ENABLE_CONTR}")
 
         assert self.num_epochs is not None
         if self.start_epoch >= self.num_epochs:
@@ -383,8 +377,6 @@ class PretrainingRunner:
                 msg = f"[Pretraining] Epoch {epoch + 1:03d}/{self.num_epochs} - Loss: {metrics['avg_loss']:.4f}"
                 if ENABLE_PHOC:
                     msg += f" - PHOC: {metrics['avg_phoc_loss']:.4f}"
-                if ENABLE_CONTR:
-                    msg += f" - Contr: {metrics['avg_contr_loss']:.4f}"
                 msg += f" - lr: {lr_val:.2e}"
                 print(msg)
                 cer = self._evaluate_cer(self.test_loader)
@@ -582,7 +574,6 @@ class PretrainingRunner:
             num_workers=n_workers_test,
         )
         self.opt = optim.Adam(self.net.parameters(), lr=self.lr)
-        self.contr_loss_fn = SoftContrastiveLoss(CONTR_TAU, CONTR_TTXT).to(self.device)
 
     def _maybe_resume(self) -> None:
         """Resume model and optimizer from the latest checkpoint when present.
@@ -624,10 +615,6 @@ class PretrainingRunner:
             "enable_phoc": ENABLE_PHOC,
             "phoc_levels": list(PHOC_LEVELS),
             "phoc_loss_weight": PHOC_W,
-            "contrastive_enable": ENABLE_CONTR,
-            "contrastive_weight": CONTR_W,
-            "contrastive_tau": CONTR_TAU,
-            "contrastive_text_T": CONTR_TTXT,
             "main_loss_weight": self.main_weight,
             "aux_loss_weight": self.aux_weight,
             "save_backbone": self.save_backbone,
@@ -743,7 +730,6 @@ class PretrainingRunner:
         loss_main: torch.Tensor | None,
         loss_aux: torch.Tensor | None,
         loss_phoc: torch.Tensor | None,
-        loss_contr: torch.Tensor | None,
         total_loss: torch.Tensor | None,
     ) -> dict:
         """Build a JSON-serializable non-finite diagnostics payload.
@@ -763,7 +749,6 @@ class PretrainingRunner:
             loss_main (torch.Tensor | None): Scalar loss tensor with shape ().
             loss_aux (torch.Tensor | None): Scalar loss tensor with shape ().
             loss_phoc (torch.Tensor | None): Scalar loss tensor with shape ().
-            loss_contr (torch.Tensor | None): Scalar loss tensor with shape ().
             total_loss (torch.Tensor | None): Scalar total loss with shape ().
 
         Returns:
@@ -805,7 +790,6 @@ class PretrainingRunner:
                 "loss_main": self._loss_scalar(loss_main),
                 "loss_aux": self._loss_scalar(loss_aux),
                 "loss_phoc": self._loss_scalar(loss_phoc),
-                "loss_contr": self._loss_scalar(loss_contr),
                 "total_loss": self._loss_scalar(total_loss),
             },
             "tensor_stats": {
@@ -816,7 +800,6 @@ class PretrainingRunner:
                 "loss_main": self._tensor_stats(loss_main),
                 "loss_aux": self._tensor_stats(loss_aux),
                 "loss_phoc": self._tensor_stats(loss_phoc),
-                "loss_contr": self._tensor_stats(loss_contr),
                 "total_loss": self._tensor_stats(total_loss),
             },
         }
@@ -854,7 +837,6 @@ class PretrainingRunner:
         loss_main: torch.Tensor | None = None,
         loss_aux: torch.Tensor | None = None,
         loss_phoc: torch.Tensor | None = None,
-        loss_contr: torch.Tensor | None = None,
         total_loss: torch.Tensor | None = None,
     ) -> None:
         """Raise a detailed runtime error for the first non-finite component.
@@ -874,7 +856,6 @@ class PretrainingRunner:
             loss_main (torch.Tensor | None): Scalar main loss with shape ().
             loss_aux (torch.Tensor | None): Scalar auxiliary loss with shape ().
             loss_phoc (torch.Tensor | None): Scalar PHOC loss with shape ().
-            loss_contr (torch.Tensor | None): Scalar contrastive loss with shape ().
             total_loss (torch.Tensor | None): Scalar weighted total loss with shape ().
         """
         report = self._build_nonfinite_report(
@@ -892,7 +873,6 @@ class PretrainingRunner:
             loss_main=loss_main,
             loss_aux=loss_aux,
             loss_phoc=loss_phoc,
-            loss_contr=loss_contr,
             total_loss=total_loss,
         )
         dump_msg = ""
@@ -918,7 +898,6 @@ class PretrainingRunner:
         epoch_loss = 0.0
         num_batches = 0
         phoc_epoch_loss = 0.0
-        running_contr = 0.0
         for batch_idx, (imgs, txts) in enumerate(self.train_loader):
             if (
                 self.debug_nonfinite_probe
@@ -959,13 +938,6 @@ class PretrainingRunner:
 
             loss_main = _ctc_loss_fn(main_logits, targets, inp_lens, lengths)
             loss_aux = _ctc_loss_fn(aux_logits, targets, inp_lens, lengths)
-
-            loss_contr = torch.tensor(0.0, device=self.device)
-            if ENABLE_CONTR:
-                loss_contr = self.contr_loss_fn(features, targets, lengths.cpu())
-                assert loss_contr >= 0 and torch.isfinite(loss_contr), (
-                    "Contrastive loss is negative or non-finite"
-                )
 
             if ENABLE_PHOC:
                 phoc_logits = out[-1]
@@ -1008,7 +980,6 @@ class PretrainingRunner:
                         loss_main=loss_main,
                         loss_aux=loss_aux,
                         loss_phoc=loss_phoc,
-                        loss_contr=loss_contr,
                     )
             else:
                 phoc_logits = None
@@ -1017,7 +988,6 @@ class PretrainingRunner:
             for component_name, component_value in (
                 ("loss_main", loss_main),
                 ("loss_aux", loss_aux),
-                ("loss_contr", loss_contr),
             ):
                 if not torch.isfinite(component_value).all():
                     self._raise_nonfinite(
@@ -1035,14 +1005,12 @@ class PretrainingRunner:
                         loss_main=loss_main,
                         loss_aux=loss_aux,
                         loss_phoc=loss_phoc,
-                        loss_contr=loss_contr,
                     )
 
             total_loss = (
                 self.main_weight * loss_main
                 + self.aux_weight * loss_aux
                 + PHOC_W * loss_phoc
-                + CONTR_W * loss_contr
             )
             if not torch.isfinite(total_loss).all():
                 self._raise_nonfinite(
@@ -1060,7 +1028,6 @@ class PretrainingRunner:
                     loss_main=loss_main,
                     loss_aux=loss_aux,
                     loss_phoc=loss_phoc,
-                    loss_contr=loss_contr,
                     total_loss=total_loss,
                 )
             total_loss.backward()
@@ -1070,13 +1037,11 @@ class PretrainingRunner:
             self.opt.zero_grad(set_to_none=True)
             epoch_loss += total_loss.item()
             phoc_epoch_loss += loss_phoc.item()
-            running_contr += loss_contr.item()
             num_batches += 1
 
         return {
             "avg_loss": epoch_loss / max(1, num_batches),
             "avg_phoc_loss": phoc_epoch_loss / max(1, num_batches),
-            "avg_contr_loss": running_contr / max(1, num_batches),
         }
 
     def _evaluate_cer(self, loader) -> float:

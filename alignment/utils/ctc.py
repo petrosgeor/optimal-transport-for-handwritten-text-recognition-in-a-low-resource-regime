@@ -45,25 +45,6 @@ def encode_for_ctc(
     return targets, lengths
 
 
-def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[list[int]]:
-    """Convert flattened CTC targets back to per-sample index sequences.
-
-    Args:
-    - targets (torch.Tensor): Flattened target indices with shape (sum(L),).
-    - lengths (torch.Tensor): Per-sample target lengths with shape (B,).
-
-    Returns:
-    - (list[list[int]]): Decoded index lists of length B where each element has
-      length given by the corresponding entry in lengths.
-    """
-    out = []
-    i = 0
-    for length in lengths:
-        out.append(targets[i : i + length].tolist())
-        i += length
-    return out
-
-
 def greedy_ctc_decode(
     logits: torch.Tensor,
     i2c: Dict[int, str],
