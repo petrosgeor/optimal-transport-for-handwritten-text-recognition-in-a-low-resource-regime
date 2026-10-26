@@ -16,15 +16,9 @@ phoc_loss_weight: 0.5     # scaling factor for the PHOC loss
 # Default HTRNet architecture configuration
 architecture:
   cnn_cfg: [[2, 64], "M", [3, 128], "M", [2, 256]] # Configuration for the Convolutional Neural Network (CNN) layers
-  head_type: both           # Type of head for the HTRNet (e.g., 'both' for CTC and attention)
-  rnn_type: gru             # Type of Recurrent Neural Network (RNN) to use (e.g., 'gru', 'lstm')
   rnn_layers: 3             # Number of RNN layers
   rnn_hidden_size: 256      # Hidden size of the RNN layers
-  flattening: maxpool       # Method to flatten the CNN output (e.g., 'maxpool', 'avgpool')
-  stn: false                # Enable or disable Spatial Transformer Network (STN)
   feat_dim: 512             # Dimension of the extracted features
-  feat_pool: attn           # Feature pooling method (e.g., 'attn' for attention pooling)
-  feat_source: rnn_mean     # Source for holistic features: 'cnn' or 'rnn_mean'
   phoc_levels: [1, 2, 3, 4] # PHOC levels used in the architecture
 
 # ----------------------------------------------------------------------
@@ -35,7 +29,6 @@ projector_batch_size: 16000  # mini-batch size when collecting descriptors
 projector_lr: 1e-4          # learning rate for projector optimisation
 projector_workers: 2        # dataloader workers used during descriptor caching
 projector_weight_decay: 1e-4  # weight decay for the projector optimiser
-plot_tsne: false              # save t-SNE plots during projector training
 
 # ----------------------------------------------------------------------
 # Compute device
@@ -69,10 +62,8 @@ dataset:
   word_emb_dim: 100         # Dimension of word embeddings
   # How to compute prior probabilities for unique words:
   #   - empirical: use ground-truth frequency from dataset transcriptions
-  #   - wordfreq:  use `wordfreq.word_frequency(w, "en")` and normalise
   #   - uniform:   assign 1/|V| to each unique word
   word_prob_strategy: empirical
-  two_views: false          # Enable or disable two-view training
 supervised_weight: 100       # Weight for supervised loss component
 
 # ----------------------------------------------------------------------

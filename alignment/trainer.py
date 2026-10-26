@@ -71,7 +71,6 @@ from alignment.alignment_utilities import (
     harvest_backbone_features,
 )
 from alignment.eval import compute_cer, compute_wer
-from alignment.plot import plot_tsne_embeddings, plot_projector_tsne
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
@@ -79,7 +78,6 @@ import copy
 
 import warnings
 
-warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.manifold._t_sne")
 from requests.exceptions import RequestsDependencyWarning
 
 warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
@@ -347,15 +345,6 @@ def refine_visual_backbone(
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
 
-    # End-of-stage diagnostic plot (side effect): saves a t-SNE figure.
-    plot_tsne_embeddings(
-        dataset=dataset,
-        backbone=backbone,
-        save_path="results/figures/tsne_backbone_contrastive.png",
-        device=device,
-    )
-    # print('the backbone TSNE plot is saved')
-
     # Leave backbone in eval mode for downstream phases (projector/alignment).
     backbone.eval()
 
@@ -373,7 +362,6 @@ def train_projector(  # pylint: disable=too-many-arguments
     num_workers: int = cfg.projector_workers,
     weight_decay: float = cfg.projector_weight_decay,
     device: torch.device | str = cfg.device,
-    plot_tsne: bool = cfg.plot_tsne,
 ) -> None:
     """
     Train a single projector network to map backbone features to embeddings.
@@ -391,7 +379,6 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers: The number of workers for the DataLoader.
         weight_decay: The weight decay for the optimizer.
         device: The device to run the training on.
-        plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.
     """
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
@@ -417,14 +404,6 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
-
-    if plot_tsne:
-        plot_tsne_embeddings(
-            dataset,
-            backbone=backbone,
-            save_path="tests/figures/tsne_backbone.png",
-            device=device,
-        )
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
     # Augmentations are temporarily disabled inside ``harvest_backbone_features`` to get stable descriptors.
@@ -477,16 +456,6 @@ def train_projector(  # pylint: disable=too-many-arguments
             torch.nn.utils.clip_grad_norm_(projector.parameters(), max_norm=1.0)
             scaler.step(optimiser)
             scaler.update()
-
-    if plot_tsne:
-        projector.eval()
-        with torch.no_grad():
-            proj_vecs = projector(feats_all.to(device)).cpu()
-        plot_projector_tsne(
-            proj_vecs,
-            dataset,
-            save_path="tests/figures/tsne_projections.png",
-        )
 
 
 def alternating_refinement(
@@ -574,7 +543,6 @@ def alternating_refinement(
         fixed_size=dataset.fixed_size,
         character_classes=dataset.character_classes,
         config=test_cfg,
-        two_views=False,
     )
 
     cycle_idx = 1
@@ -697,7 +665,6 @@ if __name__ == "__main__":
         fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,
-        two_views=ds_cfg.two_views,
     )
 
     arch = SimpleNamespace(**cfg["architecture"])

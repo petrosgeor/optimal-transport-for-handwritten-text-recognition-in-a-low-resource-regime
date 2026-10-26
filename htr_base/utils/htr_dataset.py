@@ -4,7 +4,6 @@ import torch
 from torch.utils.data import Dataset
 from skimage.transform import resize
 from .preprocessing import load_image, preprocess, is_image_corrupted
-from wordfreq import word_frequency
 import editdistance
 import random
 from typing import List, Callable
@@ -24,7 +23,6 @@ class HTRDataset(Dataset):
         character_classes (list | None): Characters making up the vocabulary.
         config (Any): Configuration object with alignment parameters. This
             dataset requires a configuration; passing None raises an error.
-        two_views (bool): Return two augmented views when True.
 
     Attributes:
         basefolder (str): Root folder containing dataset splits.
@@ -33,11 +31,11 @@ class HTRDataset(Dataset):
         transforms (list | None): Albumentations pipeline applied to images.
         character_classes (list[str]): Dataset vocabulary of characters.
         config (Any): Optional configuration object with alignment parameters.
-        two_views (bool): Whether to return two augmented views per sample.
         n_aligned (int): Number of initially aligned instances.
         word_emb_dim (int): Dimension of word embeddings.
-        word_prob_strategy (str | None): One of empirical, wordfreq or uniform
-            controlling how unique_word_probs are computed. Defaults to empirical.
+        word_prob_strategy (str | None): One of empirical or uniform controlling
+            how unique_word_probs are computed. Defaults to empirical; any other
+            value raises ValueError.
         data (list[tuple[str, str]]): Image paths and their transcriptions.
         transcriptions (list[str]): Text strings for each image.
         unique_words (list[str]): Unique words present in the dataset.
@@ -54,7 +52,6 @@ class HTRDataset(Dataset):
         transforms: Callable | None = None,  # Albumentations-style callable or None
         character_classes: list = None,  # If None, computed automatically; else list of characters
         config=None,  # Configuration object with alignment parameters
-        two_views: bool = False,  # Whether to return two views of each image
     ):
         """Load handwritten text images and optional alignment info.
 
@@ -67,12 +64,16 @@ class HTRDataset(Dataset):
             character_classes (list | None): Characters making up the vocabulary.
             config (Any): Configuration object with alignment parameters. Passing
                 None is not supported.
-            two_views (bool): Return two augmented views when True.
         """
         if config is None:
             raise ValueError(
                 "HTRDataset requires a configuration object with alignment "
                 "metadata (e.g., n_aligned, word_emb_dim)."
+            )
+        strategy = getattr(config, "word_prob_strategy", None)
+        if strategy and str(strategy).lower() not in ("empirical", "uniform"):
+            raise ValueError(
+                f"Unknown word_prob_strategy {strategy!r}; expected 'empirical' or 'uniform'."
             )
 
         # Store constructor-level arguments.
@@ -80,7 +81,6 @@ class HTRDataset(Dataset):
         self.subset = subset
         self.fixed_size = fixed_size
         self.transforms = transforms
-        self.two_views = two_views
 
         # Store config-derived values used across dataset setup.
         self.config = config
@@ -106,9 +106,7 @@ class HTRDataset(Dataset):
         # Build word priors and embeddings.
         self.unique_words, self.unique_word_probs = self.word_frequencies()
         _strategy = (self.word_prob_strategy or "empirical").lower()
-        if _strategy == "wordfreq":
-            self.unique_word_probs = self._estimated_word_probs(self.unique_words)
-        elif _strategy == "uniform":
+        if _strategy == "uniform":
             n_words = len(self.unique_words)
             self.unique_word_probs = ([1.0 / n_words] * n_words) if n_words > 0 else []
         self.unique_word_embeddings = self.find_word_embeddings(
@@ -244,14 +242,13 @@ class HTRDataset(Dataset):
         return aligned, n_aligned
 
     def __getitem__(self, index):
-        """Return one or two processed image tensors and its transcription.
+        """Return one processed image tensor and its transcription.
 
         Args:
             index (int): Index of the sample to load.
 
         Returns:
-            tuple: (image, text, aligned_id) or ((img1, img2), text, aligned_id)
-            when two_views is enabled.
+            tuple: (image, text, aligned_id).
 
         Notes:
             Transcriptions are returned in canonical form with boundary
@@ -280,13 +277,8 @@ class HTRDataset(Dataset):
                 im = self.transforms(image=im)["image"]
             return torch.Tensor(im).float().unsqueeze(0)
 
-        if self.two_views:
-            img1 = build_view(img.copy())
-            img2 = build_view(img.copy())
-            return (img1, img2), transcr1, self.aligned[index]
-        else:
-            img_tensor = build_view(img)
-            return img_tensor, transcr1, self.aligned[index]
+        img_tensor = build_view(img)
+        return img_tensor, transcr1, self.aligned[index]
 
     def __len__(self):
         """Return the number of items in the dataset.
@@ -487,24 +479,6 @@ class HTRDataset(Dataset):
         unique = list(counts.keys())
         probs = [counts[w] / total for w in unique]
         return unique, probs
-
-    def _estimated_word_probs(self, words):
-        """Return probabilities for *words* using the wordfreq corpus.
-
-        The values are word_frequency(w, en); zeros are replaced with a
-        tiny epsilon and the vector is normalised to sum to 1.
-
-        Args:
-            words (list[str]): Tokens to query the language model.
-
-        Returns:
-            list[float]: Normalised prior probabilities.
-        """
-        eps = 1e-12
-        freqs = [max(word_frequency(w, "en"), eps) for w in words]
-        total = float(sum(freqs))
-        return [f / total for f in freqs]
-
 
 class PretrainingHTRDataset(Dataset):
     """Lightweight dataset for image-only pretraining.
