@@ -1,6 +1,6 @@
 # Copyright
 from __future__ import annotations
-import os, sys, random, pickle
+import os, sys, random
 import json
 import re
 import math
@@ -36,7 +36,6 @@ from alignment.utils.ctc import (
 from alignment.utils.checks import _assert_grad_finite
 from alignment.losses import _ctc_loss_fn, SoftContrastiveLoss  # new class
 from htr_base.utils.phoc import build_phoc_description
-import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
 

@@ -2,29 +2,13 @@
 
 from __future__ import annotations
 
-import importlib
-
-import nltk
 import pytest
 import torch
 from torch.utils.data import Dataset
 
 pytest.importorskip("pyctcdecode")
 
-
-def _import_eval_module():
-    """Import alignment.eval while stubbing nltk download side effects.
-
-    Returns:
-    - (module): Imported alignment.eval module.
-    """
-    original_download = nltk.download
-    nltk.download = lambda *args, **kwargs: True
-    try:
-        eval_mod = importlib.import_module("alignment.eval")
-    finally:
-        nltk.download = original_download
-    return eval_mod
+from alignment.eval import compute_cer  # noqa: E402  (needs pyctcdecode)
 
 
 def _get_vocab_maps():
@@ -188,8 +172,6 @@ def _pick_two_non_space_chars(c2i: dict[str, int]) -> tuple[str, str]:
 
 def test_compute_cer_returns_zero_for_perfect_logits() -> None:
     """compute_cer should be zero when model decodes exactly to targets."""
-    eval_mod = _import_eval_module()
-    compute_cer = eval_mod.compute_cer
     c2i, _ = _get_vocab_maps()
     char_a, char_b = _pick_two_non_space_chars(c2i)
     targets = [f"{char_a}{char_b}", f"{char_b}{char_a}{char_b}"]
@@ -204,8 +186,6 @@ def test_compute_cer_returns_zero_for_perfect_logits() -> None:
 
 def test_compute_cer_is_positive_for_wrong_logits() -> None:
     """compute_cer should be > 0 when one decoded sample is intentionally wrong."""
-    eval_mod = _import_eval_module()
-    compute_cer = eval_mod.compute_cer
     c2i, _ = _get_vocab_maps()
     char_a, char_b = _pick_two_non_space_chars(c2i)
     targets = [f"{char_a}{char_b}", f"{char_b}{char_a}{char_b}"]

@@ -46,7 +46,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if __name__ == "__main__":
     print(f"[trainer] Using config: {cfg_file}")
 
-from typing import Dict, Tuple, List
+from typing import Tuple, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -71,7 +71,7 @@ from alignment.alignment_utilities import (
     harvest_backbone_features,
 )
 from alignment.eval import compute_cer, compute_wer
-from alignment.plot import plot_tsne_embeddings, plot_projector_tsne, plot_pretrained_backbone_tsne
+from alignment.plot import plot_tsne_embeddings, plot_projector_tsne
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
@@ -131,10 +131,7 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     return images[perm], [words[i] for i in perm.tolist()]
 
 
-# PHOC configuration defaults
-PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
-ENABLE_PHOC = bool(cfg.get("enable_phoc", False))
-PHOC_LEVELS = tuple(cfg.get("phoc_levels", (1, 2, 3, 4)))
+# Projector loss weight
 SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
 
 # Soft-contrastive configuration defaults

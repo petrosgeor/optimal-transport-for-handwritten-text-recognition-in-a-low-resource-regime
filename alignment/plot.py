@@ -1,13 +1,10 @@
 """Plotting utilities for alignment module."""
 
-from typing import Optional, Tuple, List, Sequence
 from pathlib import Path
 
 import os
 import random
 import torch
-import torch.nn as nn
-import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from omegaconf import OmegaConf
@@ -16,7 +13,6 @@ from types import SimpleNamespace
 from htr_base.utils.htr_dataset import HTRDataset
 from htr_base.models import HTRNet
 from htr_base.utils.vocab import load_vocab
-from alignment.alignment_utilities import harvest_backbone_features
 
 
 def _resolve_trainer_config_path() -> Path:
@@ -39,50 +35,6 @@ cfg = OmegaConf.load(_resolve_trainer_config_path())
 import warnings
 
 warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.manifold._t_sne")
-
-
-def plot_dataset_augmentations(dataset: HTRDataset, save_path: str) -> None:
-    """Save a figure showing three images and their augmentations side by side.
-
-    Args:
-        dataset (HTRDataset): Dataset providing images where each sample image
-            tensor has shape (1, H, W).
-        save_path (str): Destination path for the PNG figure.
-    """
-
-    if len(dataset) < 3:
-        raise ValueError("dataset must contain at least three items")
-
-    if getattr(dataset, "transforms", None) is None:
-        raise ValueError("dataset.transforms must not be None")
-
-    orig_transforms = dataset.transforms
-
-    indices = random.sample(range(len(dataset)), 3)
-
-    # Load original images with transforms disabled
-    dataset.transforms = None
-    originals = [dataset[i][0].squeeze().cpu().numpy() for i in indices]
-
-    # Load augmented versions
-    dataset.transforms = orig_transforms
-    augments = [dataset[i][0].squeeze().cpu().numpy() for i in indices]
-
-    # Restore dataset transforms
-    dataset.transforms = orig_transforms
-
-    fig, axes = plt.subplots(3, 2, figsize=(6, 9))
-    for row, (orig, aug) in enumerate(zip(originals, augments)):
-        axes[row, 0].imshow(orig, cmap="gray")
-        axes[row, 0].axis("off")
-        axes[row, 1].imshow(aug, cmap="gray")
-        axes[row, 1].axis("off")
-    axes[0, 0].set_title("original")
-    axes[0, 1].set_title("augmented")
-    plt.tight_layout()
-    os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-    plt.savefig(save_path)
-    plt.close(fig)
 
 
 def plot_tsne_embeddings(

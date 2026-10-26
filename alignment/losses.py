@@ -8,7 +8,6 @@ This module contains:
 
 import torch
 import torch.nn.functional as F
-import ot  # POT - Python Optimal Transport
 from geomloss.samples_loss import SamplesLoss
 from rapidfuzz import process, distance
 import numpy as np
