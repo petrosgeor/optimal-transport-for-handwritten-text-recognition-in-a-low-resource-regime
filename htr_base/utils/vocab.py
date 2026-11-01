@@ -167,60 +167,11 @@ CHARSETS = {
         "ö",
         "ü",
     ],
-    # Bessarion: exact character inventory extracted from
-    # htr_base/data/BESSARION/processed_words/{train,val,test}/gt.txt.
-    # Ordering is deterministic by Unicode code point.
-    "BESSARION": [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "7",
-        "8",
-        "9",
-        "A",
-        "E",
-        "H",
-        "I",
-        "K",
-        "N",
-        "O",
-        "X",
-        "Y",
-        "Α",
-        "Β",
-        "Γ",
-        "Δ",
-        "Ε",
-        "Ζ",
-        "Η",
-        "Θ",
-        "Ι",
-        "Κ",
-        "Λ",
-        "Μ",
-        "Ν",
-        "Ξ",
-        "Ο",
-        "Π",
-        "Ρ",
-        "Σ",
-        "Τ",
-        "Υ",
-        "Φ",
-        "Χ",
-        "Ψ",
-        "Ω",
-        "Ϊ",
-        "κ",
-        "ο",
-    ],
 }
 
 # Build a union charset that contains every symbol used across all supported datasets.
 # The ordering is alphabetical/unicode code‑point order for determinism.
-_UNION_KEYS = ("GW", "IAM", "CVL", "BESSARION")
+_UNION_KEYS = ("GW", "IAM", "CVL")
 _union_set = set()
 for _k in _UNION_KEYS:
     _union_set.update(CHARSETS[_k])
@@ -231,9 +182,9 @@ def load_vocab(dataset_name: str) -> Tuple[Dict[str, int], Dict[int, str]]:
     """Return character-index mappings for a named charset.
 
     Args:
-        dataset_name (str): One of GW, IAM, CVL, BESSARION or
-            ALL_DATASETS. The special ALL_DATASETS entry is the
-            union of all supported dataset character sets.
+        dataset_name (str): One of GW, IAM, CVL or ALL_DATASETS. The
+            special ALL_DATASETS entry is the union of all supported
+            dataset character sets.
 
     Returns:
         tuple[dict, dict]: (c2i, i2c) where indices start at 1. Index 0 is

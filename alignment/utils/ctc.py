@@ -7,8 +7,7 @@ warnings.filterwarnings("ignore", message="kenlm python bindings are not install
 logging.getLogger("pyctcdecode.decoder").setLevel(logging.ERROR)
 
 import torch
-from typing import List, Dict, Tuple, Callable
-import math
+from typing import List, Dict, Tuple
 from pyctcdecode import build_ctcdecoder
 
 
@@ -44,25 +43,6 @@ def encode_for_ctc(
     lengths = torch.tensor([len(txt) for txt in normalized], dtype=torch.int32, device=device)
 
     return targets, lengths
-
-
-def _unflatten_targets(targets: torch.Tensor, lengths: torch.Tensor) -> list[list[int]]:
-    """Convert flattened CTC targets back to per-sample index sequences.
-
-    Args:
-    - targets (torch.Tensor): Flattened target indices with shape (sum(L),).
-    - lengths (torch.Tensor): Per-sample target lengths with shape (B,).
-
-    Returns:
-    - (list[list[int]]): Decoded index lists of length B where each element has
-      length given by the corresponding entry in lengths.
-    """
-    out = []
-    i = 0
-    for length in lengths:
-        out.append(targets[i : i + length].tolist())
-        i += length
-    return out
 
 
 def greedy_ctc_decode(
@@ -111,7 +91,6 @@ def greedy_ctc_decode(
     return decoded
 
 
-from pyctcdecode import build_ctcdecoder
 
 # --------------------------------------------------------------------------- #
 #                           Beam-search CTC decoding                          #
@@ -180,55 +159,3 @@ def beam_search_ctc_decode(
         results.append(decoded_text.strip())
 
     return results
-
-
-def ctc_target_probability(
-    logits: torch.Tensor,
-    target: str,
-    c2i: Dict[str, int],
-    *,
-    blank_id: int = 0,
-) -> float:
-    """Compute the CTC path probability of one target string.
-
-    Args:
-    - logits (torch.Tensor): Single-sample logits with shape (T, C), where C
-      includes the blank class.
-    - target (str): Target transcription composed of characters from c2i.
-    - c2i (dict[str, int]): Character-to-index map for non-blank symbols.
-    - blank_id (int): Index used for the CTC blank symbol.
-
-    Returns:
-    - (float): Probability that logits collapse to target under the CTC
-      forward algorithm.
-    """
-
-    log_probs = logits.log_softmax(dim=1)
-
-    # Extended label sequence with blanks inserted between characters and
-    # at the beginning and end as per the CTC forward algorithm.
-    ext_labels = [blank_id]
-    for ch in target:
-        ext_labels.append(c2i[ch])
-        ext_labels.append(blank_id)
-
-    T = log_probs.size(0)
-    S = len(ext_labels)
-
-    # Forward variables initialised in log-space for numerical stability
-    alpha = torch.full((T, S), float("-inf"), device=log_probs.device)
-    alpha[0, 0] = log_probs[0, ext_labels[0]]
-    if S > 1:
-        alpha[0, 1] = log_probs[0, ext_labels[1]]
-
-    for t in range(1, T):
-        for s in range(S):
-            prev = alpha[t - 1, s]
-            if s > 0:
-                prev = torch.logaddexp(prev, alpha[t - 1, s - 1])
-            if s > 1 and ext_labels[s] != blank_id and ext_labels[s] != ext_labels[s - 2]:
-                prev = torch.logaddexp(prev, alpha[t - 1, s - 2])
-            alpha[t, s] = prev + log_probs[t, ext_labels[s]]
-
-    log_prob = torch.logaddexp(alpha[T - 1, S - 1], alpha[T - 1, S - 2])
-    return float(log_prob.exp().item())

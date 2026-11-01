@@ -46,7 +46,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if __name__ == "__main__":
     print(f"[trainer] Using config: {cfg_file}")
 
-from typing import Dict, Tuple, List
+from typing import Tuple, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -60,7 +60,7 @@ if str(root) not in sys.path:
     sys.path.insert(0, str(root))
 from htr_base.utils.htr_dataset import HTRDataset, PretrainingHTRDataset
 from htr_base.models import HTRNet, Projector
-from alignment.losses import ProjectionLoss, SoftContrastiveLoss
+from alignment.losses import ProjectionLoss
 from alignment.utils.ctc import encode_for_ctc
 from alignment.utils.checkpoints import maybe_load_backbone
 from alignment.utils.reporting import log_pseudo_labels, log_round_metrics
@@ -71,7 +71,6 @@ from alignment.alignment_utilities import (
     harvest_backbone_features,
 )
 from alignment.eval import compute_cer, compute_wer
-from alignment.plot import plot_tsne_embeddings, plot_projector_tsne, plot_pretrained_backbone_tsne
 from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
@@ -79,7 +78,6 @@ import copy
 
 import warnings
 
-warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn.manifold._t_sne")
 from requests.exceptions import RequestsDependencyWarning
 
 warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
@@ -131,17 +129,8 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     return images[perm], [words[i] for i in perm.tolist()]
 
 
-# PHOC configuration defaults
-PHOC_WEIGHT = float(cfg.get("phoc_loss_weight", 0.1))
-ENABLE_PHOC = bool(cfg.get("enable_phoc", False))
-PHOC_LEVELS = tuple(cfg.get("phoc_levels", (1, 2, 3, 4)))
+# Projector loss weight
 SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
-
-# Soft-contrastive configuration defaults
-CONTRASTIVE_ENABLE = bool(cfg.get("contrastive_enable", False))
-CONTRASTIVE_WEIGHT = float(cfg.get("contrastive_weight", 0.0))
-CONTRASTIVE_TAU = float(cfg.get("contrastive_tau", 0.07))
-CONTRASTIVE_TEXT_T = float(cfg.get("contrastive_text_T", 1.0))
 
 # Legacy safeguard removed: device selection happens at import
 # and device strings are normalized earlier.
@@ -172,17 +161,13 @@ def refine_visual_backbone(
     phoc_weight: float = cfg.phoc_loss_weight,
     enable_phoc: bool = cfg.enable_phoc,
     phoc_levels: Tuple[int, ...] = tuple(cfg.phoc_levels),
-    enable_contrastive: bool = CONTRASTIVE_ENABLE,
-    contrastive_weight: float = CONTRASTIVE_WEIGHT,
-    contrastive_tau: float = CONTRASTIVE_TAU,
-    contrastive_text_T: float = CONTRASTIVE_TEXT_T,
 ) -> None:
     """Refine the visual backbone on aligned words, with optional synthetic data.
 
     Training uses only real samples whose ``dataset.aligned`` value is not ``-1``.
     When ``pretrain_ds`` is provided, batches can mix synthetic and real samples
     according to ``syn_batch_ratio``. The objective combines CTC supervision and,
-    when enabled, PHOC and soft-contrastive terms.
+    when enabled, a PHOC term.
 
     Args:
         dataset (HTRDataset): Dataset that provides images, transcriptions, and
@@ -202,10 +187,6 @@ def refine_visual_backbone(
         phoc_weight (float): Weight applied to the PHOC loss term.
         enable_phoc (bool): Whether PHOC loss is included.
         phoc_levels (Tuple[int, ...]): Pyramid levels used to build PHOC targets.
-        enable_contrastive (bool): Whether soft-contrastive loss is included.
-        contrastive_weight (float): Weight applied to the contrastive term.
-        contrastive_tau (float): Temperature for descriptor similarities.
-        contrastive_text_T (float): Temperature used in text-space similarities.
     """
     # The refinement path in this codebase is designed for CUDA execution.
     # Keep the explicit assertion so failures happen early and readably.
@@ -274,11 +255,6 @@ def refine_visual_backbone(
     # Optimizer updates only backbone parameters in this stage.
     optimizer = optim.AdamW(backbone.parameters(), lr=lr)
 
-    # Construct contrastive criterion lazily only when requested.
-    contr_fn = None
-    if enable_contrastive:
-        contr_fn = SoftContrastiveLoss(contrastive_tau, contrastive_text_T).to(device)
-
     # Main refinement loop.
     for epoch in range(1, num_epochs + 1):
         epoch_loss: float = 0.0
@@ -310,25 +286,18 @@ def refine_visual_backbone(
             _assert_finite(imgs, "images")
 
             # Forward pass through the backbone. Request features only when
-            # they are used (PHOC or contrastive), which keeps compatibility
-            # with lightweight dummy backbones used in tests.
-            need_feats = (enable_phoc and backbone.phoc_head is not None) or enable_contrastive
+            # they are used (PHOC), which keeps compatibility with lightweight
+            # dummy backbones used in tests.
+            need_feats = enable_phoc and backbone.phoc_head is not None
             out = backbone(imgs, return_feats=need_feats)
 
             # This routine expects the dual-CTC-head contract:
             # (main_logits, aux_logits, ...).
             if not isinstance(out, (tuple, list)) or len(out) < 2:
                 raise RuntimeError("Expected network.forward() → (main, aux, …)")
-            if need_feats:
-                # With features enabled:
-                # out[:3] -> main logits, auxiliary logits, pooled descriptors.
-                main_logits, aux_logits, feats = out[:3]
-                # PHOC logits may be present as an extra tail element.
-                phoc_logits = out[3] if enable_phoc and backbone.phoc_head is not None else None
-            else:
-                main_logits, aux_logits = out[:2]
-                feats = None
-                phoc_logits = None
+            main_logits, aux_logits = out[:2]
+            # With features requested, out is (main, aux, descriptors, phoc_logits).
+            phoc_logits = out[3] if need_feats else None
 
             # CTC dimensions:
             # T = input sequence length, K = batch size.
@@ -354,18 +323,11 @@ def refine_visual_backbone(
                 phoc_targets = phoc_targets.float().to(device)
                 loss_phoc = F.binary_cross_entropy_with_logits(phoc_logits, phoc_targets)
 
-            # Optional contrastive regularization over pooled descriptors.
-            loss_contr = torch.tensor(0.0, device=device)
-            if enable_contrastive and feats is not None:
-                loss_contr = contr_fn.forward(feats, targets, tgt_lens)
-                _assert_finite(loss_contr, "contrastive loss")
-
             # Weighted multi-objective loss.
             loss = (
                 main_weight * loss_main
                 + aux_weight * loss_aux
                 + phoc_weight * loss_phoc
-                + contrastive_weight * loss_contr
             )
             _assert_finite(loss, "loss")
 
@@ -382,15 +344,6 @@ def refine_visual_backbone(
         #     print(f"Epoch {epoch:03d}/{num_epochs} – avg loss: {avg_loss:.4f}")
         # else:
         #     print(f"Epoch {epoch:03d}/{num_epochs} – no aligned batch encountered")
-
-    # End-of-stage diagnostic plot (side effect): saves a t-SNE figure.
-    plot_tsne_embeddings(
-        dataset=dataset,
-        backbone=backbone,
-        save_path="results/figures/tsne_backbone_contrastive.png",
-        device=device,
-    )
-    # print('the backbone TSNE plot is saved')
 
     # Leave backbone in eval mode for downstream phases (projector/alignment).
     backbone.eval()
@@ -409,7 +362,6 @@ def train_projector(  # pylint: disable=too-many-arguments
     num_workers: int = cfg.projector_workers,
     weight_decay: float = cfg.projector_weight_decay,
     device: torch.device | str = cfg.device,
-    plot_tsne: bool = cfg.plot_tsne,
 ) -> None:
     """
     Train a single projector network to map backbone features to embeddings.
@@ -427,7 +379,6 @@ def train_projector(  # pylint: disable=too-many-arguments
         num_workers: The number of workers for the DataLoader.
         weight_decay: The weight decay for the optimizer.
         device: The device to run the training on.
-        plot_tsne: A flag to enable or disable t-SNE plotting of embeddings.
     """
     # ---------------------------------------------------------------- setup
     device = torch.device(device)
@@ -453,14 +404,6 @@ def train_projector(  # pylint: disable=too-many-arguments
 
     word_embs = word_embs_cpu.to(device)
     word_probs = word_probs_cpu.to(device)
-
-    if plot_tsne:
-        plot_tsne_embeddings(
-            dataset,
-            backbone=backbone,
-            save_path="tests/figures/tsne_backbone.png",
-            device=device,
-        )
 
     # ---------------------------------------------------------------- 1. Harvest descriptors for the whole dataset
     # Augmentations are temporarily disabled inside ``harvest_backbone_features`` to get stable descriptors.
@@ -514,16 +457,6 @@ def train_projector(  # pylint: disable=too-many-arguments
             scaler.step(optimiser)
             scaler.update()
 
-    if plot_tsne:
-        projector.eval()
-        with torch.no_grad():
-            proj_vecs = projector(feats_all.to(device)).cpu()
-        plot_projector_tsne(
-            proj_vecs,
-            dataset,
-            save_path="tests/figures/tsne_projections.png",
-        )
-
 
 def alternating_refinement(
     dataset: HTRDataset,
@@ -536,7 +469,6 @@ def alternating_refinement(
     refine_kwargs: dict | None = None,
     projector_kwargs: dict | None = None,
     align_kwargs: dict | None = None,
-    enable_pseudo_labeling: bool = bool(getattr(cfg, "enable_pseudo_labeling", True)),
 ) -> None:
     """
     Perform an alternating training cycle between the backbone and projector.
@@ -559,11 +491,6 @@ def alternating_refinement(
         refine_kwargs: Additional keyword arguments for refine_visual_backbone.
         projector_kwargs: Additional keyword arguments for train_projector.
         align_kwargs: Additional keyword arguments for align_more_instances.
-        enable_pseudo_labeling (bool): If False, skip calls to
-            :func:align_more_instances and train only on the currently
-            aligned samples. Metrics (CER/WER) are still computed and logged
-            for each refinement round with correct_pseudo=0. Defaults to
-            cfg.enable_pseudo_labeling (True if missing).
     """
 
     out_dir = "results"
@@ -603,8 +530,6 @@ def alternating_refinement(
     align_kwargs.setdefault("batch_size", cfg.align_batch_size)
     align_kwargs.setdefault("device", cfg.align_device)
     align_kwargs.setdefault("reg", cfg.align_reg)
-    align_kwargs.setdefault("unbalanced", cfg.align_unbalanced)
-    align_kwargs.setdefault("reg_m", cfg.align_reg_m)
     align_kwargs.setdefault("k", cfg.align_k)
 
     # Build test dataset with n_aligned=0 to avoid seeding on the test split.
@@ -618,48 +543,9 @@ def alternating_refinement(
         fixed_size=dataset.fixed_size,
         character_classes=dataset.character_classes,
         config=test_cfg,
-        two_views=False,
     )
 
     cycle_idx = 1
-    # If pseudo‑labelling is disabled, run exactly `rounds` refinement cycles
-    # training the BACKBONE ONLY (no projector training), compute CER/WER each
-    # round, log metrics with correct_pseudo=0, and return.
-    if not enable_pseudo_labeling:
-        for r in range(rounds):
-            print(f"[Round {r + 1}/{rounds}] Refining backbone...")
-            if backbone_epochs > 0:
-                refine_visual_backbone(
-                    dataset,
-                    backbone,
-                    num_epochs=backbone_epochs,
-                    **(refine_kwargs or {}),
-                )
-
-            cer_test = compute_cer(
-                test_dataset,
-                backbone,
-                batch_size=cfg.eval_batch_size,
-                device=cfg.device,
-                k=4,
-            )
-            wer_test = compute_wer(
-                test_dataset,
-                backbone,
-                batch_size=cfg.eval_batch_size,
-                device=cfg.device,
-            )
-            log_round_metrics(
-                r + 1,
-                0,
-                cer_test,
-                float(wer_test),
-                cfg.round_metrics_file,
-                basefolder=str(getattr(cfg.dataset, "basefolder", "")),
-                n_aligned=int(getattr(cfg.dataset, "n_aligned", 0)),
-            )
-        return
-
     while (dataset.aligned == -1).any():
         for r in range(rounds):
             print(f"[Round {r + 1}/{rounds}] Refining backbone...")
@@ -779,7 +665,6 @@ if __name__ == "__main__":
         fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,
-        two_views=ds_cfg.two_views,
     )
 
     arch = SimpleNamespace(**cfg["architecture"])

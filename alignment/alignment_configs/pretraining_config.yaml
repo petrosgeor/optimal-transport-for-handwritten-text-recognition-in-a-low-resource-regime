@@ -10,43 +10,20 @@ phoc_loss_weight: 0.5     # loss scaling factor
 # ----------------------------------------------------------------------
 architecture:
   cnn_cfg: [[2, 64], "M", [3, 128], "M", [2, 256]]
-  head_type: both
-  rnn_type: gru
   rnn_layers: 3
   rnn_hidden_size: 256
-  flattening: maxpool
-  stn: false
   feat_dim: 512
-  feat_pool: attn
-  feat_source: rnn_mean
   phoc_levels: [1, 2, 3, 4]
-
-# ----------------------------------------------------------------------
-# Soft‑contrastive loss 
-# ----------------------------------------------------------------------
-contrastive_enable: false   # turn on to activate the loss
-contrastive_weight: 0.3     # β – scales the new loss inside total_loss
-contrastive_tau: 0.07       # τ – temperature for descriptor similarities
-contrastive_text_T: 3.0     # T_txt – softness in edit‑distance space
-
-# ----------------------------------------------------------------------
-# Optional pretrained backbone
-# ----------------------------------------------------------------------
-load_pretrained_backbone: false   # load weights for the backbone at startup
-pretrained_backbone_path: "htr_base/saved_models/pretrained_backbone.pt"
 
 # ----------------------------------------------------------------------
 # Pretraining hyperparameters
 # ----------------------------------------------------------------------
 # Dataset and training parameters are now configured here so that
 # ``pretraining.py`` and other scripts use the same values.
-device: cuda           # target device
 gpu_id: 0              # CUDA device index
 list_file: "htr_base/data/mnt/ramdisk/max/90kDICT32px/imlist.txt"
 train_set_size: 100000  # number of random training images
 test_set_size: 10000   # number of random test images
-min_length: 0   # keep training images whose label length \u2208 [min_length, max_length]
-max_length: 100
 batch_size: 512
 num_epochs: 10000
 learning_rate: 1e-3
@@ -58,12 +35,3 @@ aux_loss_weight: 0.1
 save_path: "100k-samples"
 checkpoint_every: 10
 save_backbone: true
-results_file: false
-
-# ----------------------------------------------------------------------
-# Non-finite diagnostics
-# ----------------------------------------------------------------------
-debug_nonfinite_probe: false       # enable detailed per-batch diagnostics for NaN/Inf
-debug_nonfinite_dump: true         # persist a JSON report on first non-finite failure
-debug_nonfinite_dump_file: "nonfinite_report.json"
-debug_nonfinite_max_batches: null  # optional cap for probe runs (null = full epoch)

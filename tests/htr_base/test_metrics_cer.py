@@ -2,28 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
-
-import nltk
 import pytest
 
-
-def _load_cer_class():
-    """Import CER while preventing network download side effects in tests.
-
-    Returns:
-    - (type): CER class object from htr_base.utils.metrics.
-    """
-    original_download = nltk.download
-    nltk.download = lambda *args, **kwargs: True
-    try:
-        metrics_mod = importlib.import_module("htr_base.utils.metrics")
-    finally:
-        nltk.download = original_download
-    return metrics_mod.CER
-
-
-CER = _load_cer_class()
+from htr_base.utils.metrics import CER
 
 
 def test_cer_exact_value_for_single_pair() -> None:

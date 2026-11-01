@@ -83,7 +83,7 @@ def log_round_metrics(
         base = str(basefolder)
         tokens = [p.lower() for p in Path(base).parts]
         ds_name = None
-        for candidate in ("GW", "IAM", "CVL", "BESSARION"):
+        for candidate in ("GW", "IAM", "CVL"):
             if candidate.lower() in tokens or candidate.lower() in base.lower():
                 ds_name = candidate
                 break
