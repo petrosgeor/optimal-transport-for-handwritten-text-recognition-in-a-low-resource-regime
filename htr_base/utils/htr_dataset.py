@@ -674,11 +674,11 @@ class PretrainingHTRDataset(Dataset):
         else:
             img = load_image(self.img_paths[index])
         fH, fW = self.fixed_size
-        # nW = int(np.random.uniform(.75, 1.25) * img.shape[1])
-        # nH = int((np.random.uniform(.9, 1.1) * img.shape[0] / img.shape[1]) * nW)
-        nW = max(1, int(np.random.uniform(0.75, 1.25) * img.shape[1]))
-        nH = max(1, int((np.random.uniform(0.9, 1.1) * img.shape[0] / img.shape[1]) * nW))
-        img = resize(image=img, output_shape=(nH, nW)).astype(np.float32)
+        # Random rescale is an augmentation, so it only runs when transforms are set.
+        if getattr(self, "transforms", None):
+            nW = max(1, int(np.random.uniform(0.75, 1.25) * img.shape[1]))
+            nH = max(1, int((np.random.uniform(0.9, 1.1) * img.shape[0] / img.shape[1]) * nW))
+            img = resize(image=img, output_shape=(nH, nW)).astype(np.float32)
 
         img = preprocess(img, (fH, fW))
         if getattr(self, "transforms", None):
