@@ -83,35 +83,6 @@ from requests.exceptions import RequestsDependencyWarning
 
 warnings.filterwarnings("ignore", category=RequestsDependencyWarning)
 
-# --------------------------------------------------------------------------- #
-#                          CUDA device normalization                          #
-# --------------------------------------------------------------------------- #
-# Ensure the current device is the single visible GPU (local cuda:0) and
-# sanitize any 'cuda:<n>' strings in the config to plain 'cuda'. This avoids
-# device-index mismatches (e.g., with KeOps/GeomLoss) when CUDA_VISIBLE_DEVICES
-# remaps the selected physical GPU to local index 0.
-try:
-    if torch.cuda.is_available():
-        try:
-            torch.cuda.set_device(0)
-        except Exception:
-            # Best-effort; continue if setting current device fails
-            pass
-    # Normalize device strings like 'cuda:3' -> 'cuda' since only local 0 is visible
-    if isinstance(cfg.device, str) and cfg.device.startswith("cuda") and ":" in cfg.device:
-        print("[trainer] Normalizing cfg.device to 'cuda' (use gpu_id to select GPU)")
-        cfg.device = "cuda"
-    if (
-        isinstance(cfg.align_device, str)
-        and cfg.align_device.startswith("cuda")
-        and ":" in cfg.align_device
-    ):
-        print("[trainer] Normalizing cfg.align_device to 'cuda' (use gpu_id to select GPU)")
-        cfg.align_device = "cuda"
-except Exception:
-    # Keep training resilient to unexpected config types or missing attributes
-    pass
-
 
 def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor, List[str]]:
     """Randomly shuffle a mini-batch of images and transcriptions together.
@@ -152,9 +123,6 @@ SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
 
 # Seed for the initially aligned samples and the global random generators
 SEED = int(cfg.get("seed", 0))
-
-# Legacy safeguard removed: device selection happens at import
-# and device strings are normalized earlier.
 
 # Enable cuDNN autotuner for potentially faster kernels on fixed-size inputs
 try:
