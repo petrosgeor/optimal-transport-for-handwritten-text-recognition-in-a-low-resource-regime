@@ -253,7 +253,7 @@ class HTRNet(nn.Module):
         if self.feat_dim and self.phoc_levels:
             phoc_dim = (nclasses - 1) * sum(self.phoc_levels)
             self.phoc_head = nn.Sequential(
-                nn.ReLU(inplace=True), nn.Linear(self.feat_dim, phoc_dim)
+                nn.ReLU(), nn.Linear(self.feat_dim, phoc_dim)
             )
         else:
             self.phoc_head = None
