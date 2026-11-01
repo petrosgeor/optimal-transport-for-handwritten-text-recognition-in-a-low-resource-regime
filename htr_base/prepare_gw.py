@@ -92,6 +92,9 @@ def decode_word(tokens, unknown):
 def read_word_labels(root, unknown):
     """Read and decode every word label, grouped by split in file order.
 
+    Every word image is checked here, before any output is written, so a
+    missing image never leaves some splits regenerated and others stale.
+
     Args:
     - root (Path): WashingtonDB root containing `ground_truth/word_labels.txt`.
     - unknown (Counter): Passed to `decode_word` to count undecoded tokens.
@@ -104,6 +107,7 @@ def read_word_labels(root, unknown):
     if not labels_file.is_file():
         raise FileNotFoundError(f"Word labels file not found: {labels_file}")
 
+    image_dir = root / "data" / "word_images_normalized"
     by_split = {split: [] for split in SPLIT_PAGES}
     with open(labels_file, encoding="utf-8-sig") as f:
         for line in f:
@@ -111,7 +115,11 @@ def read_word_labels(root, unknown):
             if len(parts) != 2:
                 continue
             word_id, tokens = parts
-            by_split[split_of(word_id)].append((word_id, decode_word(tokens, unknown)))
+            split = split_of(word_id)
+            src = image_dir / f"{word_id}.png"
+            if not src.is_file():
+                raise FileNotFoundError(f"Expected word image missing: {src}")
+            by_split[split].append((word_id, decode_word(tokens, unknown)))
     return by_split
 
 
@@ -135,8 +143,6 @@ def write_split(image_dir, items, out_dir):
         if not text:
             continue
         src = image_dir / f"{word_id}.png"
-        if not src.is_file():
-            raise FileNotFoundError(f"Expected word image missing: {src}")
         shutil.copy2(src, out_dir / src.name)
         gt_lines.append(f"{word_id} {text}\n")
     with open(out_dir / "gt.txt", "w", encoding="utf-8") as f:
