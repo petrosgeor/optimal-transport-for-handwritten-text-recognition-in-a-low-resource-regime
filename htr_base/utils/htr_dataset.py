@@ -52,6 +52,7 @@ class HTRDataset(Dataset):
         transforms: Callable | None = None,  # Albumentations-style callable or None
         character_classes: list = None,  # If None, computed automatically; else list of characters
         config=None,  # Configuration object with alignment parameters
+        seed: int = 0,  # Seed for picking the initially aligned samples
     ):
         """Load handwritten text images and optional alignment info.
 
@@ -64,6 +65,8 @@ class HTRDataset(Dataset):
             character_classes (list | None): Characters making up the vocabulary.
             config (Any): Configuration object with alignment parameters. Passing
                 None is not supported.
+            seed (int): Seed for picking the initially aligned samples. It uses
+                its own generator, so the global random state does not affect it.
         """
         if config is None:
             raise ValueError(
@@ -81,6 +84,7 @@ class HTRDataset(Dataset):
         self.subset = subset
         self.fixed_size = fixed_size
         self.transforms = transforms
+        self.seed = int(seed)
 
         # Store config-derived values used across dataset setup.
         self.config = config
@@ -335,6 +339,8 @@ class HTRDataset(Dataset):
           only (global positions in the concatenated train/val/test order),
           without replacement.
         - The output size is ``min(requested_count, number_of_candidates)``.
+        - The draw uses ``random.Random(self.seed)``, so it depends only on the
+          seed and the candidate pool, not on the global random state.
 
         Args:
             n_aligned (int | None): Number of indices to sample.
@@ -365,7 +371,7 @@ class HTRDataset(Dataset):
 
         # Sample *indices* uniformly and WITHOUT replacement (no duplicate images).
         k = min(n_aligned, len(candidates))
-        return random.sample(candidates, k=k)
+        return random.Random(self.seed).sample(candidates, k=k)
 
     def find_word_embeddings(self, word_list, n_components: int = 512):
         """Embed words using Landmark (Nyström) MDS under edit distance.

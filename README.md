@@ -43,7 +43,7 @@ Checkpoints go to `saved_models/pretrained_models/<save_path>/`.
 python -m alignment.trainer --config alignment/alignment_configs/trainer_config.yaml
 ```
 
-The config sets the dataset (`dataset.basefolder`), the number of starting labels (`dataset.n_aligned`), and the pretrained checkpoint (`pretrained_backbone_path`). After each round the trainer adds a line to `round_metrics_file`: round, correct pseudo-labels, test CER (as a fraction), test WER (in %).
+The config sets the dataset (`dataset.basefolder`), the number of starting labels (`dataset.n_aligned`), the pretrained checkpoint (`pretrained_backbone_path`), and `seed`, which picks the starting labels and seeds `random`, NumPy and PyTorch. After each round the trainer adds a line to `round_metrics_file`: round, correct pseudo-labels, test CER (as a fraction), test WER (in %), seed.
 
 ## Citation
 

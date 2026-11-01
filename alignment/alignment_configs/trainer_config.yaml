@@ -31,6 +31,11 @@ projector_workers: 2        # dataloader workers used during descriptor caching
 projector_weight_decay: 1e-4  # weight decay for the projector optimiser
 
 # ----------------------------------------------------------------------
+# Reproducibility
+# ----------------------------------------------------------------------
+seed: 0                     # picks the initially aligned samples; also seeds random, numpy and torch
+
+# ----------------------------------------------------------------------
 # Compute device
 # ----------------------------------------------------------------------
 device: cuda                # target device for training (e.g., 'cuda', 'cpu')
@@ -70,7 +75,7 @@ supervised_weight: 100       # Weight for supervised loss component
 # Optional pretrained backbone
 # ----------------------------------------------------------------------
 load_pretrained_backbone: true # Load weights for the backbone at startup
-pretrained_backbone_path: "saved_models/pretrained_models/100k-samples/best_cer.pt" # Path to the pretrained backbone model
+pretrained_backbone_path: "saved_models/pretrained_models/30k-samples-cased/best_cer.pt" # Path to the pretrained backbone model
 
 # ----------------------------------------------------------------------
 # Synthetic dataset parameters

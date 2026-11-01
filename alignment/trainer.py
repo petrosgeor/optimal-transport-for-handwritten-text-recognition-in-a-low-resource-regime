@@ -74,6 +74,8 @@ from htr_base.utils.transforms import aug_transforms
 from htr_base.utils.vocab import load_vocab
 from htr_base.utils import build_phoc_description
 import copy
+import random
+import numpy as np
 
 import warnings
 
@@ -147,6 +149,9 @@ def _endless(loader: DataLoader) -> Iterator:
 
 # Projector loss weight
 SUPERVISED_WEIGHT = float(cfg.get("supervised_weight", 1.0))
+
+# Seed for the initially aligned samples and the global random generators
+SEED = int(cfg.get("seed", 0))
 
 # Legacy safeguard removed: device selection happens at import
 # and device strings are normalized earlier.
@@ -639,6 +644,7 @@ def alternating_refinement(
             cfg.round_metrics_file,
             basefolder=str(getattr(cfg.dataset, "basefolder", "")),
             n_aligned=int(getattr(cfg.dataset, "n_aligned", 0)),
+            seed=SEED,
         )
 
         # --- restrict CER to already-aligned samples -------------------
@@ -665,6 +671,12 @@ def alternating_refinement(
 if __name__ == "__main__":
     from types import SimpleNamespace
 
+    # Best-effort reproducibility: weights, batch order and augmentations.
+    # GPU kernels (CUDA CTC, cuDNN autotuning) can still differ between runs.
+    random.seed(SEED)
+    np.random.seed(SEED)
+    torch.manual_seed(SEED)
+
     # ── 1. Dataset with 200 unique words and a handful of alignments ─────
     proj_root = Path(__file__).resolve().parents[1]
 
@@ -682,6 +694,7 @@ if __name__ == "__main__":
         fixed_size=tuple(ds_cfg.fixed_size),
         transforms=aug_transforms,
         config=ds_cfg,
+        seed=SEED,
     )
 
     arch = SimpleNamespace(**cfg["architecture"])

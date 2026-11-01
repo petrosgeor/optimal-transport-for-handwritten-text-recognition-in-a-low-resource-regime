@@ -56,6 +56,7 @@ def log_round_metrics(
     *,
     basefolder: str,
     n_aligned: int,
+    seed: int,
 ) -> None:
     """Append one round of metrics to a TSV file.
 
@@ -68,7 +69,7 @@ def log_round_metrics(
 
     On the first round (round_idx == 1), an existing file at the final path is
     deleted. Subsequent rounds append one TSV row:
-        <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\n
+        <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\t<seed>\n
 
     Args:
         round_idx (int): One-based round index.
@@ -78,6 +79,7 @@ def log_round_metrics(
         out_file (str): Explicit output path or "auto" for generated path.
         basefolder (str): Dataset base folder used for dataset-name inference.
         n_aligned (int): Initial number of aligned samples used in auto filename.
+        seed (int): Seed that picked the initially aligned samples.
     """
     if isinstance(out_file, str) and out_file.strip().lower() == "auto":
         base = str(basefolder)
@@ -102,4 +104,4 @@ def log_round_metrics(
     mode = "a" if output_path.is_file() else "w"
 
     with open(output_path, mode, encoding="utf-8") as fh:
-        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\t{wer_test:.4f}\n")
+        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\t{wer_test:.4f}\t{seed}\n")

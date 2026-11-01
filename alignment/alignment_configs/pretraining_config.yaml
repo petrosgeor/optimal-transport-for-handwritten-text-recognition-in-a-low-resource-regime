@@ -22,16 +22,16 @@ architecture:
 # ``pretraining.py`` and other scripts use the same values.
 gpu_id: 0              # CUDA device index
 list_file: "htr_base/data/mnt/ramdisk/max/90kDICT32px/imlist.txt"
-train_set_size: 100000  # number of random training images
+train_set_size: 30000   # number of random training images
 test_set_size: 10000   # number of random test images
 batch_size: 512
-num_epochs: 10000
+num_epochs: 1000
 learning_rate: 1e-3
 fixed_size: [64, 256]
 base_path: null        # defaults to list_file directory if null
 use_augmentations: true
 main_loss_weight: 1.0
 aux_loss_weight: 0.1
-save_path: "100k-samples"
+save_path: "30k-samples-cased"
 checkpoint_every: 10
 save_backbone: true
