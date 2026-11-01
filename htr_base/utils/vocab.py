@@ -7,13 +7,13 @@ curated symbol set per dataset. No disk IO is performed.
 from typing import Dict, Tuple
 
 
+# No charset contains a space: recognition is word level (one word per image).
 CHARSETS = {
     # GW: labels keep the original case and punctuation (recognition protocol).
     "GW": list(
-        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-;:'&()/\u00a3"
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.,-;:'&()/\u00a3"
     ),
     "IAM": [
-        " ",
         "!",
         '"',
         "#",
@@ -94,11 +94,10 @@ CHARSETS = {
         "z",
     ],
     # CVL: character set extended to include common symbols.
-    # Union of: space, apostrophe, digits 0–9, all uppercase A–Z,
+    # Union of: apostrophe, digits 0–9, all uppercase A–Z,
     # all lowercase a–z, and dataset-specific umlauts.
     "CVL": [
-        # Whitespace and punctuation
-        " ",
+        # Punctuation
         "'",
         # Digits
         "0",

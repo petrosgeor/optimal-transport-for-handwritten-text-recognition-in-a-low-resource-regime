@@ -12,7 +12,7 @@ def test_all_datasets_is_union_of_paper_charsets() -> None:
     c2i, i2c = load_vocab("ALL_DATASETS")
     expected = sorted(set(CHARSETS["GW"]) | set(CHARSETS["IAM"]) | set(CHARSETS["CVL"]))
     assert list(c2i) == expected
-    assert len(c2i) == 83  # 82 from earlier runs plus the GW pound sign
+    assert len(c2i) == 82  # no space: recognition is word level
     assert min(c2i.values()) == 1  # 0 stays the CTC blank
     assert i2c[c2i[expected[0]]] == expected[0]
 
