@@ -567,6 +567,33 @@ def alternating_refinement(
         config=test_cfg,
     )
 
+    def _log_test_metrics(round_idx: int, correct_pseudo: int) -> None:
+        """Evaluate test CER/WER for the current backbone and append a TSV row.
+
+        Args:
+            round_idx (int): One-based row index in the round metrics file.
+            correct_pseudo (int): Correct pseudo-labels added in this round.
+        """
+        cer_test = compute_cer(
+            test_dataset, backbone, batch_size=cfg.eval_batch_size, device=cfg.device, k=4
+        )
+        wer_test = compute_wer(
+            test_dataset,
+            backbone,
+            batch_size=cfg.eval_batch_size,
+            device=cfg.device,
+        )
+        log_round_metrics(
+            round_idx,
+            correct_pseudo,
+            cer_test,
+            float(wer_test),
+            cfg.round_metrics_file,
+            basefolder=str(getattr(cfg.dataset, "basefolder", "")),
+            n_aligned=int(getattr(cfg.dataset, "n_aligned", 0)),
+            seed=SEED,
+        )
+
     cycle_idx = 1
     while (dataset.aligned == -1).any():
         for r in range(rounds):
@@ -586,11 +613,6 @@ def alternating_refinement(
 
             print(f"[Round {r + 1}/{rounds}] Training projector...")
             if projector_epochs > 0:
-                _probs_backup = None
-                if isinstance(getattr(dataset, "unique_word_probs", None), list):
-                    _probs_backup = dataset.unique_word_probs
-                    dataset.unique_word_probs = torch.tensor(_probs_backup, dtype=torch.float)
-
                 train_projector(
                     dataset,
                     backbone,
@@ -598,9 +620,6 @@ def alternating_refinement(
                     num_epochs=projector_epochs,
                     **projector_kwargs,
                 )
-
-                if _probs_backup is not None:
-                    dataset.unique_word_probs = _probs_backup
 
             for param in backbone.parameters():
                 param.requires_grad_(True)
@@ -626,26 +645,7 @@ def alternating_refinement(
             dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
             for i in changed.tolist()
         )
-        cer_test = compute_cer(
-            test_dataset, backbone, batch_size=cfg.eval_batch_size, device=cfg.device, k=4
-        )
-        # Also report Word Error Rate (WER) on the test split
-        wer_test = compute_wer(
-            test_dataset,
-            backbone,
-            batch_size=cfg.eval_batch_size,
-            device=cfg.device,
-        )
-        log_round_metrics(
-            cycle_idx,
-            correct_round,
-            cer_test,
-            float(wer_test),
-            cfg.round_metrics_file,
-            basefolder=str(getattr(cfg.dataset, "basefolder", "")),
-            n_aligned=int(getattr(cfg.dataset, "n_aligned", 0)),
-            seed=SEED,
-        )
+        _log_test_metrics(cycle_idx, correct_round)
 
         # --- restrict CER to already-aligned samples -------------------
         # aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
@@ -666,6 +666,8 @@ def alternating_refinement(
     if not (dataset.aligned == -1).any():
         print("[Info] All samples aligned – continuing backbone training …")
         refine_visual_backbone(dataset, backbone, num_epochs=backbone_epochs, **refine_kwargs)
+        # Final row: the backbone after training on every label, with no new pseudo-labels.
+        _log_test_metrics(cycle_idx, 0)
 
 
 if __name__ == "__main__":
