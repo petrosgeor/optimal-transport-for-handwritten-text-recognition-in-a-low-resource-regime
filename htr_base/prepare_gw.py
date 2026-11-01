@@ -80,64 +80,59 @@ def resolve_washingtondb_root(dataset_folder):
     )
 
 
+# WashingtonDB special tokens and the characters they stand for. Plain letters
+# are written as single tokens with their original case; digits and ordinals
+# are written as ``s_<n>`` / ``s_<n>st`` and kept as written.
+SPECIAL_TOKENS = {
+    "s_pt": ".",
+    "s_cm": ",",
+    "s_mi": "-",
+    "s_sq": ";",
+    "s_qo": ":",
+    "s_qt": "'",
+    "s_bl": "(",
+    "s_br": ")",
+    "s_sl": "/",
+    "s_lb": "\u00a3",
+    "s_et": "&",
+    "s_s": "s",  # long s, written as a plain s
+    "s_GW": "G.W.",
+}
+
+
 def decode_washington_word_label(tokenized_label, unknown_token_counter=None):
-    """Decode a WashingtonDB hyphen-tokenized word label into GW charset text.
+    """Decode a WashingtonDB hyphen-tokenized word label into text.
+
+    Case and punctuation are kept as annotated, matching the recognition
+    protocol of the GW benchmark (CER/WER against the original labels).
 
     Args:
     - tokenized_label (str): Tokenized WashingtonDB label, such as
-      `s_2-s_7-s_0-s_pt` or `L-e-t-t-e-r-s-s_cm`.
+      `s_2-s_7-s_0-s_pt` ("270.") or `L-e-t-t-e-r-s-s_cm` ("Letters,").
     - unknown_token_counter (Counter | None): Optional counter that tracks
       tokens dropped due to unknown decode rules.
 
     Returns:
-    - (str): Normalized transcription restricted to `[a-z0-9 ]`.
+    - (str): Decoded transcription with original case and punctuation.
     """
 
-    punctuation_tokens = {
-        "s_pt",
-        "s_cm",
-        "s_qo",
-        "s_qt",
-        "s_sq",
-        "s_mi",
-        "s_sl",
-        "s_bl",
-        "s_br",
-        "s_lb",
-    }
     decoded_parts = []
-
     for token in tokenized_label.split("-"):
         if not token:
             continue
         if len(token) == 1 and token.isalpha():
-            decoded_parts.append(token.lower())
+            decoded_parts.append(token)
             continue
-        if token in punctuation_tokens:
+        if token in SPECIAL_TOKENS:
+            decoded_parts.append(SPECIAL_TOKENS[token])
             continue
-        if token == "s_s":
-            decoded_parts.append("s")
-            continue
-        if token == "s_et":
-            decoded_parts.append("et")
-            continue
-        if token in {"s_GW", "s_gw"}:
-            decoded_parts.append("gw")
-            continue
-        if token.startswith("s_"):
-            suffix = token[2:].lower()
-            if re.fullmatch(r"[0-9]+(?:st|nd|rd|th)?", suffix):
-                decoded_parts.append(suffix)
-            elif unknown_token_counter is not None:
-                unknown_token_counter[token] += 1
+        if token.startswith("s_") and re.fullmatch(r"[0-9]+(?:st|nd|rd|th)?", token[2:]):
+            decoded_parts.append(token[2:])
             continue
         if unknown_token_counter is not None:
             unknown_token_counter[token] += 1
 
-    decoded = "".join(decoded_parts).lower()
-    decoded = re.sub(r"[^a-z0-9 ]+", " ", decoded)
-    decoded = re.sub(r"\s+", " ", decoded).strip()
-    return decoded
+    return "".join(decoded_parts).strip()
 
 
 def load_washington_word_data(washington_root, allowed_folds, unknown_token_counter=None):

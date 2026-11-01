@@ -8,7 +8,10 @@ from typing import Dict, Tuple
 
 
 CHARSETS = {
-    "GW": list("0123456789abcdefghijklmnopqrstuvwxyz "),
+    # GW: labels keep the original case and punctuation (recognition protocol).
+    "GW": list(
+        "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .,-;:'&()/\u00a3"
+    ),
     "IAM": [
         " ",
         "!",

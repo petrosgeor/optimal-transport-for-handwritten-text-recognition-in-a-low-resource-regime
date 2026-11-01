@@ -462,17 +462,8 @@ class HTRDataset(Dataset):
 
         from collections import Counter
 
-        if self.get_dataset_name() == "GW":
-            words = [t.strip().lower() for t in self.transcriptions]
-        elif self.get_dataset_name() == "IAM":
-            words = self.transcriptions
-        elif self.get_dataset_name() == "CVL":
-            # Preserve case for CVL (charset includes mixed case and umlauts)
-            words = self.transcriptions
-        else:
-            # Fallback: do not alter original transcriptions
-            words = self.transcriptions
-        counts = Counter(words)
+        # Words are counted exactly as annotated (case and punctuation kept).
+        counts = Counter(self.transcriptions)
         total = sum(counts.values())
         unique = list(counts.keys())
         probs = [counts[w] / total for w in unique]
