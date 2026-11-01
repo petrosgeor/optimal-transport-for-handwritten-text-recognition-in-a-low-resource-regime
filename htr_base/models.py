@@ -252,9 +252,7 @@ class HTRNet(nn.Module):
         self.phoc_levels = getattr(arch_cfg, "phoc_levels", None)
         if self.feat_dim and self.phoc_levels:
             phoc_dim = (nclasses - 1) * sum(self.phoc_levels)
-            self.phoc_head = nn.Sequential(
-                nn.ReLU(), nn.Linear(self.feat_dim, phoc_dim)
-            )
+            self.phoc_head = nn.Linear(self.feat_dim, phoc_dim)
         else:
             self.phoc_head = None
 

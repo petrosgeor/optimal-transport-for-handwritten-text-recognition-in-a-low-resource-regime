@@ -504,7 +504,7 @@ def alternating_refinement(
     init_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
     log_pseudo_labels(init_idx, dataset, round_idx=0, out_dir=str(save_dir))
 
-    maybe_load_backbone(backbone, cfg)
+    maybe_load_backbone(backbone, cfg, load_vocab(dataset.get_dataset_name())[0])
 
     device = torch.device(cfg.device)
     backbone.to(device)
