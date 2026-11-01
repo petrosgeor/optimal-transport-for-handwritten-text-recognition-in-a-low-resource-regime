@@ -713,6 +713,7 @@ if __name__ == "__main__":
             base_path=syn_cfg.base_path,
             n_random=syn_cfg.n_random,
             fixed_size=tuple(syn_cfg.fixed_size),
+            transforms=aug_transforms,
             preload_images=syn_cfg.get("preload_images", False),
             random_seed=syn_cfg.get("random_seed", 0),
         )
