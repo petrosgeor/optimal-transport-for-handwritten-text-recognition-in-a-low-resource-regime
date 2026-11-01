@@ -536,6 +536,7 @@ class PretrainingHTRDataset(Dataset):
                 desc = os.path.basename(p).split("_")[1]
             except Exception:
                 return False
+            # ALL-CAPS words are skipped: the target datasets rarely contain them.
             return (not desc.isupper()) and desc.isalnum()
 
         filtered = [p for p in rel_paths if _valid(p)]
@@ -557,10 +558,10 @@ class PretrainingHTRDataset(Dataset):
                 rel (str): Relative path from list_file.
 
             Returns:
-                tuple[str, str]: Absolute path and lowercase label string.
+                tuple[str, str]: Absolute path and label string with its original case.
             """
             abs_path = os.path.normpath(os.path.join(self.base_path, rel.lstrip("./")))
-            desc = os.path.basename(rel).split("_")[1].lower()
+            desc = os.path.basename(rel).split("_")[1]
             return abs_path, desc
 
         # Gather from shuffled candidates
