@@ -46,12 +46,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
 if __name__ == "__main__":
     print(f"[trainer] Using config: {cfg_file}")
 
-from typing import Tuple, List
+from typing import Iterator, Tuple, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from itertools import cycle
 from torch.utils.data import DataLoader, TensorDataset
 from torch.amp import autocast, GradScaler
 
@@ -127,6 +126,23 @@ def _shuffle_batch(images: torch.Tensor, words: List[str]) -> Tuple[torch.Tensor
     assert len(images) == len(words)
     perm = torch.randperm(len(words), device=images.device)
     return images[perm], [words[i] for i in perm.tolist()]
+
+
+def _endless(loader: DataLoader) -> Iterator:
+    """Yield batches from ``loader`` forever, starting a new pass when it runs out.
+
+    Unlike ``itertools.cycle``, which replays the stored batches of its first
+    pass, each new pass re-runs the dataset's ``__getitem__``, so shuffling and
+    augmentation are redrawn.
+
+    Args:
+        loader (DataLoader): Loader to iterate repeatedly.
+
+    Returns:
+        Iterator: Infinite iterator over the loader's batches.
+    """
+    while True:
+        yield from loader
 
 
 # Projector loss weight
@@ -244,10 +260,11 @@ def refine_visual_backbone(
 
     # Epoch length convention:
     # - if synthetic is enabled, one epoch follows pretrain_loader length;
-    # - real batches are drawn from an infinite cycle to match that length.
+    # - real batches are drawn from an endless re-iteration of gt_loader to
+    #   match that length, so every pass gets fresh shuffling and augmentation.
     if pretrain_loader is not None:
         epoch_loader = pretrain_loader
-        gt_iter = cycle(gt_loader) if gt_loader is not None else None
+        gt_iter = _endless(gt_loader) if gt_loader is not None else None
     else:
         epoch_loader = gt_loader
         gt_iter = None
