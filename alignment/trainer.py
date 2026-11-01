@@ -567,12 +567,17 @@ def alternating_refinement(
         config=test_cfg,
     )
 
-    def _log_test_metrics(round_idx: int, correct_pseudo: int) -> None:
+    def _log_test_metrics(
+        round_idx: int, correct_pseudo: int, rules_disagree: int, correct_argmax: int
+    ) -> None:
         """Evaluate test CER/WER for the current backbone and append a TSV row.
 
         Args:
             round_idx (int): One-based row index in the round metrics file.
             correct_pseudo (int): Correct pseudo-labels added in this round.
+            rules_disagree (int): New pseudo-labels where the argmax rule picks
+                a different word than the barycentre rule.
+            correct_argmax (int): New pseudo-labels the argmax rule gets right.
         """
         cer_test = compute_cer(
             test_dataset, backbone, batch_size=cfg.eval_batch_size, device=cfg.device, k=4
@@ -592,6 +597,8 @@ def alternating_refinement(
             basefolder=str(getattr(cfg.dataset, "basefolder", "")),
             n_aligned=int(getattr(cfg.dataset, "n_aligned", 0)),
             seed=SEED,
+            rules_disagree=rules_disagree,
+            correct_argmax=correct_argmax,
         )
 
     cycle_idx = 1
@@ -637,7 +644,7 @@ def alternating_refinement(
         # Save current alignment state before pseudo-labelling
         prev_aligned = dataset.aligned.clone()
         # Perform Optimal Transport alignment to pseudo-label more instances
-        align_more_instances(dataset, backbone, projector, **align_kwargs)
+        plan, _, _ = align_more_instances(dataset, backbone, projector, **align_kwargs)
         changed = torch.nonzero((prev_aligned == -1) & (dataset.aligned != -1), as_tuple=True)[0]
         # Log newly pseudo-labeled items for this cycle
         log_pseudo_labels(changed, dataset, round_idx=cycle_idx, out_dir=str(save_dir))
@@ -645,7 +652,18 @@ def alternating_refinement(
             dataset.unique_words[dataset.aligned[i]] == dataset.transcriptions[i].strip()
             for i in changed.tolist()
         )
-        _log_test_metrics(cycle_idx, correct_round)
+        argmax_word = plan[changed].argmax(dim=1)
+        rules_disagree = int((argmax_word != dataset.aligned[changed].long()).sum())
+        correct_argmax = sum(
+            dataset.unique_words[w] == dataset.transcriptions[i].strip()
+            for i, w in zip(changed.tolist(), argmax_word.tolist())
+        )
+        n_new = len(changed)
+        print(
+            f"[Align] rules disagree on {rules_disagree}/{n_new}; "
+            f"argmax correct {correct_argmax}/{n_new} (barycentre {correct_round}/{n_new})"
+        )
+        _log_test_metrics(cycle_idx, correct_round, rules_disagree, correct_argmax)
 
         # --- restrict CER to already-aligned samples -------------------
         # aligned_idx = torch.nonzero(dataset.aligned != -1, as_tuple=True)[0]
@@ -667,7 +685,7 @@ def alternating_refinement(
         print("[Info] All samples aligned – continuing backbone training …")
         refine_visual_backbone(dataset, backbone, num_epochs=backbone_epochs, **refine_kwargs)
         # Final row: the backbone after training on every label, with no new pseudo-labels.
-        _log_test_metrics(cycle_idx, 0)
+        _log_test_metrics(cycle_idx, 0, 0, 0)
 
 
 if __name__ == "__main__":

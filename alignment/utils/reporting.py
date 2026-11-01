@@ -57,6 +57,8 @@ def log_round_metrics(
     basefolder: str,
     n_aligned: int,
     seed: int,
+    rules_disagree: int,
+    correct_argmax: int,
 ) -> None:
     """Append one round of metrics to a TSV file.
 
@@ -69,7 +71,7 @@ def log_round_metrics(
 
     On the first round (round_idx == 1), an existing file at the final path is
     deleted. Subsequent rounds append one TSV row:
-        <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\t<seed>\n
+        <round_idx>\t<correct_pseudo>\t<cer_test>\t<wer_test>\t<seed>\t<rules_disagree>\t<correct_argmax>\n
 
     Args:
         round_idx (int): One-based round index.
@@ -80,6 +82,9 @@ def log_round_metrics(
         basefolder (str): Dataset base folder used for dataset-name inference.
         n_aligned (int): Initial number of aligned samples used in auto filename.
         seed (int): Seed that picked the initially aligned samples.
+        rules_disagree (int): New pseudo-labels where the argmax rule picks a
+            different word than the barycentre rule.
+        correct_argmax (int): New pseudo-labels the argmax rule gets right.
     """
     if isinstance(out_file, str) and out_file.strip().lower() == "auto":
         base = str(basefolder)
@@ -104,4 +109,7 @@ def log_round_metrics(
     mode = "a" if output_path.is_file() else "w"
 
     with open(output_path, mode, encoding="utf-8") as fh:
-        fh.write(f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\t{wer_test:.4f}\t{seed}\n")
+        fh.write(
+            f"{round_idx}\t{correct_pseudo}\t{cer_test:.4f}\t{wer_test:.4f}\t{seed}"
+            f"\t{rules_disagree}\t{correct_argmax}\n"
+        )

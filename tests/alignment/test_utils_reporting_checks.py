@@ -69,10 +69,12 @@ def test_log_round_metrics_auto_mode_overwrites_then_appends(tmp_path, monkeypat
         basefolder=basefolder,
         n_aligned=50,
         seed=3,
+        rules_disagree=2,
+        correct_argmax=4,
     )
     auto_file = tmp_path / "results" / "CVL" / "cvl_50samples.txt"
     assert auto_file.is_file()
-    assert auto_file.read_text(encoding="utf-8").splitlines() == ["1\t5\t0.1234\t10.5000\t3"]
+    assert auto_file.read_text(encoding="utf-8").splitlines() == ["1\t5\t0.1234\t10.5000\t3\t2\t4"]
 
     log_round_metrics(
         round_idx=1,
@@ -83,9 +85,11 @@ def test_log_round_metrics_auto_mode_overwrites_then_appends(tmp_path, monkeypat
         basefolder=basefolder,
         n_aligned=50,
         seed=3,
+        rules_disagree=2,
+        correct_argmax=4,
     )
     # Round 1 should replace the previous contents rather than append to them.
-    assert auto_file.read_text(encoding="utf-8").splitlines() == ["1\t7\t0.2000\t20.0000\t3"]
+    assert auto_file.read_text(encoding="utf-8").splitlines() == ["1\t7\t0.2000\t20.0000\t3\t2\t4"]
 
     log_round_metrics(
         round_idx=2,
@@ -96,11 +100,13 @@ def test_log_round_metrics_auto_mode_overwrites_then_appends(tmp_path, monkeypat
         basefolder=basefolder,
         n_aligned=50,
         seed=3,
+        rules_disagree=2,
+        correct_argmax=4,
     )
     # Later rounds append so we keep a full refinement history in one file.
     assert auto_file.read_text(encoding="utf-8").splitlines() == [
-        "1\t7\t0.2000\t20.0000\t3",
-        "2\t9\t0.3000\t30.0000\t3",
+        "1\t7\t0.2000\t20.0000\t3\t2\t4",
+        "2\t9\t0.3000\t30.0000\t3\t2\t4",
     ]
 
 
